@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 import sys
+from preprocess import detect_and_crop_face
 
 # Windows 콘솔 출력 인코딩 설정
 sys.stdout.reconfigure(encoding='utf-8')
@@ -70,20 +71,15 @@ def main():
         if not ret:
             break
 
+        # 좌우 반전 (거울 모드)
+        frame = cv2.flip(frame, 1)
+
         h, w, _ = frame.shape
         
-        # 3. 모델 입력을 위해 화면 중앙 부분 가이드박스 설정
-        box_size = 250
-        x1 = int(w/2 - box_size/2)
-        y1 = int(h/2 - box_size/2)
-        x2 = int(w/2 + box_size/2)
-        y2 = int(h/2 + box_size/2)
-
-        # 가이드 박스 내 얼굴 부분만 크롭(잘라내기)하여 입력으로 사용
-        face_crop = frame[y1:y2, x1:x2]
+        # 3. 얼굴 검출 및 ROI 크롭 수행
+        face_crop, face_detected, bbox = detect_and_crop_face(frame, crop_size=250)
         
-        # 크롭된 영역이 유효한지 확인
-        if face_crop.size > 0:
+        if face_detected:
             # 4. 이미지 전처리 수행 (얼굴 영역만 사용)
             input_tensor = preprocess_image(face_crop)
 
@@ -107,10 +103,16 @@ def main():
                 color = (0, 0, 255)
                 label = f"SPOOF: {confidence:.2f}%"
 
-            # 화면에 박스 및 라벨 표시
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
-            cv2.rectangle(frame, (x1, y1 - 35), (x1 + 180, y1), color, -1) # 텍스트 배경 박스
-            cv2.putText(frame, label, (x1 + 5, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            # 원본 얼굴 위치에 바운딩 박스 표시 (bbox = x, y, w_face, h_face)
+            x, y, w_face, h_face = bbox
+            cv2.rectangle(frame, (x, y), (x + w_face, y + h_face), color, 3)
+            
+            # 텍스트 라벨 출력
+            cv2.rectangle(frame, (x, y - 35), (x + 180, y), color, -1) # 텍스트 배경 박스
+            cv2.putText(frame, label, (x + 5, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        else:
+            # 얼굴 미감지 경고 표시
+            cv2.putText(frame, "No Face Detected", (20, h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
         cv2.putText(frame, "Press Q to Quit", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
         cv2.imshow("Real-time Anti-Spoofing Test (ONNX)", frame)

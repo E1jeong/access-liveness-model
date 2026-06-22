@@ -1,6 +1,7 @@
 import cv2
 import os
 import sys
+from preprocess import detect_and_crop_face
 
 # Windows 콘솔 인코딩 설정
 sys.stdout.reconfigure(encoding='utf-8')
@@ -21,6 +22,7 @@ def crop_center_faces():
     # 1. 4개 폴더를 돌며 이미지 크롭 수행
     crop_size = 250
     total_cropped = 0
+    faces_detected_count = 0
 
     for folder_path in dirs:
         if not os.path.exists(folder_path):
@@ -46,27 +48,17 @@ def crop_center_faces():
             if h == crop_size and w == crop_size:
                 continue
             
-            # 2. 이미지 정중앙을 기준으로 250x250 좌표 계산
-            x1 = int(w/2 - crop_size/2)
-            y1 = int(h/2 - crop_size/2)
-            x2 = int(w/2 + crop_size/2)
-            y2 = int(h/2 + crop_size/2)
+            # 2. 얼굴 검출 기반 크롭 수행 (검출 실패 시 중앙 크롭 Fallback)
+            cropped_img, face_detected, _ = detect_and_crop_face(img, crop_size=crop_size)
+            if face_detected:
+                faces_detected_count += 1
             
-            # 경계 영역 예외 처리 (크롭 영역이 이미지를 벗어나지 않도록 제한)
-            x1 = max(0, x1)
-            y1 = max(0, y1)
-            x2 = min(w, x2)
-            y2 = min(h, y2)
-            
-            # 3. 크롭 수행
-            cropped_img = img[y1:y2, x1:x2]
-            
-            # 4. 크롭된 이미지를 기존 경로에 덮어쓰기
+            # 3. 크롭된 이미지를 기존 경로에 덮어쓰기
             cv2.imwrite(filepath, cropped_img)
             total_cropped += 1
 
     print("========================================")
-    print(f"전처리 완료: 총 {total_cropped}장의 이미지를 얼굴 영역으로 크롭했습니다!")
+    print(f"전처리 완료: 총 {total_cropped}장 중 {faces_detected_count}장에서 얼굴을 감지해 크롭했습니다.")
 
 if __name__ == "__main__":
     crop_center_faces()

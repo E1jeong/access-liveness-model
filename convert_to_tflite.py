@@ -1,0 +1,40 @@
+import torch
+import sys
+import os
+
+# Windows 콘솔 한글/이모지 출력 인코딩 에러 방지
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
+
+def convert_pytorch_to_tflite():
+    pth_path = "best_model.pth"
+    tflite_path = "model.tflite"
+
+    if not os.path.exists(pth_path):
+        print(f"[-] {pth_path}가 존재하지 않습니다. 먼저 모델을 학습시켜주세요.")
+        return
+
+    # 1. PyTorch 모델 로드
+    from model import get_anti_spoof_model
+    model = get_anti_spoof_model()
+    state_dict = torch.load(pth_path, map_location=torch.device('cpu'))
+    model.load_state_dict(state_dict)
+    model.eval()
+
+    # 2. 더미 입력 데이터 정의 (학습 이미지와 동일한 [1, 3, 224, 224] 크기)
+    sample_input = (torch.randn(1, 3, 224, 224),)
+
+    # 3. Google litert_torch를 이용한 변환 진행
+    print(f"\n[TFLite 변환 중...] {pth_path} -> {tflite_path}")
+    try:
+        import litert_torch
+        edge_model = litert_torch.convert(model, sample_input)
+        edge_model.export(tflite_path)
+        print("[TFLite 변환 성공] model.tflite 파일이 성공적으로 생성되었습니다!")
+    except ImportError:
+        print("[-] litert_torch 라이브러리가 설치되지 않았습니다. 설치를 진행해 주세요.")
+    except Exception as e:
+        print(f"[-] 변환 오류 발생: {e}")
+
+if __name__ == "__main__":
+    convert_pytorch_to_tflite()

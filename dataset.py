@@ -1,27 +1,79 @@
 import os
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
+import cv2
+import torch
+import numpy as np
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
+import sys
 
-def get_data_loaders(data_dir, batch_size=8):
+# Windows 콘솔 인코딩 설정
+sys.stdout.reconfigure(encoding='utf-8')
+
+class DualInputDataset(Dataset):
+    def __init__(self, data_list, transform_rgb=None, transform_ir=None):
+        """
+        data_list: list of dicts, each containing:
+          - 'rgb_path': path to cropRGB.bmp
+          - 'ir_path': path to cropIR.bmp
+          - 'label': integer (0, 1, 2, 3)
+        """
+        self.data_list = data_list
+        self.transform_rgb = transform_rgb
+        self.transform_ir = transform_ir
+
+    def __len__(self):
+        return len(self.data_list)
+
+    def __getitem__(self, idx):
+        item = self.data_list[idx]
+        
+        # 1. RGB 이미지 로드 (BGR -> RGB)
+        rgb_img = cv2.imread(item['rgb_path'])
+        if rgb_img is None:
+            raise ValueError(f"Failed to read RGB image: {item['rgb_path']}")
+        rgb_img = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2RGB)
+        
+        # 2. IR 이미지 로드 (Grayscale)
+        ir_img = cv2.imread(item['ir_path'], cv2.IMREAD_GRAYSCALE)
+        if ir_img is None:
+            raise ValueError(f"Failed to read IR image: {item['ir_path']}")
+        
+        # 3. 전처리 적용
+        if self.transform_rgb:
+            rgb_tensor = self.transform_rgb(rgb_img)
+        else:
+            rgb_tensor = torch.from_numpy(rgb_img).permute(2, 0, 1).float() / 255.0
+            
+        if self.transform_ir:
+            # transforms.ToTensor()는 HxW나 HxWxC 포맷을 받으므로, (H, W, 1)로 만들어줌
+            ir_img_expanded = ir_img[:, :, np.newaxis]
+            ir_tensor = self.transform_ir(ir_img_expanded)
+        else:
+            ir_tensor = torch.from_numpy(ir_img).unsqueeze(0).float() / 255.0
+            
+        label = item['label']
+        return rgb_tensor, ir_tensor, label
+
+def get_data_loaders(data_dir="dataset/raw", batch_size=8, split_ratio=0.8):
     """
-    학습용(Train) 및 검증용(Val) 이미지 데이터를 불러오는 DataLoader를 생성합니다.
+    학습용(Train) 및 검증용(Val) 듀얼 인풋(RGB + IR) 이미지 데이터를 불러오는 DataLoader를 생성합니다.
     """
     
     # 1. 이미지 전처리(Transform) 정의
-    # AI 모델(MobileNet)은 특정 크기(예: 224x224)의 이미지와 표준화된 수치(정규화)를 입력으로 받습니다.
-    
-    train_transform = transforms.Compose([
-        transforms.Resize((224, 224)),      # 이미지를 224x224 크기로 통일
-        transforms.RandomHorizontalFlip(),  # 학습 데이터 증강: 좌우 반전을 무작위로 적용 (다양성 확보)
-        transforms.ToTensor(),              # 이미지를 PyTorch 텐서(0~1 사이의 숫자 배열)로 변환
-        transforms.Normalize(               # 이미지 채널별 평균과 표준편차를 사용하여 정규화
+    train_transform_rgb = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize((224, 224)),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize(
             mean=[0.485, 0.456, 0.406], 
             std=[0.229, 0.224, 0.225]
         )
     ])
-
-    val_transform = transforms.Compose([
-        transforms.Resize((224, 224)),      # 검증 데이터는 무작위 변형 없이 크기 조절만 수행
+    
+    val_transform_rgb = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize((224, 224)),
         transforms.ToTensor(),
         transforms.Normalize(
             mean=[0.485, 0.456, 0.406], 
@@ -29,48 +81,107 @@ def get_data_loaders(data_dir, batch_size=8):
         )
     ])
 
-    # 2. ImageFolder를 사용한 데이터셋 생성
-    # ImageFolder는 폴더명(real, spoof)을 기준으로 이미지와 라벨(클래스)을 자동으로 매핑합니다.
-    # 예: real 폴더 안의 이미지 -> 라벨 0, spoof 폴더 안의 이미지 -> 라벨 1
-    train_dataset = datasets.ImageFolder(
-        root=os.path.join(data_dir, "train"),
-        transform=train_transform
-    )
+    train_transform_ir = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize((224, 224)),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean=[0.5], 
+            std=[0.5]
+        )
+    ])
     
-    val_dataset = datasets.ImageFolder(
-        root=os.path.join(data_dir, "val"),
-        transform=val_transform
-    )
+    val_transform_ir = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean=[0.5], 
+            std=[0.5]
+        )
+    ])
 
-    # 3. DataLoader 생성
-    # DataLoader는 데이터셋을 배치(Batch) 단위로 나누어 모델에 공급하고, 데이터를 섞는(Shuffle) 역할을 합니다.
+    # 2. 클래스 매핑 정의
+    class_mapping = {
+        "live": 0,
+        "print": 1,
+        "display": 2,
+        "picture": 3
+    }
+    
+    train_items = []
+    val_items = []
+    
+    # 각 클래스별로 폴더(세션)를 정렬하여 학습/검증 데이터로 분리 (데이터 누수 방지)
+    for category, label in class_mapping.items():
+        cat_path = os.path.join(data_dir, category)
+        if not os.path.exists(cat_path):
+            print(f"[-] 경고: {cat_path} 디렉토리가 존재하지 않습니다.")
+            continue
+            
+        # 하위 숫자 폴더 목록
+        subdirs = [d for d in os.listdir(cat_path) if os.path.isdir(os.path.join(cat_path, d))]
+        # 수치 기준으로 정렬
+        try:
+            subdirs = sorted(subdirs, key=lambda x: int(x))
+        except ValueError:
+            subdirs = sorted(subdirs)
+            
+        # 8:2 비율 분할
+        split_idx = int(len(subdirs) * split_ratio)
+        train_subdirs = subdirs[:split_idx]
+        val_subdirs = subdirs[split_idx:]
+        
+        # 파일 수집 헬퍼 함수
+        def gather_files(subdirs_list):
+            gathered = []
+            for sd in subdirs_list:
+                sd_path = os.path.join(cat_path, sd)
+                rgb_path = os.path.join(sd_path, "cropRGB.bmp")
+                ir_path = os.path.join(sd_path, "cropIR.bmp")
+                if os.path.exists(rgb_path) and os.path.exists(ir_path):
+                    gathered.append({
+                        'rgb_path': rgb_path,
+                        'ir_path': ir_path,
+                        'label': label
+                    })
+            return gathered
+            
+        train_items.extend(gather_files(train_subdirs))
+        val_items.extend(gather_files(val_subdirs))
+
+    # 3. 커스텀 데이터셋 생성
+    train_dataset = DualInputDataset(train_items, transform_rgb=train_transform_rgb, transform_ir=train_transform_ir)
+    val_dataset = DualInputDataset(val_items, transform_rgb=val_transform_rgb, transform_ir=val_transform_ir)
+
+    # 4. DataLoader 생성
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
-        shuffle=True,       # 학습용 데이터는 순서를 무작위로 섞어서 학습 효과를 높임
-        num_workers=0       # Windows 환경의 안정성을 위해 멀티프로세싱 워커 수를 0으로 설정
+        shuffle=True,
+        num_workers=0
     )
 
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
-        shuffle=False,      # 검증 데이터는 순서를 섞을 필요가 없음
+        shuffle=False,
         num_workers=0
     )
 
-    # 라벨 정보 출력 (어떤 폴더가 어떤 번호로 매핑되었는지 확인)
-    # train_dataset.class_to_idx는 {'real': 0, 'spoof': 1} 형태를 가집니다.
     print(f"[데이터셋 구성 완료]")
-    print(f" - 매핑 정보: {train_dataset.class_to_idx}")
+    print(f" - 매핑 정보: {class_mapping}")
     print(f" - 학습용 데이터 수: {len(train_dataset)}장 (배치 크기: {batch_size})")
     print(f" - 검증용 데이터 수: {len(val_dataset)}장")
 
     return train_loader, val_loader
 
-# 독립적으로 실행 시 데이터 로드가 잘 되는지 테스트하는 코드
 if __name__ == "__main__":
-    train_loader, val_loader = get_data_loaders("dataset", batch_size=4)
-    # 첫 번째 배치를 가져와서 크기 확인
-    images, labels = next(iter(train_loader))
-    print(f"배치 이미지 텐서 크기: {images.shape}")  # [배치크기, 채널(RGB), 높이, 너비] -> [4, 3, 224, 224]
-    print(f"배치 라벨 값들: {labels}")               # 예: tensor([0, 1, 0, 1])
+    # 데이터셋 구성 테스트
+    train_loader, val_loader = get_data_loaders("dataset/raw", batch_size=4)
+    if len(train_loader) > 0:
+        rgb_batch, ir_batch, labels = next(iter(train_loader))
+        print(f"배치 RGB 텐서 크기: {rgb_batch.shape}")  # [B, 3, 224, 224]
+        print(f"배치 IR 텐서 크기: {ir_batch.shape}")    # [B, 1, 224, 224]
+        print(f"배치 라벨 값들: {labels}")               # 예: tensor([0, 2, 1, 3])

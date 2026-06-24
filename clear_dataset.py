@@ -6,38 +6,25 @@ import sys
 sys.stdout.reconfigure(encoding='utf-8')
 
 def clear_dataset():
-    dirs = [
-        "dataset/train/real",
-        "dataset/train/spoof",
-        "dataset/val/real",
-        "dataset/val/spoof"
-    ]
-    
+    target = "dataset"
     print("========================================")
     print("       데이터셋 이미지 초기화 프로그램       ")
     print("========================================")
     
-    deleted_count = 0
-    
-    for folder in dirs:
-        if not os.path.exists(folder):
-            continue
-            
-        print(f"[{folder}] 비우는 중...")
-        for filename in os.listdir(folder):
-            filepath = os.path.join(folder, filename)
-            try:
-                if os.path.isfile(filepath):
-                    os.unlink(filepath)
-                    deleted_count += 1
-                elif os.path.isdir(filepath):
-                    shutil.rmtree(filepath)
-                    deleted_count += 1
-            except Exception as e:
-                print(f"[-] 파일 삭제 실패: {filepath} ({e})")
-                
+    if os.path.exists(target):
+        print(f"[{target}] 폴더 및 하위 파일 전체 삭제 중...")
+        try:
+            shutil.rmtree(target)
+            print("[+] 기존 dataset 폴더가 성공적으로 제거되었습니다.")
+        except Exception as e:
+            print(f"[-] dataset 폴더 삭제 실패: {e}")
+    else:
+        print("[*] 기존 dataset 폴더가 존재하지 않습니다.")
+
+    # 새 데이터셋 폴더 준비
+    os.makedirs(os.path.join(target, "raw"), exist_ok=True)
+    print("[+] dataset/raw 폴더가 생성되었습니다.")
     print("========================================")
-    print(f"초기화 완료: 총 {deleted_count}개의 이미지를 삭제했습니다.")
 
 if __name__ == "__main__":
     clear_dataset()

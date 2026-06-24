@@ -19,7 +19,7 @@ def train_model():
     print(f"학습 디바이스: {device}")
 
     # --- 2. 데이터 불러오기 ---
-    train_loader, val_loader = get_data_loaders("dataset", batch_size=batch_size)
+    train_loader, val_loader = get_data_loaders("dataset/raw", batch_size=batch_size)
 
     # --- 3. 모델 정의 ---
     model = get_anti_spoof_model()
@@ -39,7 +39,7 @@ def train_model():
 
     print("\n[학습 시작] 총 10에포크 동안 학습을 진행합니다...")
 
-    best_val_acc = 0.0
+    best_val_acc = -1.0
 
     # --- 5. 에포크 반복 (Training & Validation Loop) ---
     for epoch in range(epochs):
@@ -52,14 +52,14 @@ def train_model():
         total_train = 0
 
         # tqdm 라이브러리를 사용해 터미널에 실시간 진행 바 표시
-        for images, labels in tqdm(train_loader, desc="Training"):
-            images, labels = images.to(device), labels.to(device)
+        for images_rgb, images_ir, labels in tqdm(train_loader, desc="Training"):
+            images_rgb, images_ir, labels = images_rgb.to(device), images_ir.to(device), labels.to(device)
 
             # 옵티마이저의 기울기(경사) 초기화
             optimizer.zero_grad()
 
             # 1) 순전파 (Forward Pass): 모델에 이미지를 넣어 예측 결과 얻기
-            outputs = model(images)
+            outputs = model(images_rgb, images_ir)
             loss = criterion(outputs, labels)
 
             # 2) 역전파 (Backward Pass): 오차를 바탕으로 가중치 수정 방향(기울기) 계산
@@ -69,10 +69,10 @@ def train_model():
             optimizer.step()
 
             # 오차 및 정확도 누적 계산
-            train_loss += loss.item() * images.size(0)
+            train_loss += loss.item() * images_rgb.size(0)
             _, preds = torch.max(outputs, 1) # 가장 점수가 높은 클래스 인덱스 가져오기
             train_correct += torch.sum(preds == labels.data)
-            total_train += images.size(0)
+            total_train += images_rgb.size(0)
 
         epoch_train_loss = train_loss / total_train
         epoch_train_acc = (train_correct.double() / total_train).item()
@@ -85,16 +85,16 @@ def train_model():
 
         # 검증 시에는 역전파를 하지 않으므로 기울기 계산을 비활성화(메모리 절약)
         with torch.no_grad():
-            for images, labels in tqdm(val_loader, desc="Validation"):
-                images, labels = images.to(device), labels.to(device)
+            for images_rgb, images_ir, labels in tqdm(val_loader, desc="Validation"):
+                images_rgb, images_ir, labels = images_rgb.to(device), images_ir.to(device), labels.to(device)
                 
-                outputs = model(images)
+                outputs = model(images_rgb, images_ir)
                 loss = criterion(outputs, labels)
 
-                val_loss += loss.item() * images.size(0)
+                val_loss += loss.item() * images_rgb.size(0)
                 _, preds = torch.max(outputs, 1)
                 val_correct += torch.sum(preds == labels.data)
-                total_val += images.size(0)
+                total_val += images_rgb.size(0)
 
         epoch_val_loss = val_loss / total_val
         epoch_val_acc = (val_correct.double() / total_val).item()
@@ -111,9 +111,10 @@ def train_model():
         # 최고 검증 정확도를 갱신하면 모델 파일 저장
         if epoch_val_acc > best_val_acc:
             best_val_acc = epoch_val_acc
-            # 모델 가중치를 'best_model.pth' 파일로 저장
-            torch.save(model.state_dict(), "best_model.pth")
-            print(f" >>> 최고 검증 정확도 경신 ({best_val_acc * 100:.2f}%) -> best_model.pth 저장 완료")
+            # 모델 가중치를 'model/best_model.pth' 파일로 저장
+            os.makedirs("model", exist_ok=True)
+            torch.save(model.state_dict(), "model/best_model.pth")
+            print(f" >>> 최고 검증 정확도 경신 ({best_val_acc * 100:.2f}%) -> model/best_model.pth 저장 완료")
 
     print("\n[학습 종료] 모든 에포크가 끝났습니다.")
     print(f"최종 최고 검증 정확도: {best_val_acc * 100:.2f}%")
@@ -141,8 +142,9 @@ def train_model():
 
     # 그래프 이미지 파일로 저장
     plt.tight_layout()
-    plt.savefig("learning_curves.png")
-    print("[시각화 완료] 학습 곡선 그래프가 'learning_curves.png'로 저장되었습니다.")
+    os.makedirs("model", exist_ok=True)
+    plt.savefig("model/learning_curves.png")
+    print("[시각화 완료] 학습 곡선 그래프가 'model/learning_curves.png'로 저장되었습니다.")
 
 if __name__ == "__main__":
     train_model()

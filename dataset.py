@@ -5,6 +5,8 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 import sys
+import random
+from classes import CLASS_MAPPING
 
 # Windows 콘솔 인코딩 설정
 sys.stdout.reconfigure(encoding='utf-8')
@@ -15,7 +17,7 @@ class DualInputDataset(Dataset):
         data_list: list of dicts, each containing:
           - 'rgb_path': path to cropRGB.bmp
           - 'ir_path': path to cropIR.bmp
-          - 'label': integer (0, 1, 2, 3)
+          - 'label': integer (0, 1, 2, 3, 4)
         """
         self.data_list = data_list
         self.transform_rgb = transform_rgb
@@ -54,7 +56,54 @@ class DualInputDataset(Dataset):
         label = item['label']
         return rgb_tensor, ir_tensor, label
 
-def get_data_loaders(data_dir="dataset/raw", batch_size=8, split_ratio=0.8):
+def _sort_subject_dirs(cat_path, category):
+    # 하위 subject 폴더 목록: <class_name>_<subject_id>
+    prefix = f"{category}_"
+    subdirs = [
+        d for d in os.listdir(cat_path)
+        if os.path.isdir(os.path.join(cat_path, d)) and d.startswith(prefix)
+    ]
+    # subject_id 수치 기준으로 정렬
+    try:
+        return sorted(subdirs, key=lambda x: int(x[len(prefix):]))
+    except ValueError:
+        return sorted(subdirs)
+
+def _sort_frame_dirs(subject_path):
+    # 하위 frame 폴더 목록
+    subdirs = [d for d in os.listdir(subject_path) if os.path.isdir(os.path.join(subject_path, d))]
+    # frame_id 수치 기준으로 정렬
+    try:
+        return sorted(subdirs, key=lambda x: int(x))
+    except ValueError:
+        return sorted(subdirs)
+
+def _split_kfold_subjects(subdirs, k_folds, fold_idx, seed):
+    shuffled = list(subdirs)
+    random.Random(seed).shuffle(shuffled)
+    folds = [shuffled[i::k_folds] for i in range(k_folds)]
+    val_subdirs = folds[fold_idx]
+    train_subdirs = [sd for i, fold in enumerate(folds) if i != fold_idx for sd in fold]
+    return train_subdirs, val_subdirs, folds
+
+def validate_kfold_coverage(data_dir="dataset/raw", k_folds=5, seed=42):
+    for category in CLASS_MAPPING.keys():
+        cat_path = os.path.join(data_dir, category)
+        if not os.path.exists(cat_path):
+            continue
+
+        subdirs = _sort_subject_dirs(cat_path, category)
+        if len(subdirs) < k_folds:
+            raise ValueError(f"{category} 클래스의 subject 폴더 수({len(subdirs)})가 K({k_folds})보다 적습니다.")
+
+        _, _, folds = _split_kfold_subjects(subdirs, k_folds, 0, seed)
+        seen = []
+        for fold in folds:
+            seen.extend(fold)
+        assert len(seen) == len(set(seen)), f"{category} 클래스의 fold validation subject가 서로 겹칩니다."
+        assert set(seen) == set(subdirs), f"{category} 클래스의 fold validation subject가 전체 subject를 덮지 못합니다."
+
+def get_data_loaders(data_dir="dataset/raw", batch_size=8, k_folds=5, fold_idx=0, seed=42):
     """
     학습용(Train) 및 검증용(Val) 듀얼 인풋(RGB + IR) 이미지 데이터를 불러오는 DataLoader를 생성합니다.
     """
@@ -63,7 +112,6 @@ def get_data_loaders(data_dir="dataset/raw", batch_size=8, split_ratio=0.8):
     train_transform_rgb = transforms.Compose([
         transforms.ToPILImage(),
         transforms.Resize((224, 224)),
-        transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize(
             mean=[0.485, 0.456, 0.406], 
@@ -84,7 +132,6 @@ def get_data_loaders(data_dir="dataset/raw", batch_size=8, split_ratio=0.8):
     train_transform_ir = transforms.Compose([
         transforms.ToPILImage(),
         transforms.Resize((224, 224)),
-        transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize(
             mean=[0.5], 
@@ -103,44 +150,43 @@ def get_data_loaders(data_dir="dataset/raw", batch_size=8, split_ratio=0.8):
     ])
 
     # 2. 클래스 매핑 정의
-    class_mapping = {
-        "live": 0,
-        "print": 1,
-        "display": 2,
-        "picture": 3
-    }
+    class_mapping = CLASS_MAPPING
     
     train_items = []
     val_items = []
     
-    # 각 클래스별로 폴더(세션)를 정렬하여 학습/검증 데이터로 분리 (데이터 누수 방지)
+    if k_folds < 2:
+        raise ValueError("k_folds는 2 이상이어야 합니다.")
+    if fold_idx < 0 or fold_idx >= k_folds:
+        raise ValueError(f"fold_idx는 0 이상 {k_folds - 1} 이하이어야 합니다.")
+
+    # 각 클래스별로 <class_name>_<subject_id> 폴더를 K-fold로 분리 (데이터 누수 방지)
     for category, label in class_mapping.items():
         cat_path = os.path.join(data_dir, category)
         if not os.path.exists(cat_path):
             print(f"[-] 경고: {cat_path} 디렉토리가 존재하지 않습니다.")
             continue
             
-        # 하위 숫자 폴더 목록
-        subdirs = [d for d in os.listdir(cat_path) if os.path.isdir(os.path.join(cat_path, d))]
-        # 수치 기준으로 정렬
-        try:
-            subdirs = sorted(subdirs, key=lambda x: int(x))
-        except ValueError:
-            subdirs = sorted(subdirs)
-            
-        # 8:2 비율 분할
-        split_idx = int(len(subdirs) * split_ratio)
-        train_subdirs = subdirs[:split_idx]
-        val_subdirs = subdirs[split_idx:]
+        subdirs = _sort_subject_dirs(cat_path, category)
+        if len(subdirs) < k_folds:
+            raise ValueError(f"{category} 클래스의 subject 폴더 수({len(subdirs)})가 K({k_folds})보다 적습니다.")
+
+        train_subdirs, val_subdirs, _ = _split_kfold_subjects(subdirs, k_folds, fold_idx, seed)
         
         # 파일 수집 헬퍼 함수
         def gather_files(subdirs_list):
             gathered = []
             for sd in subdirs_list:
-                sd_path = os.path.join(cat_path, sd)
-                rgb_path = os.path.join(sd_path, "cropRGB.bmp")
-                ir_path = os.path.join(sd_path, "cropIR.bmp")
-                if os.path.exists(rgb_path) and os.path.exists(ir_path):
+                subject_path = os.path.join(cat_path, sd)
+                for frame_id in _sort_frame_dirs(subject_path):
+                    frame_path = os.path.join(subject_path, frame_id)
+                    rgb_path = os.path.join(frame_path, "cropRGB.bmp")
+                    ir_path = os.path.join(frame_path, "cropIR.bmp")
+                    raw_rgb_path = os.path.join(frame_path, "RGB.bmp")
+                    raw_ir_path = os.path.join(frame_path, "IR.bmp")
+                    required_paths = [rgb_path, ir_path, raw_rgb_path, raw_ir_path]
+                    if not all(os.path.exists(path) for path in required_paths):
+                        raise FileNotFoundError(f"필수 BMP 파일이 누락되었습니다: {frame_path}")
                     gathered.append({
                         'rgb_path': rgb_path,
                         'ir_path': ir_path,
@@ -150,6 +196,10 @@ def get_data_loaders(data_dir="dataset/raw", batch_size=8, split_ratio=0.8):
             
         train_items.extend(gather_files(train_subdirs))
         val_items.extend(gather_files(val_subdirs))
+
+    train_rgb_paths = {item['rgb_path'] for item in train_items}
+    val_rgb_paths = {item['rgb_path'] for item in val_items}
+    assert train_rgb_paths.isdisjoint(val_rgb_paths), "train/val rgb_path가 겹칩니다."
 
     # 3. 커스텀 데이터셋 생성
     train_dataset = DualInputDataset(train_items, transform_rgb=train_transform_rgb, transform_ir=train_transform_ir)
@@ -172,6 +222,7 @@ def get_data_loaders(data_dir="dataset/raw", batch_size=8, split_ratio=0.8):
 
     print(f"[데이터셋 구성 완료]")
     print(f" - 매핑 정보: {class_mapping}")
+    print(f" - K-fold: {k_folds}개 중 fold {fold_idx}")
     print(f" - 학습용 데이터 수: {len(train_dataset)}장 (배치 크기: {batch_size})")
     print(f" - 검증용 데이터 수: {len(val_dataset)}장")
 
@@ -179,9 +230,10 @@ def get_data_loaders(data_dir="dataset/raw", batch_size=8, split_ratio=0.8):
 
 if __name__ == "__main__":
     # 데이터셋 구성 테스트
-    train_loader, val_loader = get_data_loaders("dataset/raw", batch_size=4)
+    validate_kfold_coverage("dataset/raw", k_folds=5)
+    train_loader, val_loader = get_data_loaders("dataset/raw", batch_size=4, k_folds=5, fold_idx=0)
     if len(train_loader) > 0:
         rgb_batch, ir_batch, labels = next(iter(train_loader))
         print(f"배치 RGB 텐서 크기: {rgb_batch.shape}")  # [B, 3, 224, 224]
         print(f"배치 IR 텐서 크기: {ir_batch.shape}")    # [B, 1, 224, 224]
-        print(f"배치 라벨 값들: {labels}")               # 예: tensor([0, 2, 1, 3])
+        print(f"배치 라벨 값들: {labels}")               # 예: tensor([0, 2, 1, 3, 4])

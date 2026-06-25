@@ -106,27 +106,36 @@ def quantize_int8(float_tflite_path, int8_tflite_path, data_dir, folds, seed, nu
     """float tflite를 정수 PTQ로 양자화합니다.
 
     quant_mode:
-      a8  - 가중치 int8 + 활성 int8 (i.MX 8M Plus NPU 권장 형식)
-      a16 - 가중치 int8 + 활성 int16 (정확도 보존에 유리, NPU 지원은 제한적)
+      a8     - 가중치 int8 + 활성 int8 (i.MX 8M Plus NPU 권장 형식)
+      a16    - 가중치 int8 + 활성 int16 (정확도 보존에 유리, NPU 지원은 제한적)
+      w8only - 가중치만 int8, 활성 float32 (calibration 불필요). 진단용:
+               이게 정상이면 int8 가중치는 OK → 범인은 활성/calibration.
     """
     from ai_edge_quantizer import quantizer, recipe
 
-    sig_key, rgb_name, ir_name = _resolve_io_names(float_tflite_path)
-    calibration_data = _build_calibration_data(
-        sig_key, rgb_name, ir_name, data_dir, folds, seed, num_samples
-    )
-
-    if quant_mode == "a16":
+    if quant_mode == "w8only":
+        recipe_obj = recipe.weight_only_wi8_afp32()
+        recipe_name = "weight_only_wi8_afp32"
+    elif quant_mode == "a16":
         recipe_obj = recipe.static_wi8_ai16()
         recipe_name = "static_wi8_ai16"
     else:
         recipe_obj = recipe.static_wi8_ai8()
         recipe_name = "static_wi8_ai8"
 
-    print(f"\n[INT8 양자화 중...] recipe={recipe_name}")
+    print(f"\n[양자화 중...] recipe={recipe_name}")
     qt = quantizer.Quantizer(float_tflite_path)
     qt.load_quantization_recipe(recipe_obj)
-    calib_result = qt.calibrate(calibration_data)
+
+    # weight-only는 calibration이 필요 없다.
+    if qt.need_calibration:
+        sig_key, rgb_name, ir_name = _resolve_io_names(float_tflite_path)
+        calibration_data = _build_calibration_data(
+            sig_key, rgb_name, ir_name, data_dir, folds, seed, num_samples
+        )
+        calib_result = qt.calibrate(calibration_data)
+    else:
+        calib_result = None
     result = qt.quantize(calib_result)
     result.export_model(int8_tflite_path, overwrite=True)
 
@@ -184,8 +193,8 @@ if __name__ == "__main__":
     parser.add_argument("--folds", type=int, default=5, help="calibration 데이터 분할(fold 0 train 사용)")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--calib-samples", type=int, default=200, help="calibration 샘플 수")
-    parser.add_argument("--quant-mode", choices=["a8", "a16"], default="a8",
-                        help="a8=활성 int8(NPU 권장), a16=활성 int16(정확도 보존)")
+    parser.add_argument("--quant-mode", choices=["a8", "a16", "w8only"], default="a8",
+                        help="a8=활성 int8(NPU 권장), a16=활성 int16(정확도 보존), w8only=가중치만 int8(진단용)")
     args = parser.parse_args()
 
     convert_pytorch_to_tflite(

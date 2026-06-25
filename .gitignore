@@ -151,6 +151,9 @@ cython_debug/
 .idea/
 .vscode/
 
+# Codex GUI (자동생성, 로컬 도구 설정)
+.codex/
+
 # Local data & model weights for AI/ML projects
 dataset/
 *.pth

@@ -205,7 +205,7 @@ def save_learning_curves(all_histories):
 
 def train_model(args):
     # --- 1. 설정 및 하이퍼파라미터 정의 ---
-    device = torch.device("cpu") # GPU가 없으므로 CPU로 학습 진행
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # GPU가 있으면 자동으로 사용
 
     print(f"학습 디바이스: {device}")
     print("단일 분할의 지표 절대값보다 K-fold 평균±표준편차를 신뢰 기준으로 봅니다.")

@@ -57,7 +57,8 @@ def train_one_fold(fold_idx, args, device, criterion):
         batch_size=args.batch_size,
         k_folds=args.folds,
         fold_idx=fold_idx,
-        seed=args.seed
+        seed=args.seed,
+        num_workers=args.num_workers
     )
 
     # --- 3. 모델 정의 ---
@@ -247,6 +248,7 @@ def parse_args():
     parser.add_argument("--folds", type=int, default=5)
     parser.add_argument("--max-folds", type=int, default=None)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--num-workers", type=int, default=4)
     return parser.parse_args()
 
 

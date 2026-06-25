@@ -103,7 +103,7 @@ def validate_kfold_coverage(data_dir="dataset/raw", k_folds=5, seed=42):
         assert len(seen) == len(set(seen)), f"{category} 클래스의 fold validation subject가 서로 겹칩니다."
         assert set(seen) == set(subdirs), f"{category} 클래스의 fold validation subject가 전체 subject를 덮지 못합니다."
 
-def get_data_loaders(data_dir="dataset/raw", batch_size=8, k_folds=5, fold_idx=0, seed=42):
+def get_data_loaders(data_dir="dataset/raw", batch_size=8, k_folds=5, fold_idx=0, seed=42, num_workers=4):
     """
     학습용(Train) 및 검증용(Val) 듀얼 인풋(RGB + IR) 이미지 데이터를 불러오는 DataLoader를 생성합니다.
     """
@@ -210,14 +210,18 @@ def get_data_loaders(data_dir="dataset/raw", batch_size=8, k_folds=5, fold_idx=0
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=0
+        num_workers=num_workers,
+        pin_memory=True,
+        persistent_workers=num_workers > 0
     )
 
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=0
+        num_workers=num_workers,
+        pin_memory=True,
+        persistent_workers=num_workers > 0
     )
 
     print(f"[데이터셋 구성 완료]")
@@ -225,6 +229,7 @@ def get_data_loaders(data_dir="dataset/raw", batch_size=8, k_folds=5, fold_idx=0
     print(f" - K-fold: {k_folds}개 중 fold {fold_idx}")
     print(f" - 학습용 데이터 수: {len(train_dataset)}장 (배치 크기: {batch_size})")
     print(f" - 검증용 데이터 수: {len(val_dataset)}장")
+    print(f" - DataLoader num_workers: {num_workers}, pin_memory: True")
 
     return train_loader, val_loader
 

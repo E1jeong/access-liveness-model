@@ -91,8 +91,9 @@ def _build_calibration_data(sig_key, rgb_name, ir_name, data_dir, folds, seed, n
 def _report_io_dtype(int8_tflite_path):
     """양자화 모델의 입출력 dtype을 출력해 NPU(int8) 호환 여부를 확인합니다."""
     from ai_edge_litert.interpreter import Interpreter
+    # allocate_tensors()는 XNNPACK(CPU) delegate를 붙이려다 int8 모델에서 실패할 수 있다.
+    # 입출력 정보(dtype/shape)는 할당 없이도 읽을 수 있으므로 allocate_tensors는 호출하지 않는다.
     interp = Interpreter(model_path=int8_tflite_path)
-    interp.allocate_tensors()
     print(" - 입력 텐서:")
     for d in interp.get_input_details():
         print(f"    {d['name']}: dtype={d['dtype'].__name__}, shape={list(d['shape'])}")
@@ -121,7 +122,11 @@ def quantize_int8(float_tflite_path, int8_tflite_path, data_dir, folds, seed, nu
     int8_mb = os.path.getsize(int8_tflite_path) / (1024 * 1024)
     print(f"[INT8 양자화 성공] {int8_tflite_path}")
     print(f" - 크기: {float_mb:.2f}MB(float) -> {int8_mb:.2f}MB(int8)")
-    _report_io_dtype(int8_tflite_path)
+    # 리포트 단계 실패가 변환 성공을 가리지 않도록 분리
+    try:
+        _report_io_dtype(int8_tflite_path)
+    except Exception as e:
+        print(f"[참고] 입출력 dtype 리포트는 건너뜀(변환은 정상): {e}")
 
 
 def convert_pytorch_to_tflite(

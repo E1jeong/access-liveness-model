@@ -39,17 +39,18 @@
 
 ### 2.2 현재 구현 범위
 
-- `[구현 완료]` PC 웹캠의 RGB 단일 프레임 입력
-- `[구현 완료]` 화면 중앙 고정 250×250 크롭
-- `[구현 완료]` MobileNetV3-Small 기반 REAL/SPOOF 이진 분류
-- `[구현 완료]` PyTorch 학습 및 ONNX 변환·웹캠 추론
-- `[미구현]` 얼굴 검출 기반 ROI(Region of Interest, 모델에 넣을 얼굴 영역) 생성
-- `[미구현]` 독립 test set과 보안 지표 평가
-- `[미구현]` TFLite INT8 변환 및 NPU 검증
-- `[미구현]` Android 애플리케이션 통합
-- `[미구현]` IR 입력과 RGB+IR 융합
+> 참고: 과거 PC 웹캠·RGB 단일·REAL/SPOOF 2클래스·ONNX·중앙 250×250 크롭 단계는 폐기되었다. 아래는 현재(디바이스 수집 + RGB+IR 5클래스 + TFLite) 기준이다.
 
-현재의 제한된 validation 성능을 제품 성능이나 새로운 사용자에 대한 일반화 성능으로 표현하지 않는다.
+- `[구현 완료]` Android 디바이스에서 취득한 RGB+IR 크롭 이미지(`cropRGB.bmp`/`cropIR.bmp`)를 파일로 전달받아 학습
+- `[구현 완료]` Dual-Input MobileNetV3-Small 기반 5클래스 분류(live/print/picture/mask/display)
+- `[구현 완료]` subject 단위 K-fold 분할 및 누수 검사
+- `[구현 완료]` Accuracy/APCER/BPCER/ACER 평가 및 ACER 기준 best 저장
+- `[구현 완료]` `litert_torch` 기반 TFLite(NHWC) 변환 및 Android 통합(추론 경로 존재)
+- `[미구현]` 독립 test set(현재는 K-fold 교차검증만)
+- `[미구현]` TFLite INT8 양자화 및 NPU 실기기 검증
+- `[미구현]` 의존성 lock 파일(재현성)
+
+현재 성능은 실제 디바이스 수집 데이터가 정비된 뒤에야 측정 가능하며, 그 전까지를 제품 성능이나 일반화 성능으로 표현하지 않는다.
 
 ## 3. 필수 평가 지표
 
@@ -78,12 +79,12 @@ AI는 매 작업을 다음 순서로 시작한다.
 4. 이번 작업의 성공 기준과 검증 명령을 먼저 정한다.
 5. 현재 단계의 통과 조건을 만족하지 못했다면 다음 단계 작업을 시작하지 않는다.
 
-Windows PowerShell 기준 기본 확인 명령은 다음과 같다.
+WSL(`.venv`) 기준 기본 확인 명령은 다음과 같다.
 
-```powershell
+```bash
 git status --short
-.\.venv\Scripts\python.exe -m py_compile model.py dataset.py train.py collect_data.py crop_dataset.py convert_to_onnx.py inference_onnx.py verify_setup.py
-.\.venv\Scripts\python.exe verify_setup.py
+.venv/bin/python -m py_compile model.py dataset.py train.py classes.py convert_to_tflite.py verify_setup.py
+.venv/bin/python verify_setup.py
 ```
 
 Git 소유권 경고가 발생하면 저장소 설정을 영구 변경하지 말고 해당 명령에만 `-c safe.directory=<절대 경로>`를 적용한다.
@@ -111,7 +112,7 @@ AI가 별도 승인 없이 수행할 수 있는 작업:
 - 원본 촬영 이미지는 수정하거나 덮어쓰지 않는다.
 - 크롭·리사이즈 이미지는 별도 경로에 생성한다.
 - 새 학습 결과는 실행 ID가 포함된 별도 폴더에 저장하고 평가 후에만 현재 후보로 지정한다.
-- 기존 `best_model.pth`, `model.onnx`를 바로 덮어쓰지 않는다.
+- 기존 체크포인트(`model/best_model_fold*.pth`)와 배포 자산(`anti_spoofing.tflite`)을 바로 덮어쓰지 않는다.
 - 학습 전 클래스 수, 사람 수, 세션 수, 공격 종류, split 중복을 검사한다.
 - 같은 사람이나 같은 연속 촬영 세션이 train과 test에 동시에 들어가지 않게 한다.
 - 정확히 같은 파일뿐 아니라 같은 영상에서 추출한 인접 프레임도 다른 split으로 나누지 않는다.
@@ -138,41 +139,35 @@ AI가 별도 승인 없이 수행할 수 있는 작업:
 
 ## 5. 데이터 표준
 
-### 5.1 향후 데이터 구조
+### 5.1 데이터 구조
 
-현재의 `dataset/train`, `dataset/val`은 초기 기준선 자료로 보존한다. 다음 데이터 수집 파이프라인을 구현할 때는 아래 구조를 사용한다.
+학습 데이터는 Android 수집기가 만든 구조를 그대로 사용한다(`dataset.py`가 이 구조를 읽는다).
 
 ```text
 dataset/
-├── raw/                         # 수정하지 않는 원본
-│   └── <session_id>/
-├── processed/                   # 얼굴 검출·크롭 결과
-│   ├── train/real/
-│   ├── train/spoof/
-│   ├── val/real/
-│   ├── val/spoof/
-│   ├── test/real/
-│   └── test/spoof/
-└── metadata.csv                 # 원본과 가공 데이터의 추적 정보
+└── raw/
+    └── <class>/                         # live, print, picture, mask, display
+        └── <class>_<subjectId>/         # 폴더 = 하나의 subject (예: live_0)
+            └── <frameId>/               # 0, 1, 2, ...
+                ├── cropRGB.bmp          # 학습 입력(RGB)
+                ├── cropIR.bmp           # 학습 입력(IR)
+                ├── RGB.bmp              # 원본 보존
+                └── IR.bmp               # 원본 보존
 ```
 
-`metadata.csv`에는 최소한 다음 필드를 기록한다.
-
-```text
-file_id,raw_path,processed_path,subject_id,session_id,split,label,attack_type,mask_type,camera,lighting,captured_at
-```
-
-- `label`: `real` 또는 `spoof`
-- `attack_type`: `none`, `replay_phone`, `replay_tablet`, `print`, `paper_mask` 중 하나
-- `mask_type`: `none`, `dental`, 기타 실제 수집한 종류
-- 한 `subject_id`와 한 `session_id`는 하나의 split에만 속해야 한다.
+- 클래스 정의의 단일 출처는 `classes.py`다.
+- subject 폴더(`<class>_<id>`) 단위로 K-fold가 나뉘며, 한 subject의 frame들이 train/val로 쪼개지지 않는다.
+- 동일 인물의 live와 그 인물을 본뜬 mask는 서로 다른 물리 객체로 수집한다(mask 폴더에 live 인물 자체가 들어가지 않음).
 - 얼굴 개인정보를 외부로 전송하지 않는다.
+- 디바이스 수집분은 사용자가 직접 전달·관리한다. 학습 코드는 원본(`RGB.bmp`/`IR.bmp`)을 수정하지 않는다.
 
 ### 5.2 전처리 일치 규칙
 
-- 얼굴 검출기, 얼굴 여백, 정렬, 리사이즈, RGB 변환, 정규화를 하나의 공통 명세로 관리한다.
-- 학습, PyTorch 평가, ONNX 평가, TFLite 평가가 같은 입력에 대해 같은 전처리 결과를 만드는지 테스트한다.
-- 현재 기준 입력은 RGB, 224×224, CHW, float32, ImageNet mean/std 정규화다.
+- 얼굴 검출·크롭은 **디바이스 수집 시점**에 수행되어 `cropRGB.bmp`/`cropIR.bmp`로 저장된다. 학습은 이 크롭을 224×224로 리사이즈해 사용하므로, Android 추론 크롭(동일 검출기·`cropMarginRatio`)과 일치해야 한다.
+- 정규화 명세(단일 출처는 Android `model_spec.json`, 학습은 `dataset.py`가 동일하게 적용):
+  - RGB: 224×224, float32, mean `[0.485,0.456,0.406]` / std `[0.229,0.224,0.225]`
+  - IR: 224×224, 1채널, float32, mean `[0.5]` / std `[0.5]`
+- 학습·TFLite 평가가 같은 입력에 대해 같은 전처리 결과를 내는지 테스트한다.
 - INT8 모델은 별도의 양자화 입력 규격을 기록한다.
 
 ## 6. 단계별 개발 게이트
@@ -181,11 +176,11 @@ file_id,raw_path,processed_path,subject_id,session_id,split,label,attack_type,ma
 
 ### 단계 1. 기준선 보존
 
-- **입력**: 현재 코드, 180장 초기 데이터, `best_model.pth`, `model.onnx`, 가상환경
-- **AI 수행 작업**: 환경 버전, 파일 수, 클래스 매핑, 모델 입출력, PyTorch-ONNX 일치 결과를 기록하고 재현 가능한 의존성·seed·학습 설정의 누락을 식별한다.
+- **입력**: 현재 코드, 디바이스 수집 데이터(`dataset/raw`), `model/best_model_fold*.pth`, 가상환경
+- **AI 수행 작업**: 환경 버전, 파일 수, 클래스 매핑, 모델 입출력, TFLite 자산 입출력 형상을 기록하고 재현 가능한 의존성·seed·학습 설정의 누락을 식별한다.
 - **사용자 작업**: 없음
 - **산출물**: 기준선 기록, 이후 구현할 의존성 파일과 실험 기록 형식
-- **검증**: Python 컴파일, `verify_setup.py`, 체크포인트 로드, ONNX checker, 동일 입력 출력 비교
+- **검증**: Python 컴파일, `verify_setup.py`, 체크포인트 로드, TFLite 자산 입출력 형상 확인, 학습-추론 전처리 일치 비교
 - **통과 조건**: 기존 산출물이 손상되지 않았고 현재 결과를 다시 측정할 수 있다.
 - **실패 시 처리**: 새 학습을 중단하고 누락 파일 또는 환경 차이를 상태 문서에 기록한다.
 
@@ -245,7 +240,7 @@ file_id,raw_path,processed_path,subject_id,session_id,split,label,attack_type,ma
 - **AI 수행 작업**: full INT8 양자화와 변환 검증을 수행한다.
 - **사용자 작업**: 없음. calibration 데이터에 개인정보 외부 전송이 필요하면 먼저 승인한다.
 - **산출물**: `.tflite`, 양자화 설정, 변환 로그, 정확도 비교 보고서
-- **검증**: PyTorch/ONNX/TFLite 예측, 양자화 전후 지표, NPU latency/FPS/메모리 비교
+- **검증**: PyTorch/TFLite 예측 비교, 양자화 전후 지표, NPU latency/FPS/메모리 비교
 - **통과 조건**: 정확도 저하가 허용 범위이고 NPU 실행 및 성능 목표를 만족한다.
 - **실패 시 처리**: calibration 대표성, 미지원 연산, 전처리 불일치를 순서대로 조사한다.
 

@@ -27,13 +27,20 @@ try:
 except ImportError as e:
     print(f"[-] OpenCV is not installed: {e}")
 
-# 4. Check Matplotlib & tqdm & ONNX
-for lib_name in ["matplotlib", "tqdm", "onnx"]:
+# 4. Check Matplotlib & tqdm
+for lib_name in ["matplotlib", "tqdm"]:
     try:
         lib = __import__(lib_name)
         print(f"{lib_name.capitalize()} Version: {getattr(lib, '__version__', 'Installed')}")
     except ImportError as e:
         print(f"[-] {lib_name.capitalize()} is not installed: {e}")
+
+# 5. Check litert_torch (TFLite deployment path)
+try:
+    import litert_torch
+    print(f"litert_torch: {getattr(litert_torch, '__version__', 'Installed')}")
+except ImportError as e:
+    print(f"[-] litert_torch is not installed (needed for convert_to_tflite.py): {e}")
 
 print("========================================")
 print("Verification complete.")

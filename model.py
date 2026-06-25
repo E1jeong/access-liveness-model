@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torchvision.models as models
+from classes import CLASS_NAMES
 
 class DualInputMobileNetV3(nn.Module):
     def __init__(self):
@@ -31,7 +32,7 @@ class DualInputMobileNetV3(nn.Module):
             nn.Linear(1152, 1024),
             nn.Hardswish(inplace=True),
             nn.Dropout(p=0.2, inplace=True),
-            nn.Linear(1024, 4)
+            nn.Linear(1024, len(CLASS_NAMES))
         )
 
     def forward(self, rgb, ir):
@@ -48,7 +49,7 @@ class DualInputMobileNetV3(nn.Module):
         f_fused = torch.cat((f_rgb, f_ir), dim=1) # [B, 1152]
         
         # Classify
-        out = self.classifier(f_fused) # [B, 4]
+        out = self.classifier(f_fused) # [B, 5]
         return out
 
 def get_anti_spoof_model():
@@ -58,7 +59,7 @@ def get_anti_spoof_model():
     model = DualInputMobileNetV3()
     print("[모델 생성 완료]")
     print(f" - 베이스 모델: Dual-Input MobileNetV3-Small")
-    print(f" - 분류 클래스 수: 4 (LIVE, SPOOF_MASK, DISPLAY, PHOTO)")
+    print(f" - 분류 클래스 수: {len(CLASS_NAMES)} (0=live, 1=print, 2=picture, 3=mask, 4=display)")
     return model
 
 if __name__ == "__main__":
@@ -69,5 +70,5 @@ if __name__ == "__main__":
     dummy_ir = torch.randn(1, 1, 224, 224)
     # 모델에 집어넣어 결과 확인
     output = model(dummy_rgb, dummy_ir)
-    print(f"모델 출력 텐서 크기: {output.shape}")  # [1, 4]
+    print(f"모델 출력 텐서 크기: {output.shape}")  # [1, 5]
     print(f"예측 출력값: {output}")

@@ -3,6 +3,7 @@ import torch.nn as nn
 import torchvision.models as models
 import litert_torch
 import os
+from classes import CLASS_NAMES
 
 class DualInputMobileNetV3(nn.Module):
     def __init__(self):
@@ -33,7 +34,7 @@ class DualInputMobileNetV3(nn.Module):
             nn.Linear(1152, 1024),
             nn.Hardswish(inplace=True),
             nn.Dropout(p=0.2, inplace=True),
-            nn.Linear(1024, 4)
+            nn.Linear(1024, len(CLASS_NAMES))
         )
 
     def forward(self, rgb, ir):
@@ -50,7 +51,7 @@ class DualInputMobileNetV3(nn.Module):
         f_fused = torch.cat((f_rgb, f_ir), dim=1) # [1, 1152]
         
         # Classify
-        out = self.classifier(f_fused) # [1, 4]
+        out = self.classifier(f_fused) # [1, 5]
         return out
 
 def main():

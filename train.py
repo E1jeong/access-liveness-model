@@ -1,3 +1,4 @@
+import argparse
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -6,30 +7,66 @@ from tqdm import tqdm
 import os
 
 # 우리가 이전에 만든 dataset.py와 model.py에서 함수 가져오기
-from dataset import get_data_loaders
+from dataset import get_data_loaders, validate_kfold_coverage
 from model import get_anti_spoof_model
+from classes import CLASS_NAMES
 
-def train_model():
-    # --- 1. 설정 및 하이퍼파라미터 정의 ---
-    epochs = 10           # 전체 데이터를 몇 번 학습할지 설정 (10번 반복)
-    batch_size = 8       # 한 번에 학습할 이미지 개수 (기기 사양에 맞춰 설정)
-    learning_rate = 1e-4  # 학습률 (가중치를 얼마나 세밀하게 업데이트할지 결정)
-    device = torch.device("cpu") # GPU가 없으므로 CPU로 학습 진행
 
-    print(f"학습 디바이스: {device}")
+def calculate_validation_metrics(labels, preds):
+    num_classes = len(CLASS_NAMES)
+    confusion_matrix = torch.zeros(num_classes, num_classes, dtype=torch.int64)
+    for label, pred in zip(labels, preds):
+        confusion_matrix[int(label), int(pred)] += 1
 
+    recalls = []
+    for class_idx in range(num_classes):
+        total = confusion_matrix[class_idx, :].sum().item()
+        correct = confusion_matrix[class_idx, class_idx].item()
+        recalls.append(correct / total if total > 0 else 0.0)
+
+    labels_tensor = torch.tensor(labels)
+    preds_tensor = torch.tensor(preds)
+
+    live_mask = labels_tensor == 0
+    spoof_mask = labels_tensor != 0
+    total_live = live_mask.sum().item()
+    total_spoof = spoof_mask.sum().item()
+
+    apcer_errors = ((preds_tensor == 0) & spoof_mask).sum().item()
+    bpcer_errors = ((preds_tensor != 0) & live_mask).sum().item()
+
+    apcer = apcer_errors / total_spoof if total_spoof > 0 else 0.0
+    bpcer = bpcer_errors / total_live if total_live > 0 else 0.0
+    acer = (apcer + bpcer) / 2
+
+    return confusion_matrix, recalls, apcer, bpcer, acer
+
+
+def run_apcer_self_check():
+    labels = [1, 2, 3, 4]
+    preds = [0, 0, 0, 0]
+    _, _, apcer, _, _ = calculate_validation_metrics(labels, preds)
+    assert apcer == 1.0, f"APCER self-check failed: {apcer}"
+    print("[APCER 점검 완료] spoof 샘플을 모두 live로 예측하면 APCER=1.0")
+
+
+def train_one_fold(fold_idx, args, device, criterion):
     # --- 2. 데이터 불러오기 ---
-    train_loader, val_loader = get_data_loaders("dataset/raw", batch_size=batch_size)
+    train_loader, val_loader = get_data_loaders(
+        "dataset/raw",
+        batch_size=args.batch_size,
+        k_folds=args.folds,
+        fold_idx=fold_idx,
+        seed=args.seed
+    )
 
     # --- 3. 모델 정의 ---
     model = get_anti_spoof_model()
     model = model.to(device)
 
-    # --- 4. 손실 함수(Loss Function) 및 옵티마이저(Optimizer) 설정 ---
-    # 분류 문제에서 주로 사용하는 CrossEntropyLoss (교차 엔트로피 손실) 사용
-    criterion = nn.CrossEntropyLoss()
+    # --- 4. 옵티마이저(Optimizer) 설정 ---
     # 학습률을 적용하여 오차를 줄여나가는 Adam 옵티마이저 사용
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
 
     # 시각화를 위해 학습 기록을 저장할 리스트들
     history = {
@@ -37,13 +74,12 @@ def train_model():
         "val_loss": [], "val_acc": []
     }
 
-    print("\n[학습 시작] 총 10에포크 동안 학습을 진행합니다...")
-
-    best_val_acc = -1.0
+    best_val_acer = float("inf")
+    best_fold_metrics = None
 
     # --- 5. 에포크 반복 (Training & Validation Loop) ---
-    for epoch in range(epochs):
-        print(f"\nEpoch {epoch+1}/{epochs}")
+    for epoch in range(args.epochs):
+        print(f"\n[Fold {fold_idx}] Epoch {epoch+1}/{args.epochs}")
         
         # [학습 모드]
         model.train()
@@ -82,6 +118,8 @@ def train_model():
         val_loss = 0.0
         val_correct = 0
         total_val = 0
+        all_val_labels = []
+        all_val_preds = []
 
         # 검증 시에는 역전파를 하지 않으므로 기울기 계산을 비활성화(메모리 절약)
         with torch.no_grad():
@@ -95,12 +133,21 @@ def train_model():
                 _, preds = torch.max(outputs, 1)
                 val_correct += torch.sum(preds == labels.data)
                 total_val += images_rgb.size(0)
+                all_val_labels.extend(labels.cpu().tolist())
+                all_val_preds.extend(preds.cpu().tolist())
 
         epoch_val_loss = val_loss / total_val
         epoch_val_acc = (val_correct.double() / total_val).item()
+        confusion_matrix, recalls, apcer, bpcer, acer = calculate_validation_metrics(all_val_labels, all_val_preds)
 
         print(f" -> Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc * 100:.2f}%")
         print(f" -> Val Loss: {epoch_val_loss:.4f} | Val Acc: {epoch_val_acc * 100:.2f}%")
+        print(" -> Confusion Matrix (row=true, col=pred):")
+        print(confusion_matrix)
+        print(" -> 클래스별 Recall:")
+        for class_name, recall in zip(CLASS_NAMES, recalls):
+            print(f"    {class_name}: {recall:.4f}")
+        print(f" -> APCER: {apcer:.4f} | BPCER: {bpcer:.4f} | ACER: {acer:.4f}")
 
         # 기록 저장
         history["train_loss"].append(epoch_train_loss)
@@ -108,24 +155,32 @@ def train_model():
         history["val_loss"].append(epoch_val_loss)
         history["val_acc"].append(epoch_val_acc)
 
-        # 최고 검증 정확도를 갱신하면 모델 파일 저장
-        if epoch_val_acc > best_val_acc:
-            best_val_acc = epoch_val_acc
-            # 모델 가중치를 'model/best_model.pth' 파일로 저장
+        # 최저 ACER를 갱신하면 모델 파일 저장
+        if acer < best_val_acer:
+            best_val_acer = acer
+            best_fold_metrics = {
+                "val_acc": epoch_val_acc,
+                "apcer": apcer,
+                "bpcer": bpcer,
+                "acer": acer
+            }
+            # 모델 가중치를 fold별 파일로 저장
             os.makedirs("model", exist_ok=True)
-            torch.save(model.state_dict(), "model/best_model.pth")
-            print(f" >>> 최고 검증 정확도 경신 ({best_val_acc * 100:.2f}%) -> model/best_model.pth 저장 완료")
+            model_path = f"model/best_model_fold{fold_idx}.pth"
+            torch.save(model.state_dict(), model_path)
+            print(f" >>> 최저 검증 ACER 경신 ({best_val_acer:.4f}) -> {model_path} 저장 완료")
 
-    print("\n[학습 종료] 모든 에포크가 끝났습니다.")
-    print(f"최종 최고 검증 정확도: {best_val_acc * 100:.2f}%")
+    return history, best_fold_metrics
 
-    # --- 6. 학습 결과 시각화 (그래프 그리기) ---
+
+def save_learning_curves(all_histories):
     plt.figure(figsize=(12, 5))
 
     # 1) Loss 그래프
     plt.subplot(1, 2, 1)
-    plt.plot(range(1, epochs + 1), history["train_loss"], label="Train Loss")
-    plt.plot(range(1, epochs + 1), history["val_loss"], label="Val Loss")
+    for fold_idx, history in enumerate(all_histories):
+        plt.plot(range(1, len(history["train_loss"]) + 1), history["train_loss"], label=f"Fold {fold_idx} Train Loss")
+        plt.plot(range(1, len(history["val_loss"]) + 1), history["val_loss"], label=f"Fold {fold_idx} Val Loss")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.title("Training & Validation Loss")
@@ -133,8 +188,9 @@ def train_model():
 
     # 2) Accuracy 그래프
     plt.subplot(1, 2, 2)
-    plt.plot(range(1, epochs + 1), history["train_acc"], label="Train Acc")
-    plt.plot(range(1, epochs + 1), history["val_acc"], label="Val Acc")
+    for fold_idx, history in enumerate(all_histories):
+        plt.plot(range(1, len(history["train_acc"]) + 1), history["train_acc"], label=f"Fold {fold_idx} Train Acc")
+        plt.plot(range(1, len(history["val_acc"]) + 1), history["val_acc"], label=f"Fold {fold_idx} Val Acc")
     plt.xlabel("Epoch")
     plt.ylabel("Accuracy")
     plt.title("Training & Validation Accuracy")
@@ -146,5 +202,53 @@ def train_model():
     plt.savefig("model/learning_curves.png")
     print("[시각화 완료] 학습 곡선 그래프가 'model/learning_curves.png'로 저장되었습니다.")
 
+
+def train_model(args):
+    # --- 1. 설정 및 하이퍼파라미터 정의 ---
+    device = torch.device("cpu") # GPU가 없으므로 CPU로 학습 진행
+
+    print(f"학습 디바이스: {device}")
+    print("단일 분할의 지표 절대값보다 K-fold 평균±표준편차를 신뢰 기준으로 봅니다.")
+    run_apcer_self_check()
+    validate_kfold_coverage("dataset/raw", k_folds=args.folds, seed=args.seed)
+
+    # 분류 문제에서 주로 사용하는 CrossEntropyLoss (교차 엔트로피 손실) 사용
+    criterion = nn.CrossEntropyLoss()
+
+    print(f"\n[학습 시작] 총 {args.folds}개 fold, fold당 {args.epochs}에포크 동안 학습을 진행합니다...")
+
+    all_histories = []
+    fold_metrics = []
+    total_folds = args.max_folds if args.max_folds is not None else args.folds
+
+    for fold_idx in range(total_folds):
+        print(f"\n========== Fold {fold_idx}/{args.folds - 1} ==========")
+        history, best_metrics = train_one_fold(fold_idx, args, device, criterion)
+        all_histories.append(history)
+        if best_metrics is not None:
+            fold_metrics.append(best_metrics)
+
+    print("\n[학습 종료] 모든 요청 fold가 끝났습니다.")
+    if fold_metrics:
+        for metric_name in ["val_acc", "apcer", "bpcer", "acer"]:
+            values = torch.tensor([m[metric_name] for m in fold_metrics], dtype=torch.float32)
+            std = values.std(unbiased=False).item()
+            print(f"{metric_name}: 평균 {values.mean().item():.4f} ± 표준편차 {std:.4f}")
+
+    # --- 6. 학습 결과 시각화 (그래프 그리기) ---
+    save_learning_curves(all_histories)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--learning-rate", type=float, default=1e-4)
+    parser.add_argument("--folds", type=int, default=5)
+    parser.add_argument("--max-folds", type=int, default=None)
+    parser.add_argument("--seed", type=int, default=42)
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    train_model()
+    train_model(parse_args())

@@ -1,3 +1,4 @@
+import argparse
 import torch
 import sys
 import os
@@ -6,9 +7,7 @@ import os
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
 
-def convert_pytorch_to_tflite():
-    pth_path = "model/best_model.pth"
-    tflite_path = "model/anti_spoofing.tflite"
+def convert_pytorch_to_tflite(pth_path="model/best_model_fold0.pth", tflite_path="model/anti_spoofing.tflite"):
 
     if not os.path.exists(pth_path):
         print(f"[-] {pth_path}가 존재하지 않습니다. 먼저 모델을 학습시켜주세요.")
@@ -46,4 +45,9 @@ def convert_pytorch_to_tflite():
         print(f"[-] 변환 오류 발생: {e}")
 
 if __name__ == "__main__":
-    convert_pytorch_to_tflite()
+    parser = argparse.ArgumentParser(description="Convert trained PyTorch checkpoint to TFLite")
+    parser.add_argument("--pth-path", default="model/best_model_fold0.pth")
+    parser.add_argument("--tflite-path", default="model/anti_spoofing.tflite")
+    args = parser.parse_args()
+
+    convert_pytorch_to_tflite(args.pth_path, args.tflite_path)

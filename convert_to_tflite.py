@@ -102,8 +102,13 @@ def _report_io_dtype(int8_tflite_path):
         print(f"    {d['name']}: dtype={d['dtype'].__name__}, shape={list(d['shape'])}")
 
 
-def quantize_int8(float_tflite_path, int8_tflite_path, data_dir, folds, seed, num_samples):
-    """float tflite를 풀 INT8(가중치+활성) PTQ로 양자화합니다. i.MX 8M Plus NPU용."""
+def quantize_int8(float_tflite_path, int8_tflite_path, data_dir, folds, seed, num_samples, quant_mode="a8"):
+    """float tflite를 정수 PTQ로 양자화합니다.
+
+    quant_mode:
+      a8  - 가중치 int8 + 활성 int8 (i.MX 8M Plus NPU 권장 형식)
+      a16 - 가중치 int8 + 활성 int16 (정확도 보존에 유리, NPU 지원은 제한적)
+    """
     from ai_edge_quantizer import quantizer, recipe
 
     sig_key, rgb_name, ir_name = _resolve_io_names(float_tflite_path)
@@ -111,9 +116,16 @@ def quantize_int8(float_tflite_path, int8_tflite_path, data_dir, folds, seed, nu
         sig_key, rgb_name, ir_name, data_dir, folds, seed, num_samples
     )
 
-    print(f"\n[INT8 양자화 중...] recipe=static_wi8_ai8")
+    if quant_mode == "a16":
+        recipe_obj = recipe.static_wi8_ai16()
+        recipe_name = "static_wi8_ai16"
+    else:
+        recipe_obj = recipe.static_wi8_ai8()
+        recipe_name = "static_wi8_ai8"
+
+    print(f"\n[INT8 양자화 중...] recipe={recipe_name}")
     qt = quantizer.Quantizer(float_tflite_path)
-    qt.load_quantization_recipe(recipe.static_wi8_ai8())
+    qt.load_quantization_recipe(recipe_obj)
     calib_result = qt.calibrate(calibration_data)
     result = qt.quantize(calib_result)
     result.export_model(int8_tflite_path, overwrite=True)
@@ -137,6 +149,7 @@ def convert_pytorch_to_tflite(
     folds=5,
     seed=42,
     calib_samples=200,
+    quant_mode="a8",
 ):
     if not os.path.exists(pth_path):
         print(f"[-] {pth_path}가 존재하지 않습니다. 먼저 모델을 학습시켜주세요.")
@@ -155,7 +168,7 @@ def convert_pytorch_to_tflite(
         float_tflite_path = f"{base}_float{ext}"
         print(f"\n[TFLite 변환 중...] {pth_path} -> {float_tflite_path} (float 중간 산출물)")
         export_float_tflite(pth_path, float_tflite_path)
-        quantize_int8(float_tflite_path, tflite_path, data_dir, folds, seed, calib_samples)
+        quantize_int8(float_tflite_path, tflite_path, data_dir, folds, seed, calib_samples, quant_mode)
     except ImportError as e:
         print(f"[-] 필요한 라이브러리가 설치되지 않았습니다: {e}")
     except Exception as e:
@@ -171,6 +184,8 @@ if __name__ == "__main__":
     parser.add_argument("--folds", type=int, default=5, help="calibration 데이터 분할(fold 0 train 사용)")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--calib-samples", type=int, default=200, help="calibration 샘플 수")
+    parser.add_argument("--quant-mode", choices=["a8", "a16"], default="a8",
+                        help="a8=활성 int8(NPU 권장), a16=활성 int16(정확도 보존)")
     args = parser.parse_args()
 
     convert_pytorch_to_tflite(
@@ -181,4 +196,5 @@ if __name__ == "__main__":
         folds=args.folds,
         seed=args.seed,
         calib_samples=args.calib_samples,
+        quant_mode=args.quant_mode,
     )

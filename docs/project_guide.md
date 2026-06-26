@@ -46,9 +46,13 @@
 - `[구현 완료]` subject 단위 K-fold 분할 및 누수 검사
 - `[구현 완료]` Accuracy/APCER/BPCER/ACER 평가 및 ACER 기준 best 저장
 - `[구현 완료]` `litert_torch` 기반 TFLite(NHWC) 변환 및 Android 통합(추론 경로 존재)
+- `[검증 완료]` float 모델 학습(서브노트북 GPU, subject 5명): liveness ACER≈0, 5클래스 val_acc≈0.80
 - `[미구현]` 독립 test set(현재는 K-fold 교차검증만)
-- `[미구현]` TFLite INT8 양자화 및 NPU 실기기 검증
+- `[시도 후 보류]` TFLite INT8 양자화 — PTQ는 활성 양자화에서 붕괴, QAT는 학습은 되나 직렬화(litert/eIQ) 실패. **현재 float-CPU 배포로 결정.** 전체 시도 기록과 향후 방향은 `project_status.md` §3 참조.
+- `[미구현]` NPU 실기기 검증(보드 NPU/NNAPI 자체는 준비 확인됨 — `project_status.md` §0)
 - `[미구현]` 의존성 lock 파일(재현성)
+
+> 작업 머신은 2대다: 코드/문서/Android는 **회사 머신(WSL, torch CPU)**, 학습·양자화·데이터는 **서브노트북(GPU, SSH `mysub`)**. 상세는 `project_status.md` §0.
 
 현재 성능은 실제 디바이스 수집 데이터가 정비된 뒤에야 측정 가능하며, 그 전까지를 제품 성능이나 일반화 성능으로 표현하지 않는다.
 

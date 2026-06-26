@@ -66,9 +66,22 @@ def evaluate(model_path, data_dir, folds, fold_idx, seed, max_samples=None):
     in_details = interp.get_input_details()
     out_detail = interp.get_output_details()[0]
 
-    # RGB(3ch) / IR(1ch)를 채널 수로 식별 (입력 순서/이름에 의존하지 않음)
-    rgb_d = next(d for d in in_details if int(d['shape'][-1]) == 3)
-    ir_d = next(d for d in in_details if int(d['shape'][-1]) == 1)
+    # 입력별 레이아웃(NCHW/NHWC)과 채널 수를 자동 인식해 RGB(3)/IR(1) 식별
+    def describe(d):
+        shape = [int(x) for x in d['shape']]
+        if len(shape) == 4 and shape[1] in (1, 3):
+            return "NCHW", shape[1]
+        return "NHWC", shape[-1]
+
+    metas = [(d, *describe(d)) for d in in_details]
+    rgb_d, rgb_layout, _ = next(m for m in metas if m[2] == 3)
+    ir_d, ir_layout, _ = next(m for m in metas if m[2] == 1)
+    print(f" 입력 레이아웃: rgb={rgb_layout}, ir={ir_layout}")
+
+    def build(sample_chw, layout):  # sample_chw: torch [C,H,W]
+        if layout == "NCHW":
+            return sample_chw.unsqueeze(0).numpy().astype(np.float32)
+        return sample_chw.permute(1, 2, 0).unsqueeze(0).numpy().astype(np.float32)
 
     _, val_loader = get_data_loaders(
         data_dir, batch_size=8, k_folds=folds, fold_idx=fold_idx, seed=seed, num_workers=0
@@ -82,8 +95,8 @@ def evaluate(model_path, data_dir, folds, fold_idx, seed, max_samples=None):
     done = False
     for rgb_b, ir_b, labels in val_loader:
         for i in range(rgb_b.shape[0]):
-            rgb = rgb_b[i].permute(1, 2, 0).unsqueeze(0).numpy().astype(np.float32)
-            ir = ir_b[i].permute(1, 2, 0).unsqueeze(0).numpy().astype(np.float32)
+            rgb = build(rgb_b[i], rgb_layout)
+            ir = build(ir_b[i], ir_layout)
             interp.set_tensor(rgb_d['index'], _quantize_input(rgb, rgb_d))
             interp.set_tensor(ir_d['index'], _quantize_input(ir, ir_d))
             interp.invoke()

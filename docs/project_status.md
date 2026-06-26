@@ -1,85 +1,92 @@
-# 안티스푸핑 프로젝트 현재 상태
+# Anti-Spoofing Project — Current Status (context for AI agents)
 
-이 문서는 작업할 때마다 바뀌는 사실과 검증 결과를 기록한다. 고정 개발 절차와 판단 기준은 [project_guide.md](project_guide.md)를 따른다.
+This file records changing facts and verification results. Fixed procedures/standards live in [project_guide.md](project_guide.md). Written in English for AI agents; a Korean non-expert summary is in [overview_ko.md](overview_ko.md).
 
-- **마지막 갱신일**: 2026-06-25
-- **검증 환경**: WSL Ubuntu 24.04, 프로젝트 `.venv`
-- **현재 단계**: 코드 구조를 RGB+IR 5클래스 / 디바이스 수집 / TFLite 배포 체계로 전환 완료. 실제 학습용 데이터 정비 및 성능 측정 대기.
+- **Last updated**: 2026-06-26
+- **Headline**: The float model works well (liveness ACER ≈ 0). INT8 quantization for the i.MX 8M Plus NPU was attempted exhaustively and **abandoned for now** — every available PyTorch/Google/NXP-eIQ path failed at a tool boundary. **Decision: ship the float model on CPU; treat INT8/NPU as a separate, properly-resourced future effort.**
 
-## 0. 프로젝트 전환 이력 (중요)
+## 0. Machine topology (important)
 
-이 프로젝트는 두 시기를 거쳤다. 과거 기록을 읽을 때 혼동하지 않도록 명시한다.
+Work spans two machines. Do not assume everything is on one box.
 
-- **이전(웹캠 시기, 폐기됨)**: PC 웹캠으로 RGB 단일 프레임을 취득해 학습하고 웹캠으로 추론을 확인하던 단계. REAL/SPOOF 2클래스, 중앙 250×250 크롭, ONNX 변환, Haar Cascade 등이 이 시기의 산물이다. **현재 코드에는 남아있지 않다.**
-- **현재(디바이스 시기)**: Android 출입통제기에서 RGB+IR 이미지를 직접 취득해 파일로 전달받고, 그 파일로 학습하며, 배포는 TFLite로 고정한다. 웹캠 수집·ONNX 경로는 제거했다.
+- **Company machine** = this repo's host. WSL Ubuntu 24.04, project `.venv` (Python 3.11, **torch 2.12.1+cpu**). Used for code, docs, git, and the Android project (Android project is a *separate* repo on the Windows side, see §6). `dataset/raw/` here is **empty** (data lives on the sub-laptop). `model/` here holds no committed weights (gitignored).
+- **Sub-laptop** = home GPU box. WSL2 Ubuntu, **GTX 1660 Ti 6GB**, driver CUDA 12.2. venv Python 3.12, **torch 2.11.0+cu128** (2.12.1 had no matching CUDA wheel). SSH alias `mysub` (`won@e1jeong-home.duckdns.org:2222`). **All training, quantization experiments, and the dataset live here.** This is where `train.py`, `evaluate_tflite.py`, etc. actually run on real data + GPU.
+- **Target board** = i.MX 8M Plus running **Android** (accessed via `adb`). NPU = VeriSilicon (Vivante) VIP8000, INT8-only. NPU runtime confirmed present: `/dev/galcore`, `/vendor/lib64/{libGAL,libVSC,libnnrt,libovxlib,libOvx12VXCBinary-*}.so`, and `neuralnetworks_hal_vsi_npu_server: running`. So NPU acceleration is reachable via the Android **NNAPI delegate** once a working INT8 tflite exists.
 
-## 1. 상태 요약
+Typical transfer: edit on company machine → `rsync -avz <file> mysub:~/access-liveness-model/` → run on sub-laptop. Pull artifacts back with `scp -P 2222 won@...:~/access-liveness-model/model/<f> ./model/`.
 
-### 검증된 항목 (코드/실행 근거 있음)
+## 1. Status summary
 
-- `[검증 완료]` `model.py` 실행 시 듀얼 인풋(RGB+IR) 출력 텐서가 `[1, 5]`다.
-- `[검증 완료]` `classes.py`가 클래스 단일 출처이며 `0=live, 1=print, 2=picture, 3=mask, 4=display`다.
-- `[검증 완료]` `dataset.py`가 subject(`<class>_<id>` 폴더) 단위 K-fold로 분할하며 train/val 비겹침 assert를 통과한다. 더미 데이터에서 RGB `[B,3,224,224]`, IR `[B,1,224,224]`를 출력한다.
-- `[검증 완료]` `train.py`가 5×5 confusion matrix, 클래스별 recall, APCER/BPCER/ACER를 산출하고 best 체크포인트를 **ACER 최저** 기준으로 저장한다. APCER는 "spoof를 live(0)로 오분류한 비율"로 정의되어 있다(self-check 포함).
-- `[검증 완료]` 배포 자산 `app/src/main/assets/anti_spoofing.tflite`의 입력은 `[1,224,224,3]`+`[1,224,224,1]`(float32), 출력은 `[1,5]`(float32)다. Android `model_spec.json`의 정규화(RGB ImageNet, IR 0.5/0.5)와 학습 전처리가 일치한다.
+### Verified (code/run evidence)
+- `model.py` dual-input (RGB+IR) output is `[1,5]`.
+- `classes.py` is the single source of classes: `0=live,1=print,2=picture,3=mask,4=display`.
+- `dataset.py` splits subject-wise (`<class>_<id>` folder) K-fold; train/val non-overlap assert passes. Now has `num_workers`/`pin_memory`/`persistent_workers` (perf) and `get_data_loaders(..., num_workers=)`.
+- `train.py` computes 5×5 confusion matrix, per-class recall, APCER/BPCER/ACER; saves best checkpoint by **lowest ACER**. Device is auto (`cuda` if available else `cpu`). DataLoader workers via `--num-workers`.
+- **Float model performance** (sub-laptop, 5 subjects/class = 2500 imgs, 5-fold, fold 0 val 500 imgs): **APCER/BPCER/ACER ≈ 0** (liveness binary live-vs-spoof is essentially perfect, driven by the IR channel), **5-class val_acc ≈ 0.80–0.87**. Reproduced across two runs. NOTE: `display` recall is very low (~0.02–0.04) — display attacks are confused with other *spoof* subclasses; this does NOT hurt liveness (still classified as spoof → APCER stays 0) but means the 5-class head is weak on `display`.
+- Float tflite I/O (litert_torch, NHWC): inputs `[1,224,224,3]`+`[1,224,224,1]`, output `[1,5]`, all float32. Matches Android `model_spec.json` normalization (RGB ImageNet, IR 0.5/0.5).
 
-### 구현됐으나 성능 미측정
+### Not measured / not done
+- Generalization to unseen people / lighting / distance (only 5 subjects, likely single capture condition → numbers may be optimistic).
+- Independent test split (only K-fold CV).
+- Dependency lock files.
+- **INT8 / NPU latency** — see §3, abandoned.
 
-- `[미검증]` 실제 디바이스 수집 데이터에 대한 학습 성능(현재 `dataset/raw`에 subject 데이터가 전개되어 있지 않음).
-- `[미검증]` 미등록 인물·다른 조명·다른 거리에서의 일반화 성능.
-- `[미검증]` 클래스별(print/picture/mask/display) APCER 세부 성능.
-- `[미검증]` i.MX 8M Plus NPU 실기기 정확도·지연시간·FPS.
+## 2. Data status
+- Structure `dataset/raw/<class>/<class>_<subjectId>/<frame>/` with `cropRGB.bmp,cropIR.bmp,RGB.bmp,IR.bmp` (all four required by `dataset.py`). crop* are training inputs; RGB/IR are preserved originals.
+- **Current real data: 5 subjects per class (≈2500 frames total), on the sub-laptop only.** Company repo `dataset/raw` is empty.
+- K-fold requires subjects ≥ K. With 5 subjects, `--folds 5` works (fold = 1 val subject). More subjects + varied capture conditions is the main quality lever.
 
-### 미구현 항목
+## 3. INT8 quantization investigation — full chronology (why it was abandoned)
 
-- `[미구현]` TFLite INT8 양자화.
-- `[미구현]` 독립 test split(현재는 K-fold 교차검증만).
-- `[미구현]` 의존성 lock 파일(재현성).
+Goal: INT8 tflite for the i.MX 8M Plus NPU (float on CPU is 80–220 ms; NPU INT8 would be ~5–20 ms). Every path failed:
 
-## 2. 데이터 현황
+1. **PTQ via `ai_edge_quantizer` (static a8)** → model **collapses**: outputs a constant class (always `display`) regardless of input. ACER 0.5.
+2. **PTQ a16 (int16 activations)** → identical collapse → not an activation-bit-width issue.
+3. **`--quant-mode w8only` (int8 weights, float activations, no calibration)** → **works** (ACER 0.0013 ≈ float). **Key diagnosis: int8 *weights* are fine; the collapse comes from *activation* PTQ** (MobileNetV3 hard-swish activations don't survive post-training activation quantization).
+4. **PTQ a8 with 1000 calibration samples** → still collapses → not a calibration-quantity issue. PTQ is fundamentally unsuitable for this model.
+5. **PT2E QAT (torchao XNNPACKQuantizer) + `litert_torch.convert`** → QAT **trains fine** (fake-quant val_acc 92–96% with per-channel) but the **litert converter fails to serialize the SE-block 1×1 convs** (`stablehlo.uniform_dequantize ... tensor<8x16x1x1xi8>`). litert_torch 0.9.1 is the latest version → no upgrade fix.
+6. **Manual activation fake-quant QAT (forward hooks)** → **damaged the model**: BatchNorm running stats adapted to the fake-quant forward, so removing hooks broke it (live recall 0). Wrong approach for BN models.
+7. **PT2E QAT (per-channel) → QDQ ONNX export** → `torch.onnx.export` **cannot emit `dequantize_per_channel`** → per-channel ONNX export unsupported in torch 2.11.
+8. **PT2E QAT (per-tensor) → QDQ ONNX export** → **ONNX export succeeds** (4.18 MB) BUT per-tensor QAT accuracy is poor/unstable (val_acc bounced 38–84%, lr 1e-4 too high). per-tensor is forced because ONNX export only supports per-tensor QDQ.
+9. **QDQ ONNX → NXP eIQ Toolkit (`eiq-converter-onnx2tflite`)**:
+   - eIQ GUI quantizer (`eiq-converter-tflite` "Enable Quantization") only accepts Keras/TF SavedModel, not our ONNX-origin model → can't use eIQ's own PTQ. (Also eIQ PTQ would collapse like step 1 anyway — same TFLite PTQ.)
+   - `onnx2tflite` of the QDQ ONNX first failed on `ReduceMean axes type INT32` (opset-18 axes-as-input form). Fixed via `fix_onnx.py` (converted ReduceMean axes input→attribute).
+   - After the fix, conversion **"SUCCESS" but produced a structurally broken tflite**: `allocate_tensors` fails with `input_channel % filter_input_channel != 0 (1 != 0)` at a CONV_2D (caused by the `convert_reshape: flat size mismatch` warnings on the post-global-pool flatten). The output is NCHW + float I/O (not even int8 I/O), and does not run.
 
-- 학습 데이터는 Android 수집기가 만든 구조 `dataset/raw/<class>/<class>_<subjectId>/<frame>/`를 그대로 사용한다. 각 frame 폴더에는 `cropRGB.bmp`, `cropIR.bmp`, `RGB.bmp`, `IR.bmp`가 있어야 한다(`dataset.py`가 4개 모두 존재를 요구).
-- 현재 `dataset/raw/`에는 클래스 폴더만 있고 subject 데이터는 비어 있다 → 현 상태로는 실제 학습 불가, 더미 데이터로만 파이프라인 동작을 확인했다.
-- `dataset/data.zip`은 이전 데이터셋이며 사용자가 직접 관리·삭제 예정이다. 자동으로 전개하지 않는다.
-- 클래스 정의: 동일 인물의 live(맨얼굴)와 그 인물을 본뜬 mask는 서로 다른 물리 객체로 수집한다. mask 폴더에 live 인물 자체가 들어가지 않으므로 클래스 간 동일 인물 누수 위험은 낮다고 사용자가 확인했다.
+**Conclusion**: With this toolchain (PyTorch → ONNX/litert/eIQ) and this model (dual MobileNetV3-Small, hard-swish, SE blocks, dual input, custom per-channel normalization), getting a *working* INT8 tflite is not achievable by blind iteration. PTQ collapses; QAT trains but cannot be serialized cleanly.
 
-## 3. 현재 모델과 전처리
+### If INT8/NPU is resumed later — recommended directions (not yet attempted)
+- **Rebuild the model in TensorFlow/Keras** and use eIQ's *native* QAT (the toolchain's supported happy path; eIQ quantization is TF-centric). This is the most likely to actually work end-to-end on i.MX.
+- Or get **NXP engineering support** for the PyTorch→i.MX INT8 path.
+- Or pick an architecture that PTQ-quantizes cleanly (avoid hard-swish / SE if NPU INT8 is a hard requirement).
+- The QAT *training* code worked — the blocker is serialization, not the ML. Keep that in mind.
 
-- 모델: Dual-Input MobileNetV3-Small (RGB 백본 + IR 백본, IR은 1채널 입력으로 첫 conv 교체). 두 백본 feature(576+576=1152)를 concat 후 `Linear(1152,1024)→Hardswish→Dropout→Linear(1024,5)`.
-- 초기 가중치: 두 백본 모두 ImageNet pretrained.
-- 입력: RGB `[1,3,224,224]`, IR `[1,1,224,224]` (PyTorch NCHW). 배포 TFLite는 NHWC로 래핑.
-- 정규화: RGB mean `[0.485,0.456,0.406]`/std `[0.229,0.224,0.225]`, IR mean `[0.5]`/std `[0.5]`.
-- 학습 설정: CPU, K-fold 교차검증, Adam, CrossEntropyLoss (기본값은 `train.py` argparse 참고).
-- 체크포인트: `model/best_model_fold{N}.pth` (ACER 최저 기준).
-- 배포: `convert_to_tflite.py`로 `model/anti_spoofing.tflite` 생성 후 Android `app/src/main/assets/`로 수동 복사.
+## 4. Current deployment decision
+- **Ship the float model on CPU.** Android `AntiSpoofingClassifier.java` has been **reverted to float-only, CPU (numThreads 2)** — int8 I/O handling and NNAPI delegate were removed (they're in git history if needed). The float tflite (from `best_model_fold0.pth` via `convert_to_tflite.py`) goes in `app/src/main/assets/anti_spoofing.tflite`; `model_spec.json` is unchanged (float-compatible).
+- Float CPU inference on the board is ~80–220 ms (functional, not fast). NPU acceleration is deferred to the future INT8 effort.
 
-## 4. 환경 버전
-
-현재 환경은 `verify_setup.py`로 확인한다(과거 고정 표 대신 실행으로 확인).
-
+## 5. Verification commands (run on sub-laptop where data lives)
 ```bash
-.venv/bin/python verify_setup.py
+source .venv/bin/activate
+python model.py                         # output [1,5]
+python train.py --folds 5               # K-fold train, prints APCER/BPCER/ACER
+python convert_to_tflite.py             # float tflite -> model/anti_spoofing.tflite
+python evaluate_tflite.py --models model/anti_spoofing.tflite   # eval a tflite on fold-0 val
 ```
+`evaluate_tflite.py` auto-detects NCHW/NHWC input layout and handles float or int8 I/O; disables XNNPACK (reference kernels) with all CPU threads.
 
-확인 시점 주요 버전: PyTorch `2.12.1+cpu`. CUDA 불가(CPU 학습). 그 외 버전은 위 명령 출력으로 확인한다.
+## 6. Android project
+- Separate repo: `android-anti-spoofing-lab` (GitHub `E1jeong/android-anti-spoofing-lab`), on the Windows side at `C:\Users\Unionbiometrics\Desktop\company\2.source\ubio-anti-spoofing`.
+- Inference: `app/src/main/java/com/virditech/ac7000/model/AntiSpoofingClassifier.java`, config `app/src/main/assets/model_spec.json` (rgbInputIndex/irInputIndex, channelOrder, mean/std, outputIsLogits, cropMarginRatio), TFLite 2.16.1.
+- Reverted to float-only inference (see §4).
 
-## 5. 검증 명령
+## 7. Known risks
+- Reproducibility: no dependency lock; data/checkpoints/tflite are gitignored — repo alone cannot reproduce results.
+- Small/possibly-homogeneous dataset (5 subjects) → liveness numbers may be optimistic; needs more subjects + varied capture conditions.
+- INT8/NPU unverified (abandoned this round).
 
-```bash
-.venv/bin/python model.py        # 출력 [1,5] 확인
-.venv/bin/python dataset.py      # dataset/raw에 데이터가 있을 때 RGB/IR 형상 확인
-.venv/bin/python train.py        # K-fold 학습 및 APCER/BPCER/ACER 산출
-.venv/bin/python convert_to_tflite.py   # TFLite 변환 (litert_torch 필요)
-```
-
-## 6. 알려진 위험
-
-- **재현성**: 의존성 lock 파일·고정 seed 외 자동 평가 스크립트가 부족하다. 데이터·체크포인트·tflite는 `.gitignore` 대상이라 저장소만으로 결과를 재현할 수 없다.
-- **데이터 정비 대기**: 실제 디바이스 수집 데이터가 `dataset/raw`에 전개되기 전까지 모든 성능 수치는 미측정이다.
-- **NPU 미검증**: TFLite INT8·i.MX 8M Plus 실행 결과가 아직 없다.
-
-## 7. 변경 이력
-
-| 일시 | 변경 내용 |
+## 8. Change log
+| Date | Change |
 |---|---|
-| 2026-06-25 | 웹캠/ONNX 시기 잔재 정리. 문서를 현재 RGB+IR 5클래스·디바이스 수집·TFLite 배포 체계로 재작성. `convert_to_onnx.py`·`create_dummy_tflite.py` 삭제, `verify_setup.py`/`.gitignore`에서 ONNX 제거. |
+| 2026-06-25 | Cleaned webcam/ONNX-era remnants; rewrote docs to RGB+IR 5-class / device-capture / TFLite. |
+| 2026-06-26 | GPU training on sub-laptop (5 subjects, float ACER≈0). Full INT8 investigation (PTQ collapse; QAT trains but cannot serialize; eIQ produces broken model) → **INT8 abandoned, ship float-CPU**. Reverted Android to float-only. Deleted dead int8 scripts (train_qat.py, fix_onnx.py, export_onnx.py); convert_to_tflite.py reverted to float-only. Board NPU/NNAPI confirmed ready for a future INT8 effort. |

@@ -1,4 +1,5 @@
 import argparse
+import math
 import os
 import sys
 from pathlib import Path
@@ -114,8 +115,10 @@ def main():
     print(f" - val images: {len(val_items)}")
     print(f" - fold: {args.fold_idx}/{args.folds - 1}")
 
-    train_ds = make_dataset(train_items, batch_size=args.batch_size, shuffle=True, seed=args.seed)
+    train_ds = make_dataset(train_items, batch_size=args.batch_size, shuffle=True, seed=args.seed).repeat()
     val_ds = make_dataset(val_items, batch_size=args.batch_size, shuffle=False, seed=args.seed)
+    steps_per_epoch = math.ceil(len(train_items) / args.batch_size)
+    validation_steps = math.ceil(len(val_items) / args.batch_size)
 
     rgb_weights = None if args.rgb_weights == "none" else args.rgb_weights
     model = build_dual_mobilenetv2(rgb_weights=rgb_weights, dropout=args.dropout)
@@ -126,12 +129,14 @@ def main():
     )
     model.summary()
 
-    output_path = os.path.join(args.output_dir, f"best_model_fold{args.fold_idx}.h5")
+    output_path = os.path.join(args.output_dir, f"best_model_fold{args.fold_idx}.keras")
     checkpoint = AcerCheckpoint(val_ds=val_ds, output_path=output_path)
 
     model.fit(
         train_ds,
         validation_data=val_ds,
+        steps_per_epoch=steps_per_epoch,
+        validation_steps=validation_steps,
         epochs=args.epochs,
         callbacks=[checkpoint],
     )

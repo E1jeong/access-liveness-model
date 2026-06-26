@@ -54,6 +54,8 @@
 
 > 작업 머신은 2대다: 코드/문서/Android는 **회사 머신(WSL, torch CPU)**, 학습·양자화·데이터는 **서브노트북(GPU, SSH `mysub`)**. 상세는 `project_status.md` §0.
 
+서브노트북에서도 프레임워크별 가상환경을 분리한다. PyTorch 학습은 기존 `.venv`를 유지하고, TensorFlow/Keras 실험은 별도 `.venv-tf`를 만들어 사용한다. PyTorch에서 GPU가 잡힌다고 TensorFlow에서도 자동으로 GPU가 잡히는 것은 아니므로, Keras 학습 전에는 `tf.config.list_physical_devices('GPU')` 결과를 확인한다.
+
 현재 성능은 실제 디바이스 수집 데이터가 정비된 뒤에야 측정 가능하며, 그 전까지를 제품 성능이나 일반화 성능으로 표현하지 않는다.
 
 ## 3. 필수 평가 지표

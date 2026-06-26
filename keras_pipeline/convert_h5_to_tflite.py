@@ -14,9 +14,9 @@ from keras_pipeline.tf_dataset import collect_items, representative_dataset
 from keras_pipeline.tf_model import _rgb_current_norm_to_mobilenet_range
 
 
-def convert_float(h5_path, output_path):
+def convert_float(model_path, output_path):
     model = tf.keras.models.load_model(
-        h5_path,
+        model_path,
         compile=False,
         custom_objects={
             "_rgb_current_norm_to_mobilenet_range": _rgb_current_norm_to_mobilenet_range,
@@ -30,9 +30,9 @@ def convert_float(h5_path, output_path):
     print(f"[float tflite saved] {output_path}")
 
 
-def convert_int8(h5_path, output_path, data_dir, folds, fold_idx, seed, calibration_samples):
+def convert_int8(model_path, output_path, data_dir, folds, fold_idx, seed, calibration_samples):
     model = tf.keras.models.load_model(
-        h5_path,
+        model_path,
         compile=False,
         custom_objects={
             "_rgb_current_norm_to_mobilenet_range": _rgb_current_norm_to_mobilenet_range,
@@ -74,8 +74,13 @@ def inspect_tflite(path):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Convert Keras .h5 model to TFLite.")
-    parser.add_argument("--h5-path", default="model/keras/best_model_fold0.h5")
+    parser = argparse.ArgumentParser(description="Convert a saved Keras model to TFLite.")
+    parser.add_argument(
+        "--model-path",
+        "--h5-path",
+        dest="model_path",
+        default="model/keras/best_model_fold0.keras",
+    )
     parser.add_argument("--output-dir", default="model/keras")
     parser.add_argument("--data-dir", default="dataset/raw")
     parser.add_argument("--folds", type=int, default=5)
@@ -91,18 +96,18 @@ def main():
     args = parse_args()
     if not args.float and not args.int8:
         raise SystemExit("Choose at least one conversion mode: --float and/or --int8")
-    if not os.path.exists(args.h5_path):
-        raise FileNotFoundError(args.h5_path)
+    if not os.path.exists(args.model_path):
+        raise FileNotFoundError(args.model_path)
 
-    base_name = Path(args.h5_path).stem
+    base_name = Path(args.model_path).stem
     if args.float:
         float_path = os.path.join(args.output_dir, f"{base_name}_float.tflite")
-        convert_float(args.h5_path, float_path)
+        convert_float(args.model_path, float_path)
         inspect_tflite(float_path)
     if args.int8:
         int8_path = os.path.join(args.output_dir, f"{base_name}_int8.tflite")
         convert_int8(
-            args.h5_path,
+            args.model_path,
             int8_path,
             args.data_dir,
             args.folds,

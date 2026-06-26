@@ -9,8 +9,8 @@ This file records changing facts and verification results. Fixed procedures/stan
 
 Work spans two machines. Do not assume everything is on one box.
 
-- **Company machine** = this repo's host. WSL Ubuntu 24.04, project `.venv` (Python 3.11, **torch 2.12.1+cpu**). Used for code, docs, git, and the Android project (Android project is a *separate* repo on the Windows side, see §6). `dataset/raw/` here is **empty** (data lives on the sub-laptop). `model/` here holds no committed weights (gitignored).
-- **Sub-laptop** = home GPU box. WSL2 Ubuntu, **GTX 1660 Ti 6GB**, driver CUDA 12.2. venv Python 3.12, **torch 2.11.0+cu128** (2.12.1 had no matching CUDA wheel). SSH alias `mysub` (`won@e1jeong-home.duckdns.org:2222`). **All training, quantization experiments, and the dataset live here.** This is where `train.py`, `evaluate_tflite.py`, etc. actually run on real data + GPU.
+- **Company machine** = this repo's host. WSL Ubuntu 24.04, project `.venv` (Python 3.11, **torch 2.12.1+cpu**). Used for code, docs, git, local data staging, and the Android project (Android project is a *separate* repo on the Windows side, see section 6). `dataset/raw/` currently contains the merged training dataset, but training here is CPU-only and slow. `model/` here holds no committed weights (gitignored).
+- **Sub-laptop** = home GPU box. WSL2 Ubuntu, **GTX 1660 Ti 6GB**, driver CUDA 12.2. venv Python 3.12, **torch 2.11.0+cu128** (2.12.1 had no matching CUDA wheel). SSH alias `mysub` (`won@e1jeong-home.duckdns.org:2222`). **All real training and quantization experiments should run here** because GPU training is much faster. The merged dataset has also been rsynced here.
 - **Target board** = i.MX 8M Plus running **Android** (accessed via `adb`). NPU = VeriSilicon (Vivante) VIP8000, INT8-only. NPU runtime confirmed present: `/dev/galcore`, `/vendor/lib64/{libGAL,libVSC,libnnrt,libovxlib,libOvx12VXCBinary-*}.so`, and `neuralnetworks_hal_vsi_npu_server: running`. So NPU acceleration is reachable via the Android **NNAPI delegate** once a working INT8 tflite exists.
 
 Typical transfer: edit on company machine → `rsync -avz <file> mysub:~/access-liveness-model/` → run on sub-laptop. Pull artifacts back with `scp -P 2222 won@...:~/access-liveness-model/model/<f> ./model/`.
@@ -22,19 +22,30 @@ Typical transfer: edit on company machine → `rsync -avz <file> mysub:~/access-
 - `classes.py` is the single source of classes: `0=live,1=print,2=picture,3=mask,4=display`.
 - `dataset.py` splits subject-wise (`<class>_<id>` folder) K-fold; train/val non-overlap assert passes. Now has `num_workers`/`pin_memory`/`persistent_workers` (perf) and `get_data_loaders(..., num_workers=)`.
 - `train.py` computes 5×5 confusion matrix, per-class recall, APCER/BPCER/ACER; saves best checkpoint by **lowest ACER**. Device is auto (`cuda` if available else `cpu`). DataLoader workers via `--num-workers`.
-- **Float model performance** (sub-laptop, 5 subjects/class = 2500 imgs, 5-fold, fold 0 val 500 imgs): **APCER/BPCER/ACER ≈ 0** (liveness binary live-vs-spoof is essentially perfect, driven by the IR channel), **5-class val_acc ≈ 0.80–0.87**. Reproduced across two runs. NOTE: `display` recall is very low (~0.02–0.04) — display attacks are confused with other *spoof* subclasses; this does NOT hurt liveness (still classified as spoof → APCER stays 0) but means the 5-class head is weak on `display`.
+- **Float TFLite performance** (sub-laptop, merged dataset, fold-0 style validation, 1050 images): `val_acc=0.8905`, `APCER=0.0000`, `BPCER=0.0000`, `ACER=0.0000`. Per-class recall: `live=1.0000`, `print=0.4800`, `picture=0.9900`, `mask=1.0000`, `display=0.9550`. Liveness binary live-vs-spoof is excellent on this validation split, but `print` is weak as a 5-class subclass and is likely being confused with other spoof classes.
 - Float tflite I/O (litert_torch, NHWC): inputs `[1,224,224,3]`+`[1,224,224,1]`, output `[1,5]`, all float32. Matches Android `model_spec.json` normalization (RGB ImageNet, IR 0.5/0.5).
 
 ### Not measured / not done
-- Generalization to unseen people / lighting / distance (only 5 subjects, likely single capture condition → numbers may be optimistic).
+- Generalization to unseen people / lighting / distance. The merged dataset is larger, but the latest result is still validation/CV, not an independent field test.
 - Independent test split (only K-fold CV).
 - Dependency lock files.
 - **INT8 / NPU latency** — see §3, abandoned.
 
 ## 2. Data status
 - Structure `dataset/raw/<class>/<class>_<subjectId>/<frame>/` with `cropRGB.bmp,cropIR.bmp,RGB.bmp,IR.bmp` (all four required by `dataset.py`). crop* are training inputs; RGB/IR are preserved originals.
-- **Current real data: 5 subjects per class (≈2500 frames total), on the sub-laptop only.** Company repo `dataset/raw` is empty.
-- K-fold requires subjects ≥ K. With 5 subjects, `--folds 5` works (fold = 1 val subject). More subjects + varied capture conditions is the main quality lever.
+- **Current merged real data: 3849 sessions / 15396 images** in `dataset/raw/` (verified on the company WSL after merge). Class folders:
+  - `live`: `live_1` through `live_11` (11 subject folders)
+  - `print`: `print_1` through `print_7` (7 subject folders)
+  - `picture`: `picture_1` through `picture_7` (7 subject folders)
+  - `mask`: `mask_1` through `mask_7` (7 subject folders)
+  - `display`: `display_1` through `display_7` (7 subject folders)
+- Dataset merge history reported by the previous agent:
+  - Original `raw`: 5 classes x 5 subfolders x 100 sessions = 2500 sessions / 10000 images. Existing tight crops were expanded by a 10% margin using OpenCV template matching, overwriting the existing crop files. A 20% margin was tested and rejected.
+  - New `raw2`: 1349 sessions. Folder names were irregular Korean/person labels, and IR files were 1-channel grayscale. It was normalized internally to numbered folders such as `live_1`, then 10% recropped while preserving 1-channel grayscale IR.
+  - Final copy merge: `raw2` folders were copied into `raw` with a `+5` folder-number offset to avoid collisions, e.g. `raw2/live/live_1` -> `raw/live/live_6`. The reported merge covered 14 folders and did not modify the original `raw2` source.
+- IR channel state is mixed by source and intentional: original `raw` IR images remain 3-channel RGB-mode files; `raw2`-derived IR images remain 1-channel grayscale files. `dataset.py` should continue reading IR as a single-channel model input.
+- Reported data-cleanup artifacts: `walkthrough.md`, `batch_recrop.py`, `normalize_raw2.py`, `merge_datasets.py`, `mapping_log.json`, `verify_merged.py`. These were not found in the current repo root/docs bounded search on 2026-06-26, so treat them as external or uncommitted unless later located.
+- K-fold requires subjects ≥ K. With the merged data, `--folds 5` is still valid. More subjects + varied capture conditions remain the main quality lever.
 
 ## 3. INT8 quantization investigation — full chronology (why it was abandoned)
 
@@ -65,7 +76,7 @@ Goal: INT8 tflite for the i.MX 8M Plus NPU (float on CPU is 80–220 ms; NPU INT
 - **Ship the float model on CPU.** Android `AntiSpoofingClassifier.java` has been **reverted to float-only, CPU (numThreads 2)** — int8 I/O handling and NNAPI delegate were removed (they're in git history if needed). The float tflite (from `best_model_fold0.pth` via `convert_to_tflite.py`) goes in `app/src/main/assets/anti_spoofing.tflite`; `model_spec.json` is unchanged (float-compatible).
 - Float CPU inference on the board is ~80–220 ms (functional, not fast). NPU acceleration is deferred to the future INT8 effort.
 
-## 5. Verification commands (run on sub-laptop where data lives)
+## 5. Verification commands (train/evaluate on sub-laptop; local WSL is CPU-only)
 ```bash
 source .venv/bin/activate
 python model.py                         # output [1,5]
@@ -89,4 +100,5 @@ python evaluate_tflite.py --models model/anti_spoofing.tflite   # eval a tflite 
 | Date | Change |
 |---|---|
 | 2026-06-25 | Cleaned webcam/ONNX-era remnants; rewrote docs to RGB+IR 5-class / device-capture / TFLite. |
-| 2026-06-26 | GPU training on sub-laptop (5 subjects, float ACER≈0). Full INT8 investigation (PTQ collapse; QAT trains but cannot serialize; eIQ produces broken model) → **INT8 abandoned, ship float-CPU**. Reverted Android to float-only. Deleted dead int8 scripts (train_qat.py, fix_onnx.py, export_onnx.py); convert_to_tflite.py reverted to float-only. Board NPU/NNAPI confirmed ready for a future INT8 effort. |
+| 2026-06-26 | GPU training on sub-laptop (5 subjects, float ACER about 0). Full INT8 investigation (PTQ collapse; QAT trains but cannot serialize; eIQ produces broken model) -> **INT8 abandoned, ship float-CPU**. Reverted Android to float-only. Deleted dead int8 scripts (train_qat.py, fix_onnx.py, export_onnx.py); convert_to_tflite.py reverted to float-only. Board NPU/NNAPI confirmed ready for a future INT8 effort. |
+| 2026-06-26 | Documented dataset recrop/merge history: original `raw` 2500 sessions recropped with 10% margin; `raw2` 1349 sessions normalized, 10% recropped, and copy-merged into `raw` with `+5` folder offset. Verified current local `dataset/raw` totals: 3849 sessions / 15396 images. Latest float TFLite validation: `val_acc=0.8905`, `APCER/BPCER/ACER=0`; `print` recall remains weak at `0.4800`. |

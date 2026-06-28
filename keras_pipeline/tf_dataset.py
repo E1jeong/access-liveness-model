@@ -73,11 +73,21 @@ def load_sample(rgb_path, ir_path, augment=False):
         if random.random() < 0.5:
             rgb = cv2.flip(rgb, 1)
             ir = cv2.flip(ir, 1)
-        # RGB 색상 변화 (정규화 전 uint8 단계에서 적용)
+        angle = random.uniform(-10, 10)
+        h, w = rgb.shape[:2]
+        M = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
+        rgb = cv2.warpAffine(rgb, M, (w, h), flags=cv2.INTER_LINEAR)
+        ir = cv2.warpAffine(ir, M, (w, h), flags=cv2.INTER_LINEAR)
+        # ColorJitter (RGB만): PyTorch ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2)와 동일
         rgb_f = rgb.astype(np.float32)
-        brightness = random.uniform(-0.2, 0.2) * 255
-        contrast = random.uniform(0.8, 1.2)
-        rgb_f = np.clip(rgb_f * contrast + brightness, 0, 255)
+        brightness_f = random.uniform(0.7, 1.3)
+        rgb_f = np.clip(rgb_f * brightness_f, 0, 255)
+        contrast_f = random.uniform(0.7, 1.3)
+        mean_val = rgb_f.mean()
+        rgb_f = np.clip((rgb_f - mean_val) * contrast_f + mean_val, 0, 255)
+        sat_f = random.uniform(0.8, 1.2)
+        gray = (0.299 * rgb_f[:, :, 0] + 0.587 * rgb_f[:, :, 1] + 0.114 * rgb_f[:, :, 2])[:, :, np.newaxis]
+        rgb_f = np.clip(gray + sat_f * (rgb_f - gray), 0, 255)
         rgb = rgb_f.astype(np.uint8)
 
     rgb = rgb.astype(np.float32) / 255.0

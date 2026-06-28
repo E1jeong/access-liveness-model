@@ -4,6 +4,7 @@ import os
 import sys
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
 
@@ -17,6 +18,42 @@ from keras_pipeline.tf_dataset import collect_items, make_dataset
 from keras_pipeline.tf_model import build_dual_mobilenetv2
 
 
+def _run_apcer_self_check():
+    labels = [1, 2, 3, 4]
+    preds = [0, 0, 0, 0]
+    _, _, apcer, _, _ = calculate_validation_metrics(labels, preds)
+    assert apcer == 1.0, f"APCER self-check failed: {apcer}"
+    print("[APCER self-check passed] all-spoof-as-live gives APCER=1.0")
+
+
+def _save_learning_curves(history, val_acers, output_dir):
+    epochs = range(1, len(history.history["loss"]) + 1)
+    plt.figure(figsize=(12, 5))
+
+    plt.subplot(1, 2, 1)
+    plt.plot(epochs, history.history["loss"], label="Train Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title("Training Loss")
+    plt.legend()
+
+    plt.subplot(1, 2, 2)
+    plt.plot(epochs, history.history["acc"], label="Train Acc")
+    if val_acers:
+        plt.plot(epochs[:len(val_acers)], [1 - a for a in val_acers], label="Val (1-ACER)", linestyle="--")
+    plt.xlabel("Epoch")
+    plt.ylabel("Value")
+    plt.title("Training Accuracy / Val ACER")
+    plt.legend()
+
+    plt.tight_layout()
+    os.makedirs(output_dir, exist_ok=True)
+    out_path = os.path.join(output_dir, "learning_curves.png")
+    plt.savefig(out_path)
+    plt.close()
+    print(f"[learning curves saved] {out_path}")
+
+
 class AcerCheckpoint(tf.keras.callbacks.Callback):
     def __init__(self, val_ds, output_path):
         super().__init__()
@@ -24,6 +61,7 @@ class AcerCheckpoint(tf.keras.callbacks.Callback):
         self.output_path = output_path
         self.best_acer = float("inf")
         self.best_metrics = None
+        self.acer_history = []
 
     def on_epoch_end(self, epoch, logs=None):
         labels = []
@@ -42,6 +80,8 @@ class AcerCheckpoint(tf.keras.callbacks.Callback):
         for class_name, recall in zip(CLASS_NAMES, recalls):
             print(f"    {class_name}: {recall:.4f}")
         print(f" -> Val Acc: {acc:.4f} | APCER: {apcer:.4f} | BPCER: {bpcer:.4f} | ACER: {acer:.4f}")
+
+        self.acer_history.append(acer)
 
         if acer < self.best_acer:
             self.best_acer = acer
@@ -77,6 +117,7 @@ def main():
     args = parse_args()
     tf.keras.utils.set_random_seed(args.seed)
 
+    _run_apcer_self_check()
     validate_kfold_coverage(args.data_dir, k_folds=args.folds, seed=args.seed)
     train_items, val_items = collect_items(
         args.data_dir,
@@ -98,10 +139,18 @@ def main():
     val_ds = make_dataset(val_items, batch_size=args.batch_size, shuffle=False, seed=args.seed)
     steps_per_epoch = math.ceil(len(train_items) / args.batch_size)
 
+    # PyTorch CosineAnnealingLR(T_max=epochs, eta_min=lr*0.01)과 동일하게 전체 에포크에 걸쳐 감소
+    total_steps = args.epochs * steps_per_epoch
+    lr_schedule = tf.keras.optimizers.schedules.CosineDecay(
+        initial_learning_rate=args.learning_rate,
+        decay_steps=total_steps,
+        alpha=0.01,
+    )
+
     rgb_weights = None if args.rgb_weights == "none" else args.rgb_weights
     model = build_dual_mobilenetv2(rgb_weights=rgb_weights, dropout=args.dropout)
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=args.learning_rate),
+        optimizer=tf.keras.optimizers.Adam(learning_rate=lr_schedule),
         loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
         metrics=[tf.keras.metrics.SparseCategoricalAccuracy(name="acc")],
     )
@@ -110,12 +159,14 @@ def main():
     output_path = os.path.join(args.output_dir, f"best_model_fold{args.fold_idx}.keras")
     checkpoint = AcerCheckpoint(val_ds=val_ds, output_path=output_path)
 
-    model.fit(
+    history = model.fit(
         train_ds,
         steps_per_epoch=steps_per_epoch,
         epochs=args.epochs,
         callbacks=[checkpoint],
     )
+
+    _save_learning_curves(history, checkpoint.acer_history, args.output_dir)
 
     if checkpoint.best_metrics:
         print("[best]")

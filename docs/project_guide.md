@@ -90,7 +90,16 @@ AI는 매 작업을 다음 순서로 시작한다.
 4. 이번 작업의 성공 기준과 검증 명령을 먼저 정한다.
 5. 현재 단계의 통과 조건을 만족하지 못했다면 다음 단계 작업을 시작하지 않는다.
 
-서브노트북(`.venv`) 기준 기본 확인 명령은 다음과 같다.
+작업 시작 시 먼저 현재 머신을 확인한다.
+
+```bash
+nvidia-smi 2>/dev/null | grep -q "GTX 1660 Ti" && echo "서브노트북" || echo "회사 PC"
+```
+
+- **서브노트북**: GPU 학습·변환 가능. `run_keras_*.sh` 스크립트 사용.
+- **회사 PC**: CPU 전용. 코드·문서 편집 및 git push/pull만 수행. 학습은 실행하지 않는다.
+
+머신별 기본 확인 명령:
 
 ```bash
 git status --short
@@ -98,7 +107,7 @@ git status --short
 .venv/bin/python verify_setup.py
 ```
 
-Keras 파이프라인 확인은 반드시 셸 스크립트를 사용한다(TF GPU `LD_LIBRARY_PATH` 설정 포함):
+Keras 파이프라인 확인은 반드시 셸 스크립트를 사용한다(TF GPU `LD_LIBRARY_PATH` 설정 포함, 서브노트북 전용):
 
 ```bash
 ./run_keras_model.sh

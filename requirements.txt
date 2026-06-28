@@ -1,0 +1,14 @@
+# ── 데이터/학습 공통 의존성 ──────────────────────────────
+# torch / torchvision 은 GPU(CUDA) 빌드를 따로 설치해야 하므로
+# 여기 넣지 않음. 아래 "GPU 설치 순서" 참고.
+numpy==2.4.4
+opencv-python==4.13.0.92
+matplotlib==3.11.0
+tqdm
+
+# ── tflite 변환용 (convert_to_tflite.py 쓸 때만 필요) ─────
+ai_edge_litert==2.1.5
+ai_edge_quantizer==0.7.0
+litert_torch==0.9.1
+onnx==1.21.0
+onnxruntime==1.27.0

@@ -109,24 +109,61 @@ Goal: INT8 tflite for the i.MX 8M Plus NPU (float on CPU is 80–220 ms; NPU INT
 
 ## 5. Verification commands (all run on the sub-laptop)
 
-PyTorch pipeline:
+### PyTorch pipeline (`.venv`, Python 3.12)
+
 ```bash
-source .venv/bin/activate
-python model.py                         # output [1,5]
-python train.py --folds 5               # K-fold train, prints APCER/BPCER/ACER
-python convert_to_tflite.py             # float tflite -> model/anti_spoofing.tflite
-python evaluate_tflite.py --models model/anti_spoofing.tflite
+.venv/bin/python model.py                              # smoke-test: prints output shape [1,5]
+.venv/bin/python verify_setup.py                       # torch version, CUDA, litert_torch check
+.venv/bin/python train.py --folds 5 --epochs 30        # K-fold train, all folds
+.venv/bin/python train.py --folds 5 --max-folds 1      # single fold quick test
+.venv/bin/python convert_to_tflite.py                  # float tflite -> model/anti_spoofing.tflite
+.venv/bin/python evaluate_tflite.py --models model/anti_spoofing.tflite
 ```
 
-Keras/TensorFlow pipeline — **use the shell scripts** (they set `LD_LIBRARY_PATH` for TF GPU):
+`train.py` key args: `--epochs` `--batch-size` `--learning-rate` `--folds` `--max-folds` `--seed` `--num-workers`
+
+### Keras/TensorFlow pipeline (`.venv-tf`, Python 3.11)
+
+**Always use the shell scripts — never run `python keras_pipeline/…` directly.**
+
+Root cause: `libcudnn.so.9` is installed only inside `.venv-tf` pip packages (`site-packages/nvidia/cudnn/lib/`), not in system paths. TensorFlow cannot find it without `LD_LIBRARY_PATH`. The shell scripts set this automatically. PyTorch finds its CUDA libs internally and does not have this requirement.
+
+**Step 1 — verify GPU before training:**
 ```bash
-./run_keras_model.sh                    # model structure check + GPU status
-./run_keras_train.sh --epochs 10 --fold-idx 0
-./run_keras_convert.sh --float --int8
-python evaluate_tflite.py --models model/keras/best_model_fold0_float.tflite model/keras/best_model_fold0_int8.tflite
+./run_keras_model.sh          # prints GPU list and MobileNetV2 model summary
 ```
-Expected Keras checkpoint: `model/keras/best_model_fold0.keras`.
-Do NOT run `python keras_pipeline/train_tf.py` directly — TF will not find the GPU without `LD_LIBRARY_PATH`.
+Expected: `GPU: [PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')]`
+
+**Step 2 — train (one fold at a time):**
+```bash
+./run_keras_train.sh                                        # defaults: fold 0, 10 epochs
+./run_keras_train.sh --epochs 30 --fold-idx 0              # 30 epochs, fold 0
+./run_keras_train.sh --folds 5 --fold-idx 1 --batch-size 16 --learning-rate 5e-5
+```
+`run_keras_train.sh` key args: `--epochs` `--fold-idx` `--folds` `--batch-size` `--learning-rate` `--seed` `--rgb-weights {imagenet,none}` `--dropout`
+
+Outputs:
+- Checkpoint: `model/keras/best_model_fold{N}.keras` (saved on best ACER each epoch)
+- Learning curves: `model/keras/learning_curves.png`
+
+**Step 3 — convert to TFLite:**
+```bash
+./run_keras_convert.sh --float --int8                                   # both modes, fold 0
+./run_keras_convert.sh --float --int8 --fold-idx 1                     # fold 1 model
+./run_keras_convert.sh --float                                          # float only
+./run_keras_convert.sh --int8 --calibration-samples 300                # INT8, fewer samples
+```
+`run_keras_convert.sh` key args: `--float` `--int8` `--fold-idx` `--model-path` `--output-dir` `--calibration-samples` (default 500)
+
+Outputs: `model/keras/best_model_fold{N}_float.tflite`, `model/keras/best_model_fold{N}_int8.tflite`
+
+**Step 4 — evaluate TFLite outputs:**
+```bash
+.venv/bin/python evaluate_tflite.py \
+    --models model/keras/best_model_fold0_float.tflite \
+             model/keras/best_model_fold0_int8.tflite
+```
+Note: `evaluate_tflite.py` uses `.venv` (not `.venv-tf`) — it relies on `ai_edge_litert` which is in `.venv`.
 
 ## 6. Android project
 - Separate repo: `android-anti-spoofing-lab` (GitHub `E1jeong/android-anti-spoofing-lab`), on the Windows side at `C:\Users\Unionbiometrics\Desktop\company\2.source\ubio-anti-spoofing`.
@@ -150,3 +187,5 @@ Do NOT run `python keras_pipeline/train_tf.py` directly — TF will not find the
 | 2026-06-28 | Code refactor across all Python files: (1) `utils.py` created — K-fold helpers, `gather_frame_items`, `calculate_validation_metrics` unified for both pipelines; (2) `model.py` — IR backbone pretrained weight transfer bug fixed (was random-init, now averages 3-ch weights to 1-ch), `Dropout(inplace=True)` removed; (3) `dataset.py` / `tf_dataset.py` — joint RGB+IR spatial augmentation (flip, rotation) and RGB ColorJitter added; (4) `train.py` — `CosineAnnealingLR` scheduler added; (5) `train_tf.py` — duplicate validation forward pass per epoch removed; (6) `convert_*.py` — `os.makedirs("")` crash fixed. |
 | 2026-06-28 | `run_keras_model.sh`, `run_keras_train.sh`, `run_keras_convert.sh` added — wrap `LD_LIBRARY_PATH` setup so TF GPU works without manual env export. |
 | 2026-06-28 | Git repository initialized on sub-laptop and pushed to GitHub (`E1jeong/access-liveness-model`, `master`). Previous commit history was not preserved (force push from unrelated history). Windows Git Credential Manager connected to WSL for authentication. |
+| 2026-06-28 | Keras pipeline synced with PyTorch pipeline: `tf_dataset.py` — rotation ±10° augmentation added (was missing), ColorJitter aligned to PyTorch params (brightness/contrast [0.7,1.3], saturation [0.8,1.2] added); `train_tf.py` — CosineDecay LR added (alpha=0.01, matches PyTorch CosineAnnealingLR), APCER self-check added, learning curve save added (`model/keras/learning_curves.png`). `matplotlib` added to `.venv-tf`. |
+| 2026-06-28 | `.venv` cleaned: `tensorflow` and `keras` removed (were manually installed during early TF-in-PyTorch-venv experiment; not required by any current dependency). `.venv` PyTorch pipeline verified intact after removal. §5 expanded with full script arguments, GPU root-cause explanation, and output file locations. |

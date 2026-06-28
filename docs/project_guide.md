@@ -42,13 +42,18 @@
 > 참고: 과거 PC 웹캠·RGB 단일·REAL/SPOOF 2클래스·ONNX·중앙 250×250 크롭 단계는 폐기되었다. 아래는 현재(디바이스 수집 + RGB+IR 5클래스 + TFLite) 기준이다.
 
 - `[구현 완료]` Android 디바이스에서 취득한 RGB+IR 크롭 이미지(`cropRGB.bmp`/`cropIR.bmp`)를 파일로 전달받아 학습
-- `[구현 완료]` Dual-Input MobileNetV3-Small 기반 5클래스 분류(live/print/picture/mask/display)
-- `[구현 완료]` subject 단위 K-fold 분할 및 누수 검사
-- `[구현 완료]` Accuracy/APCER/BPCER/ACER 평가 및 ACER 기준 best 저장
+- `[구현 완료]` Dual-Input MobileNetV3-Small 기반 5클래스 분류(live/print/picture/mask/display) — PyTorch 파이프라인
+- `[구현 완료]` Dual-Input MobileNetV2 기반 5클래스 분류 — Keras 파이프라인 (`keras_pipeline/`), INT8 양자화 목적
+- `[구현 완료]` subject 단위 K-fold 분할 및 누수 검사 (`utils.py`에 통합, 양쪽 파이프라인 공유)
+- `[구현 완료]` Accuracy/APCER/BPCER/ACER 평가 및 ACER 기준 best 저장 (양쪽 파이프라인)
+- `[구현 완료]` 학습 데이터 증강: RGB+IR 공동 flip/rotation, RGB ColorJitter (양쪽 파이프라인)
 - `[구현 완료]` `litert_torch` 기반 TFLite(NHWC) 변환 및 Android 통합(추론 경로 존재)
-- `[검증 완료]` float 모델 학습(서브노트북 GPU, subject 5명): liveness ACER≈0, 5클래스 val_acc≈0.80
+- `[구현 완료]` `run_keras_*.sh` 실행 스크립트 — TF GPU용 `LD_LIBRARY_PATH` 자동 설정 포함
+- `[검증 완료]` float 모델 학습(서브노트북 GPU, subject 5명): liveness ACER≈0, 5클래스 val_acc≈0.89
+- `[검증 완료]` TF GPU 동작 (`LD_LIBRARY_PATH` 설정 시 GTX 1660 Ti 인식)
+- `[미구현]` Keras/MobileNetV2 실제 학습 실행 (코드는 완성, `./run_keras_train.sh`로 시작 가능)
 - `[미구현]` 독립 test set(현재는 K-fold 교차검증만)
-- `[시도 후 보류]` TFLite INT8 양자화 — PTQ는 활성 양자화에서 붕괴, QAT는 학습은 되나 직렬화(litert/eIQ) 실패. **현재 float-CPU 배포로 결정.** 전체 시도 기록과 향후 방향은 `project_status.md` §3 참조.
+- `[시도 후 보류]` TFLite INT8 양자화 (MobileNetV3 기반) — PTQ는 활성 양자화에서 붕괴, QAT는 학습은 되나 직렬화(litert/eIQ) 실패. **현재 float-CPU 배포로 결정. MobileNetV2 Keras 경로로 재시도 예정.** 전체 시도 기록과 향후 방향은 `project_status.md` §3 참조.
 - `[미구현]` NPU 실기기 검증(보드 NPU/NNAPI 자체는 준비 확인됨 — `project_status.md` §0)
 - `[미구현]` 의존성 lock 파일(재현성)
 
@@ -85,12 +90,18 @@ AI는 매 작업을 다음 순서로 시작한다.
 4. 이번 작업의 성공 기준과 검증 명령을 먼저 정한다.
 5. 현재 단계의 통과 조건을 만족하지 못했다면 다음 단계 작업을 시작하지 않는다.
 
-WSL(`.venv`) 기준 기본 확인 명령은 다음과 같다.
+서브노트북(`.venv`) 기준 기본 확인 명령은 다음과 같다.
 
 ```bash
 git status --short
-.venv/bin/python -m py_compile model.py dataset.py train.py classes.py convert_to_tflite.py verify_setup.py
+.venv/bin/python -m py_compile model.py dataset.py train.py classes.py utils.py convert_to_tflite.py verify_setup.py
 .venv/bin/python verify_setup.py
+```
+
+Keras 파이프라인 확인은 반드시 셸 스크립트를 사용한다(TF GPU `LD_LIBRARY_PATH` 설정 포함):
+
+```bash
+./run_keras_model.sh
 ```
 
 Git 소유권 경고가 발생하면 저장소 설정을 영구 변경하지 말고 해당 명령에만 `-c safe.directory=<절대 경로>`를 적용한다.

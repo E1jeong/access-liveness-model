@@ -2,66 +2,46 @@
 
 This file records changing facts and verification results. Fixed procedures/standards live in [project_guide.md](project_guide.md). Written in English for AI agents; a Korean non-expert summary is in [overview_ko.md](overview_ko.md).
 
-- **Last updated**: 2026-06-26
-- **Headline**: The float model works well (liveness ACER ≈ 0). INT8 quantization for the i.MX 8M Plus NPU was attempted exhaustively and **abandoned for now** — every available PyTorch/Google/NXP-eIQ path failed at a tool boundary. **Decision: ship the float model on CPU; treat INT8/NPU as a separate, properly-resourced future effort.**
+- **Last updated**: 2026-06-28
+- **Headline**: The float model works well (liveness ACER ≈ 0). INT8 quantization for the i.MX 8M Plus NPU was attempted exhaustively and **abandoned for now** — every available PyTorch/Google/NXP-eIQ path failed at a tool boundary. **Decision: ship the float model on CPU; treat INT8/NPU as a separate, properly-resourced future effort.** The TensorFlow/Keras MobileNetV2 pipeline (INT8 candidate) is now code-complete and GPU-ready — real training not yet run.
 
 ## 0. Machine topology (important)
 
 Work spans two machines. Do not assume everything is on one box.
 
-- **Company machine** = this repo's host. WSL Ubuntu 24.04, project `.venv` (Python 3.11, **torch 2.12.1+cpu**). Used for code, docs, git, local data staging, and the Android project (Android project is a *separate* repo on the Windows side, see section 6). `dataset/raw/` currently contains the merged training dataset, but training here is CPU-only and slow. `model/` here holds no committed weights (gitignored).
-- **Sub-laptop** = home GPU box. WSL2 Ubuntu, **GTX 1660 Ti 6GB**, NVIDIA driver 535.98 / reported CUDA 12.2 via `/usr/lib/wsl/lib/nvidia-smi`. PyTorch env `.venv` is Python 3.12 with **torch 2.11.0+cu128** (2.12.1 had no matching CUDA wheel) and has been used for GPU training. TensorFlow/Keras should use a separate env, recommended name `.venv-tf`, so TensorFlow CUDA packages do not disturb the PyTorch env. On 2026-06-26, TensorFlow 2.21.0 in `.venv` still reported `tf.config.list_physical_devices('GPU') == []` after installing `tensorflow[and-cuda]`; likely driver/runtime mismatch. SSH alias `mysub` may not exist on every machine; direct target is `won@e1jeong-home.duckdns.org:2222`. **All real training and quantization experiments should run here** because GPU training is much faster once the active framework sees the GPU. The merged dataset has also been rsynced here.
+- **Sub-laptop** = **this repo's current host** (home GPU box). WSL2 Ubuntu, **GTX 1660 Ti 6GB**, NVIDIA driver **610.43.02** (upgraded 2026-06-28 from 535.98) / CUDA UMD 13.3 / CUDA toolkit 12.0 (`nvcc`). PyTorch env `.venv` is Python 3.12 with **torch 2.11.0+cu128** (`torch.cuda.is_available() == True`, confirmed). TensorFlow/Keras uses separate `.venv-tf` (Python 3.11, TensorFlow 2.21.0). **TF GPU fix confirmed 2026-06-28**: `tf.config.list_physical_devices('GPU')` returns the GTX 1660 Ti when `LD_LIBRARY_PATH` includes the nvidia package lib dirs inside `.venv-tf`. This is now handled automatically by `run_keras_*.sh` scripts — do not run `python keras_pipeline/train_tf.py` directly; use the shell scripts. Git is configured here; push to GitHub and pull on the company machine to sync code. `dataset/raw/` (training data) and `model/` (weights) are gitignored — sync these separately via rsync if needed on other machines. **All real training and quantization experiments run here.**
+- **Company machine** = separate work PC. WSL Ubuntu 24.04, CPU-only torch. Used for Android project and code editing. Pull from GitHub (`git pull origin master`) to receive code updates made on the sub-laptop. The Android project is a *separate* repo on the Windows side (see §6).
 - **Target board** = i.MX 8M Plus running **Android** (accessed via `adb`). NPU = VeriSilicon (Vivante) VIP8000, INT8-only. NPU runtime confirmed present: `/dev/galcore`, `/vendor/lib64/{libGAL,libVSC,libnnrt,libovxlib,libOvx12VXCBinary-*}.so`, and `neuralnetworks_hal_vsi_npu_server: running`. So NPU acceleration is reachable via the Android **NNAPI delegate** once a working INT8 tflite exists.
 
 Typical transfer: edit on company machine → `rsync -avz <file> mysub:~/access-liveness-model/` → run on sub-laptop. Pull artifacts back with `scp -P 2222 won@...:~/access-liveness-model/model/<f> ./model/`.
 
-## 0.1 Handoff for next session (Monday 2026-06-29)
+## 0.1 Handoff for next session
 
-Current stopping point on Friday 2026-06-26:
+Current stopping point on Saturday 2026-06-28:
 
-- The Keras/TensorFlow pipeline was added to explore the TensorFlow-native TFLite/INT8 path, but real training has **not** completed yet.
-- Company-machine code has been patched after the first failed Keras run:
-  - `keras_pipeline/train_tf.py` now uses `.repeat()` with explicit `steps_per_epoch`/`validation_steps`.
-  - Keras checkpoints now save as native `.keras` instead of `.h5`.
-  - `keras_pipeline/convert_h5_to_tflite.py` now uses `--model-path model/keras/best_model_fold0.keras`; `--h5-path` is still accepted as an alias.
-- These patched files must be rsynced to the sub-laptop before retrying:
-  ```bash
-  rsync -avz -e "ssh -p 2222" keras_pipeline/ won@e1jeong-home.duckdns.org:~/access-liveness-model/keras_pipeline/
-  ```
-- Sub-laptop GPU hardware is visible to WSL:
-  - `/usr/lib/wsl/lib/nvidia-smi` shows GTX 1660 Ti 6GB.
-  - Driver shown: 535.98, reported CUDA: 12.2.
-- PyTorch GPU still works in the original sub-laptop `.venv` even after the accidental TensorFlow install:
-  - `torch==2.11.0+cu128`
-  - `torch.cuda.is_available() == True`
-  - device name `NVIDIA GeForce GTX 1660 Ti`
-- TensorFlow GPU does **not** work yet:
-  - Existing `.venv`: TensorFlow 2.21.0 + `tensorflow[and-cuda]` still reports `[]`.
-  - New `.venv-tf`: TensorFlow 2.21.0 also reports `[]` with `Cannot dlopen some GPU libraries`.
-  - Therefore the issue is not just Python env contamination; it is most likely the TensorFlow CUDA package vs Windows/WSL NVIDIA driver/runtime combination.
-- Do **not** delete `nvidia-*` packages from the original `.venv` casually; PyTorch currently works there.
+- NVIDIA driver upgraded to 610.43.02; TF GPU confirmed working via `LD_LIBRARY_PATH` fix.
+- Full code refactor completed and pushed to GitHub (`master`). Repo is now git-managed; use `git pull` instead of rsync for code. Dataset/model weights are still gitignored and must be rsynced separately.
+- Keras/TensorFlow pipeline (MobileNetV2, INT8 candidate) is **code-complete but real training not yet run**.
+- Sub-laptop now has `run_keras_*.sh` scripts in the project root (from git pull). These handle GPU env setup automatically.
 
-Recommended Monday order:
+Next session order (all commands run on the sub-laptop):
 
-1. Decide whether to update the Windows NVIDIA driver on the sub-laptop. If updated, run `wsl --shutdown`, reopen WSL, activate `.venv-tf`, and recheck:
+1. Verify GPU is still visible:
    ```bash
-   cd ~/access-liveness-model
-   source .venv-tf/bin/activate
-   export PATH=/usr/lib/wsl/lib:$PATH
-   python -c "import tensorflow as tf; print(tf.__version__); print(tf.config.list_physical_devices('GPU'))"
+   ./run_keras_model.sh
    ```
-2. If TensorFlow GPU still prints `[]`, either keep Keras training on CPU for a quick functional run or stop and pin a TensorFlow/CUDA/driver-compatible environment deliberately.
-3. After rsyncing the patched `keras_pipeline/`, retry:
+2. Run Keras/MobileNetV2 training (GPU env handled automatically by the script):
    ```bash
-   cd ~/access-liveness-model
-   source .venv-tf/bin/activate
-   python keras_pipeline/train_tf.py --epochs 10 --folds 5 --fold-idx 0
+   ./run_keras_train.sh --epochs 10 --fold-idx 0
    ```
-4. Expected checkpoint if training succeeds: `model/keras/best_model_fold0.keras`.
-5. Convert only after a checkpoint exists:
+3. Expected checkpoint: `model/keras/best_model_fold0.keras`.
+4. Convert to TFLite (float + INT8) after training completes:
    ```bash
-   python keras_pipeline/convert_h5_to_tflite.py --model-path model/keras/best_model_fold0.keras --float
-   python keras_pipeline/convert_h5_to_tflite.py --model-path model/keras/best_model_fold0.keras --int8
+   ./run_keras_convert.sh --float --int8
+   ```
+5. Evaluate both float and INT8 outputs and compare:
+   ```bash
+   .venv/bin/python evaluate_tflite.py --models model/keras/best_model_fold0_float.tflite model/keras/best_model_fold0_int8.tflite
    ```
 
 ## 1. Status summary
@@ -76,7 +56,7 @@ Recommended Monday order:
 - Float tflite I/O (litert_torch, NHWC): inputs `[1,224,224,3]`+`[1,224,224,1]`, output `[1,5]`, all float32. Matches Android `model_spec.json` normalization (RGB ImageNet, IR 0.5/0.5).
 
 ### Not measured / not done
-- TensorFlow/Keras GPU training on the sub-laptop is not yet verified. WSL sees the GTX 1660 Ti through `/usr/lib/wsl/lib/nvidia-smi`, but TensorFlow 2.21.0 did not register a GPU in either the existing `.venv` or the new `.venv-tf`. If `.venv-tf` still reports `[]` after a driver update / WSL restart, stop and pin a compatible TensorFlow/CUDA/driver environment deliberately.
+- TensorFlow/Keras GPU training on the sub-laptop: **GPU detection is now resolved** (see §0), but real training has not been run yet. Use `./run_keras_train.sh` which sets `LD_LIBRARY_PATH` automatically.
 - Generalization to unseen people / lighting / distance. The merged dataset is larger, but the latest result is still validation/CV, not an independent field test.
 - Independent test split (only K-fold CV).
 - Dependency lock files.
@@ -127,30 +107,26 @@ Goal: INT8 tflite for the i.MX 8M Plus NPU (float on CPU is 80–220 ms; NPU INT
 - **Ship the float model on CPU.** Android `AntiSpoofingClassifier.java` has been **reverted to float-only, CPU (numThreads 2)** — int8 I/O handling and NNAPI delegate were removed (they're in git history if needed). The float tflite (from `best_model_fold0.pth` via `convert_to_tflite.py`) goes in `app/src/main/assets/anti_spoofing.tflite`; `model_spec.json` is unchanged (float-compatible).
 - Float CPU inference on the board is ~80–220 ms (functional, not fast). NPU acceleration is deferred to the future INT8 effort.
 
-## 5. Verification commands (train/evaluate on sub-laptop; local WSL is CPU-only)
+## 5. Verification commands (all run on the sub-laptop)
+
+PyTorch pipeline:
 ```bash
 source .venv/bin/activate
 python model.py                         # output [1,5]
 python train.py --folds 5               # K-fold train, prints APCER/BPCER/ACER
 python convert_to_tflite.py             # float tflite -> model/anti_spoofing.tflite
-python evaluate_tflite.py --models model/anti_spoofing.tflite   # eval a tflite on fold-0 val
+python evaluate_tflite.py --models model/anti_spoofing.tflite
 ```
-`evaluate_tflite.py` auto-detects NCHW/NHWC input layout and handles float or int8 I/O; disables XNNPACK (reference kernels) with all CPU threads.
 
-Keras/TensorFlow path (separate env recommended on the sub-laptop):
+Keras/TensorFlow pipeline — **use the shell scripts** (they set `LD_LIBRARY_PATH` for TF GPU):
 ```bash
-cd ~/access-liveness-model
-python3.11 -m venv .venv-tf             # if python3.11 exists; otherwise use python3
-source .venv-tf/bin/activate
-python -m pip install -U pip setuptools wheel
-pip install "tensorflow[and-cuda]" opencv-python numpy
-export PATH=/usr/lib/wsl/lib:$PATH
-python -c "import tensorflow as tf; print(tf.__version__); print(tf.config.list_physical_devices('GPU'))"
-python keras_pipeline/train_tf.py --epochs 10 --folds 5 --fold-idx 0
-python keras_pipeline/convert_h5_to_tflite.py --model-path model/keras/best_model_fold0.keras --float
-python keras_pipeline/convert_h5_to_tflite.py --model-path model/keras/best_model_fold0.keras --int8
+./run_keras_model.sh                    # model structure check + GPU status
+./run_keras_train.sh --epochs 10 --fold-idx 0
+./run_keras_convert.sh --float --int8
+python evaluate_tflite.py --models model/keras/best_model_fold0_float.tflite model/keras/best_model_fold0_int8.tflite
 ```
-Expected Keras checkpoint path: `model/keras/best_model_fold0.keras`. If TensorFlow GPU detection prints `[]`, training can still run on CPU but will be slow; do not assume the PyTorch GPU env implies TensorFlow GPU support.
+Expected Keras checkpoint: `model/keras/best_model_fold0.keras`.
+Do NOT run `python keras_pipeline/train_tf.py` directly — TF will not find the GPU without `LD_LIBRARY_PATH`.
 
 ## 6. Android project
 - Separate repo: `android-anti-spoofing-lab` (GitHub `E1jeong/android-anti-spoofing-lab`), on the Windows side at `C:\Users\Unionbiometrics\Desktop\company\2.source\ubio-anti-spoofing`.
@@ -170,3 +146,7 @@ Expected Keras checkpoint path: `model/keras/best_model_fold0.keras`. If TensorF
 | 2026-06-26 | Documented dataset recrop/merge history: original `raw` 2500 sessions recropped with 10% margin; `raw2` 1349 sessions normalized, 10% recropped, and copy-merged into `raw` with `+5` folder offset. Verified current local `dataset/raw` totals: 3849 sessions / 15396 images. Latest float TFLite validation: `val_acc=0.8905`, `APCER/BPCER/ACER=0`; `print` recall remains weak at `0.4800`. |
 | 2026-06-26 | Added isolated TensorFlow/Keras path under `keras_pipeline/`: existing dataset reader, dual-input MobileNetV2 `.h5` training, and `.h5 -> float/full-INT8 TFLite` conversion. Local smoke tests passed for model construction, dataset split, `.h5 -> float TFLite`, and `.h5 -> full INT8 TFLite` with random weights and small calibration sample. Accuracy/NPU delegate execution are not yet measured. |
 | 2026-06-26 | Keras path first real sub-laptop run exposed environment and script issues: WSL sees GTX 1660 Ti via `/usr/lib/wsl/lib/nvidia-smi`, PyTorch still uses GPU in `.venv`, but TensorFlow 2.21.0 reports no GPU in both the existing `.venv` and new `.venv-tf`; likely TensorFlow CUDA package vs NVIDIA driver/runtime mismatch. CPU training also hit finite `tf.data.Dataset` exhaustion and HDF5 `.h5` save-name collision; `train_tf.py` now repeats train dataset with explicit steps and saves `.keras`, while converter uses `--model-path`. |
+| 2026-06-28 | **NVIDIA driver upgraded** on sub-laptop from 535.98 to 610.43.02 (CUDA UMD 13.3). **TF GPU fix**: `tf.config.list_physical_devices('GPU')` now returns GTX 1660 Ti when `LD_LIBRARY_PATH` includes `.venv-tf` nvidia package lib dirs; root cause was TF not searching pip-installed CUDA paths automatically (unlike PyTorch). |
+| 2026-06-28 | Code refactor across all Python files: (1) `utils.py` created — K-fold helpers, `gather_frame_items`, `calculate_validation_metrics` unified for both pipelines; (2) `model.py` — IR backbone pretrained weight transfer bug fixed (was random-init, now averages 3-ch weights to 1-ch), `Dropout(inplace=True)` removed; (3) `dataset.py` / `tf_dataset.py` — joint RGB+IR spatial augmentation (flip, rotation) and RGB ColorJitter added; (4) `train.py` — `CosineAnnealingLR` scheduler added; (5) `train_tf.py` — duplicate validation forward pass per epoch removed; (6) `convert_*.py` — `os.makedirs("")` crash fixed. |
+| 2026-06-28 | `run_keras_model.sh`, `run_keras_train.sh`, `run_keras_convert.sh` added — wrap `LD_LIBRARY_PATH` setup so TF GPU works without manual env export. |
+| 2026-06-28 | Git repository initialized on sub-laptop and pushed to GitHub (`E1jeong/access-liveness-model`, `master`). Previous commit history was not preserved (force push from unrelated history). Windows Git Credential Manager connected to WSL for authentication. |

@@ -57,28 +57,34 @@ def build_dual_mobilenetv2(
     dropout=0.2,
     classifier_units=1024,
     ir_imagenet_init=True,
+    rgb_input_mobilenet_range=False,
+    average_pool_op=False,
+    fixed_batch_size=None,
 ):
     # Prefix names keep the TFLite signature/input list ordered as RGB first, IR second.
-    rgb_input = keras.Input(shape=(224, 224, 3), name="a_rgb")
-    ir_input = keras.Input(shape=(224, 224, 1), name="b_ir")
+    rgb_input = keras.Input(batch_size=fixed_batch_size, shape=(224, 224, 3), name="a_rgb")
+    ir_input = keras.Input(batch_size=fixed_batch_size, shape=(224, 224, 1), name="b_ir")
 
-    rgb_preprocessed = layers.Lambda(
-        _rgb_current_norm_to_mobilenet_range,
-        name="rgb_to_mobilenet_range",
-    )(rgb_input)
+    if rgb_input_mobilenet_range:
+        rgb_preprocessed = rgb_input
+    else:
+        rgb_preprocessed = layers.Lambda(
+            _rgb_current_norm_to_mobilenet_range,
+            name="rgb_to_mobilenet_range",
+        )(rgb_input)
 
     rgb_backbone = keras.applications.MobileNetV2(
         input_shape=(224, 224, 3),
         include_top=False,
         weights=rgb_weights,
-        pooling="avg",
+        pooling=None if average_pool_op else "avg",
         name="rgb_mobilenetv2",
     )
     ir_backbone = keras.applications.MobileNetV2(
         input_shape=(224, 224, 1),
         include_top=False,
         weights=None,
-        pooling="avg",
+        pooling=None if average_pool_op else "avg",
         name="ir_mobilenetv2",
     )
     if rgb_weights == "imagenet" and ir_imagenet_init:
@@ -86,6 +92,11 @@ def build_dual_mobilenetv2(
 
     rgb_features = rgb_backbone(rgb_preprocessed)
     ir_features = ir_backbone(ir_input)
+    if average_pool_op:
+        rgb_features = layers.AveragePooling2D(pool_size=(7, 7), name="rgb_average_pool")(rgb_features)
+        rgb_features = layers.Reshape((1280,), name="rgb_reshape")(rgb_features)
+        ir_features = layers.AveragePooling2D(pool_size=(7, 7), name="ir_average_pool")(ir_features)
+        ir_features = layers.Reshape((1280,), name="ir_reshape")(ir_features)
     fused = layers.Concatenate(name="fused_features")([rgb_features, ir_features])
     if classifier_units > 0:
         fused = layers.Dense(classifier_units, activation="relu", name="classifier_dense")(fused)

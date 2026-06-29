@@ -3,7 +3,7 @@
 This file records changing facts and verification results. Fixed procedures/standards live in [project_guide.md](project_guide.md). Written in English for AI agents; a Korean non-expert summary is in [overview_ko.md](overview_ko.md).
 
 - **Last updated**: 2026-06-29
-- **Headline**: The PyTorch float model works well (liveness ACER ≈ 0), and the current short-term deployment decision remains float-on-CPU. The previous PyTorch/MobileNetV3 INT8 path was abandoned after exhaustive toolchain failures. The TensorFlow/Keras MobileNetV2 path is now past the first real fold-0 run: full INT8 TFLite conversion and evaluation succeeded without collapse, but the 10-epoch result is not yet product-ready (`INT8 APCER=0.0250`, `BPCER=0.1080`, `ACER=0.0665`). The Keras training code has now been tightened to match the PyTorch recipe more closely; rerun fold 0 before judging Keras quality again.
+- **Headline**: Keras/MobileNetV2 full INT8 conversion now works and evaluates well locally, but i.MX 8M Plus NNAPI/NPU execution is still not working. Fold 4 standard INT8 validation is strong (`APCER=0.0000`, `BPCER=0.0120`, `ACER=0.0060`). A NPU-friendly export (`*_npu_int8.tflite`) removes RGB preprocessing ops and `MEAN` pooling from the TFLite graph, but Android still falls back to CPU with `ANEURALNETWORKS_BAD_DATA ... while adding operation`. Treat all current board timings labeled `Backend CPU` as CPU/XNNPACK, not NPU.
 
 ## 0. Machine topology (important)
 
@@ -21,10 +21,10 @@ Current stopping point on Monday 2026-06-29:
 
 - NVIDIA driver upgraded to 610.43.02; TF GPU confirmed working via `LD_LIBRARY_PATH` fix.
 - Full code refactor completed and pushed to GitHub (`master`). Repo is now git-managed; use `git pull` instead of rsync for code. Dataset/model weights are still gitignored and must be rsynced separately.
-- Keras/TensorFlow pipeline (MobileNetV2, INT8 candidate) completed the first real fold-0 10-epoch run on the sub-laptop. Full INT8 TFLite conversion/evaluation succeeded without constant-class collapse, but metrics are not yet acceptable.
-- Keras training parity fixes are implemented but not fully trained yet: IR MobileNetV2 now copies ImageNet weights from the RGB backbone, the classifier has a 1024-unit hidden layer by default, augmentation order is aligned with PyTorch, and train items are pre-shuffled before `tf.data` buffering.
-- Sub-laptop now has `run_keras_*.sh` scripts in the project root (from git pull). These handle GPU env setup automatically.
-- User is now trying a longer fold-0 30-epoch Keras run.
+- Keras/TensorFlow MobileNetV2 fold 4 artifacts exist under `model/keras/` (gitignored). Standard full INT8: `best_model_fold4_int8.tflite`. NPU-friendly full INT8: `best_model_fold4_npu_int8.tflite`.
+- NPU-friendly export code is implemented in `keras_pipeline/tf_model.py` and `keras_pipeline/convert_h5_to_tflite.py --npu-int8`. It reuses the trained `.keras` weights; no retraining is required for this export.
+- Android test app now supports INT8 I/O and attempts NNAPI first, then CPU/XNNPACK fallback. On target board, the current NPU-friendly model still displays `Backend CPU` and logs `ANEURALNETWORKS_BAD_DATA ... while adding operation`.
+- Model artifacts are not synced by git. Use `rsync`/`scp` for `model/keras/*.keras` and `model/keras/*.tflite`; use git only for code/docs.
 
 Next session order (all commands run on the sub-laptop):
 
@@ -32,19 +32,22 @@ Next session order (all commands run on the sub-laptop):
    ```bash
    ./run_keras_model.sh
    ```
-2. Run or continue the longer Keras/MobileNetV2 fold-0 experiment:
+2. Pull code changes, then verify the fold 4 standard and NPU-friendly INT8 models still match the recorded metrics:
    ```bash
-   ./run_keras_train.sh --epochs 30 --fold-idx 0
+   git pull
+   .venv/bin/python evaluate_tflite.py --models \
+       model/keras/best_model_fold4_int8.tflite \
+       model/keras/best_model_fold4_npu_int8.tflite
    ```
-3. Expected checkpoint: `model/keras/best_model_fold0.keras`.
-4. Convert to TFLite (float + INT8) after training completes:
+3. If the NPU-friendly artifact must be regenerated from the fold 4 checkpoint:
    ```bash
-   ./run_keras_convert.sh --float --int8
+   .venv/bin/python keras_pipeline/convert_h5_to_tflite.py --npu-int8 --fold-idx 4 --calibration-samples 500
    ```
-5. Evaluate both float and INT8 outputs and compare:
+4. Copy only model artifacts between machines; preserve relative paths:
    ```bash
-   .venv/bin/python evaluate_tflite.py --models model/keras/best_model_fold0_float.tflite model/keras/best_model_fold0_int8.tflite
+   rsync -avzR model/keras/best_model_fold4_npu_int8.tflite mysub:~/access-liveness-model/
    ```
+5. On Android, deploy the NPU-friendly model with RGB/IR `mean=[0.5]`, `std=[0.5]`, then check whether the UI says `Backend NNAPI` or `Backend CPU`.
 
 ## 1. Status summary
 
@@ -59,13 +62,14 @@ Next session order (all commands run on the sub-laptop):
 - **First real Keras/MobileNetV2 fold-0 result** (sub-laptop, `./run_keras_train.sh --epochs 10 --fold-idx 0`, 1050-image validation): best Keras checkpoint reported `val_acc=0.7143`, `APCER=0.0612`, `BPCER=0.0160`, `ACER=0.0386`. Later epochs overfit/shifted toward rejecting live users (`epoch10 BPCER=0.2360`), so use the saved best checkpoint rather than the final epoch.
 - **First Keras TFLite evaluation** from that checkpoint: float TFLite `val_acc=0.7295`, `APCER=0.0625`, `BPCER=0.0120`, `ACER=0.0372`; full INT8 TFLite `val_acc=0.7981`, `APCER=0.0250`, `BPCER=0.1080`, `ACER=0.0665`. INT8 did **not** collapse and has real int8 I/O (`RGB int8 [1,224,224,3]`, `IR int8 [1,224,224,1]`, output int8 `[1,5]`), but BPCER is too high and APCER is still above the 2% development target.
 - **Keras parity fixes (implemented, not trained yet)**: `tf_model.py` now mirrors the PyTorch IR initialization pattern by copying ImageNet MobileNetV2 weights into the 1-channel IR backbone, and adds a default 1024-unit classifier hidden layer. `tf_dataset.py` now applies spatial augmentation before resize, ColorJitter after resize, and pre-shuffles train items before `tf.data` buffering to avoid class-blocked batches.
+- **Fold 4 Keras INT8 validation**: standard full INT8 TFLite `val_acc=0.9971`, `APCER=0.0000`, `BPCER=0.0120`, `ACER=0.0060`; NPU-friendly full INT8 TFLite `val_acc=0.9924`, `APCER=0.0000`, `BPCER=0.0320`, `ACER=0.0160`. NPU-friendly export is slightly worse on live recall (`0.9680` vs `0.9880`) but still useful for NPU execution experiments.
+- **NPU-friendly export structure**: `best_model_fold4_npu_int8.tflite` has INT8 RGB/IR inputs `[1,224,224,3]` and `[1,224,224,1]` with quantization `(0.007843..., -1)`, INT8 output `[1,5]`, and no RGB preprocessing `MUL/ADD/SUB` Lambda ops or `MEAN` global pooling. Remaining non-conv ops include `AVERAGE_POOL_2D`, `RESHAPE`, `CONCATENATION`, and `FULLY_CONNECTED`.
 
 ### Not measured / not done
-- Longer Keras/MobileNetV2 training and/or all-fold validation. First fold-0 10-epoch run worked, but the result is preliminary.
 - Generalization to unseen people / lighting / distance. The merged dataset is larger, but the latest result is still validation/CV, not an independent field test.
 - Independent test split (only K-fold CV).
 - Dependency lock files.
-- **INT8 / NPU latency** — Keras INT8 TFLite now exists and runs in CPU/XNNPACK evaluation, but actual i.MX 8M Plus NNAPI/NPU execution and latency are not measured.
+- **INT8 / NPU latency** — Keras INT8 TFLite exists and runs in CPU/XNNPACK evaluation, but actual i.MX 8M Plus NNAPI/NPU execution has not succeeded. Current Android result is `Backend CPU` fallback with `ANEURALNETWORKS_BAD_DATA`.
 
 ## 2. Data status
 - Structure `dataset/raw/<class>/<class>_<subjectId>/<frame>/` with `cropRGB.bmp,cropIR.bmp,RGB.bmp,IR.bmp` (all four required by `dataset.py`). crop* are training inputs; RGB/IR are preserved originals.
@@ -109,8 +113,9 @@ Goal: INT8 tflite for the i.MX 8M Plus NPU (float on CPU is 80–220 ms; NPU INT
 - The QAT *training* code worked — the blocker is serialization, not the ML. Keep that in mind.
 
 ## 4. Current deployment decision
-- **Ship the float model on CPU.** Android `AntiSpoofingClassifier.java` has been **reverted to float-only, CPU (numThreads 2)** — int8 I/O handling and NNAPI delegate were removed (they're in git history if needed). The float tflite (from `best_model_fold0.pth` via `convert_to_tflite.py`) goes in `app/src/main/assets/anti_spoofing.tflite`; `model_spec.json` is unchanged (float-compatible).
-- Float CPU inference on the board is ~80–220 ms (functional, not fast). NPU acceleration is deferred to the future INT8 effort.
+- **Current Android test deployment is an INT8-capable app with NNAPI-first / CPU-XNNPACK fallback.** The checked Android asset may be the NPU-friendly Keras INT8 export; verify `app/src/main/assets/model_spec.json` before replacing the model.
+- For the NPU-friendly Keras INT8 export, Android preprocessing must use RGB mean/std `[0.5]`/`[0.5]` and IR mean/std `[0.5]`/`[0.5]`. The standard Keras/PyTorch exports use RGB ImageNet normalization.
+- **Do not claim NPU acceleration yet.** Current target-board logs show `ANEURALNETWORKS_BAD_DATA ... while adding operation`, and the UI remains `Backend CPU`. CPU fallback is expected until the unsupported operation/quantization constraint is isolated.
 
 ## 5. Verification commands (all run on the sub-laptop)
 
@@ -157,10 +162,11 @@ Outputs:
 ./run_keras_convert.sh --float --int8 --fold-idx 1                     # fold 1 model
 ./run_keras_convert.sh --float                                          # float only
 ./run_keras_convert.sh --int8 --calibration-samples 300                # INT8, fewer samples
+.venv/bin/python keras_pipeline/convert_h5_to_tflite.py --npu-int8 --fold-idx 4 --calibration-samples 500
 ```
-`run_keras_convert.sh` key args: `--float` `--int8` `--fold-idx` `--model-path` `--output-dir` `--calibration-samples` (default 500)
+`run_keras_convert.sh` key args: `--float` `--int8` `--npu-int8` `--fold-idx` `--model-path` `--output-dir` `--calibration-samples` (default 500). If shell scripts have line-ending or `.venv-tf` issues on a given checkout, the direct `.venv/bin/python keras_pipeline/convert_h5_to_tflite.py ...` command is acceptable for conversion.
 
-Outputs: `model/keras/best_model_fold{N}_float.tflite`, `model/keras/best_model_fold{N}_int8.tflite`
+Outputs: `model/keras/best_model_fold{N}_float.tflite`, `model/keras/best_model_fold{N}_int8.tflite`, `model/keras/best_model_fold{N}_npu_int8.tflite`
 
 **Step 4 — evaluate TFLite outputs:**
 ```bash
@@ -168,17 +174,24 @@ Outputs: `model/keras/best_model_fold{N}_float.tflite`, `model/keras/best_model_
     --models model/keras/best_model_fold0_float.tflite \
              model/keras/best_model_fold0_int8.tflite
 ```
+For the current fold 4 INT8 comparison:
+```bash
+.venv/bin/python evaluate_tflite.py \
+    --models model/keras/best_model_fold4_int8.tflite \
+             model/keras/best_model_fold4_npu_int8.tflite
+```
 Note: `evaluate_tflite.py` uses `.venv` (not `.venv-tf`) — it relies on `ai_edge_litert` which is in `.venv`.
 
 ## 6. Android project
 - Separate repo: `android-anti-spoofing-lab` (GitHub `E1jeong/android-anti-spoofing-lab`), on the Windows side at `C:\Users\Unionbiometrics\Desktop\company\2.source\ubio-anti-spoofing`.
 - Inference: `app/src/main/java/com/virditech/ac7000/model/AntiSpoofingClassifier.java`, config `app/src/main/assets/model_spec.json` (rgbInputIndex/irInputIndex, channelOrder, mean/std, outputIsLogits, cropMarginRatio), TFLite 2.16.1.
-- Reverted to float-only inference (see §4).
+- Current app supports FLOAT32/UINT8/INT8 inputs and FLOAT32/INT8 output `[1,5]`. It tries NNAPI first and falls back to CPU/XNNPACK. UI label `Backend CPU` means no NPU acceleration.
+- Current target-board NNAPI failure: `java.lang.IllegalArgumentException: Internal error: Failed to apply delegate: NN API returned error ANEURALNETWORKS_BAD_DATA at line 1131 while adding operation.`
 
 ## 7. Known risks
 - Reproducibility: no dependency lock; data/checkpoints/tflite are gitignored — repo alone cannot reproduce results.
 - Small/possibly-homogeneous dataset (5 subjects) → liveness numbers may be optimistic; needs more subjects + varied capture conditions.
-- INT8/NPU unverified on the target board. Keras INT8 no longer collapses in local evaluation, but board NNAPI/NPU execution and latency remain unmeasured.
+- INT8/NPU currently fails on the target board and falls back to CPU. The next risk-reduction step is isolating whether `AVERAGE_POOL_2D`, `RESHAPE`, `CONCATENATION`, `FULLY_CONNECTED`, or a quantized conv/depthwise parameter constraint triggers `ANEURALNETWORKS_BAD_DATA`.
 
 ## 8. Change log
 | Date | Change |
@@ -196,3 +209,4 @@ Note: `evaluate_tflite.py` uses `.venv` (not `.venv-tf`) — it relies on `ai_ed
 | 2026-06-28 | `.venv` cleaned: `tensorflow` and `keras` removed (were manually installed during early TF-in-PyTorch-venv experiment; not required by any current dependency). `.venv` PyTorch pipeline verified intact after removal. §5 expanded with full script arguments, GPU root-cause explanation, and output file locations. |
 | 2026-06-29 | First real Keras/MobileNetV2 fold-0 10-epoch run completed on the sub-laptop. Best checkpoint: `val_acc=0.7143`, `APCER=0.0612`, `BPCER=0.0160`, `ACER=0.0386`; final epochs overfit/shifted toward higher BPCER, so best checkpoint matters. Converted both float and full INT8 TFLite. Float TFLite: `val_acc=0.7295`, `APCER=0.0625`, `BPCER=0.0120`, `ACER=0.0372`. INT8 TFLite: `val_acc=0.7981`, `APCER=0.0250`, `BPCER=0.1080`, `ACER=0.0665`. INT8 conversion/evaluation did not collapse, but metrics are not yet product-ready and target-board NPU latency is still unmeasured. |
 | 2026-06-29 | Keras training recipe tightened after comparing against PyTorch: IR MobileNetV2 now receives ImageNet weight transfer from the RGB backbone, the Keras classifier defaults to a 1024-unit hidden layer, augmentation order is aligned with PyTorch, and train item order is pre-shuffled before `tf.data` buffering. Smoke checks passed for Python compilation, Keras model construction (`output_shape=(None,5)`, 7,142,981 params), IR weight-copy count (104 layers), and a mixed-class shuffled first batch. Full retraining still required. |
+| 2026-06-29 | Android INT8/NNAPI path restored for testing: app accepts INT8 I/O, tries NNAPI first, and falls back to CPU/XNNPACK while showing `Backend CPU/NNAPI`. Standard Keras fold 4 INT8 validates well (`ACER=0.0060`). Added NPU-friendly export (`--npu-int8`) that removes RGB preprocessing Lambda ops and `MEAN` pooling; it validates at `ACER=0.0160` but still fails target-board NNAPI with `ANEURALNETWORKS_BAD_DATA ... while adding operation`, so NPU acceleration remains unsolved. |

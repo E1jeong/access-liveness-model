@@ -60,6 +60,7 @@ def build_dual_mobilenetv2(
     rgb_input_mobilenet_range=False,
     average_pool_op=False,
     fixed_batch_size=None,
+    classifier_as_conv=False,
 ):
     # Prefix names keep the TFLite signature/input list ordered as RGB first, IR second.
     rgb_input = keras.Input(batch_size=fixed_batch_size, shape=(224, 224, 3), name="a_rgb")
@@ -98,11 +99,21 @@ def build_dual_mobilenetv2(
         ir_features = layers.AveragePooling2D(pool_size=(7, 7), name="ir_average_pool")(ir_features)
         ir_features = layers.Reshape((1280,), name="ir_reshape")(ir_features)
     fused = layers.Concatenate(name="fused_features")([rgb_features, ir_features])
-    if classifier_units > 0:
-        fused = layers.Dense(classifier_units, activation="relu", name="classifier_dense")(fused)
-    if dropout > 0:
-        fused = layers.Dropout(dropout, name="classifier_dropout")(fused)
-    logits = layers.Dense(len(CLASS_NAMES), name="logits")(fused)
+    if classifier_as_conv:
+        if len(fused.shape) == 2:
+            fused = layers.Reshape((1, 1, fused.shape[-1]), name="fused_reshape_4d")(fused)
+        if classifier_units > 0:
+            fused = layers.Conv2D(classifier_units, kernel_size=(1, 1), activation="relu", name="classifier_dense_conv")(fused)
+        if dropout > 0:
+            fused = layers.Dropout(dropout, name="classifier_dropout")(fused)
+        logits_4d = layers.Conv2D(len(CLASS_NAMES), kernel_size=(1, 1), name="logits_conv")(fused)
+        logits = layers.Reshape((len(CLASS_NAMES),), name="logits")(logits_4d)
+    else:
+        if classifier_units > 0:
+            fused = layers.Dense(classifier_units, activation="relu", name="classifier_dense")(fused)
+        if dropout > 0:
+            fused = layers.Dropout(dropout, name="classifier_dropout")(fused)
+        logits = layers.Dense(len(CLASS_NAMES), name="logits")(fused)
     return keras.Model(inputs=[rgb_input, ir_input], outputs=logits, name="dual_mobilenetv2")
 
 

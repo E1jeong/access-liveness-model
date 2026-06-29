@@ -44,18 +44,18 @@
 - `[구현 완료]` Android 디바이스에서 취득한 RGB+IR 크롭 이미지(`cropRGB.bmp`/`cropIR.bmp`)를 파일로 전달받아 학습
 - `[구현 완료]` Dual-Input MobileNetV3-Small 기반 5클래스 분류(live/print/picture/mask/display) — PyTorch 파이프라인
 - `[구현 완료]` Dual-Input MobileNetV2 기반 5클래스 분류 — Keras 파이프라인 (`keras_pipeline/`), INT8 양자화 목적
-- `[구현 완료]` NPU/NNAPI 호환 INT8 변환 경로 (`--npu-int8`): Lambda 레이어 제거, `AveragePooling2D` 명시, `fixed_batch_size=1` — 미검증
 - `[구현 완료]` subject 단위 K-fold 분할 및 누수 검사 (`utils.py`에 통합, 양쪽 파이프라인 공유)
 - `[구현 완료]` Accuracy/APCER/BPCER/ACER 평가 및 ACER 기준 best 저장 (양쪽 파이프라인)
 - `[구현 완료]` 학습 데이터 증강: RGB+IR 공동 flip/rotation, RGB ColorJitter (양쪽 파이프라인)
 - `[구현 완료]` `litert_torch` 기반 TFLite(NHWC) 변환 및 Android 통합(추론 경로 존재)
+- `[구현 완료]` Keras/MobileNetV2 full INT8 및 NPU-friendly INT8 export 경로 (`--npu-int8`)
 - `[구현 완료]` `run_keras_*.sh` 실행 스크립트 — TF GPU용 `LD_LIBRARY_PATH` 자동 설정 포함
 - `[검증 완료]` float 모델 학습(서브노트북 GPU, subject 5명): liveness ACER≈0, 5클래스 val_acc≈0.89
 - `[검증 완료]` TF GPU 동작 (`LD_LIBRARY_PATH` 설정 시 GTX 1660 Ti 인식)
-- `[검증 완료]` Keras/MobileNetV2 실제 학습 실행 — fold-0 10에폭 완료, best ACER=0.0386; 30에폭 재학습 예정
+- `[검증 완료]` Keras/MobileNetV2 fold 4 full INT8 validation: 표준 INT8 `ACER=0.0060`, NPU-friendly INT8 `ACER=0.0160`
 - `[미구현]` 독립 test set(현재는 K-fold 교차검증만)
-- `[시도 후 보류]` TFLite INT8 양자화 (MobileNetV3 기반) — PTQ는 활성 양자화에서 붕괴, QAT는 학습은 되나 직렬화(litert/eIQ) 실패. **현재 float-CPU 배포로 결정. MobileNetV2 Keras 경로로 재시도 예정.** 전체 시도 기록과 향후 방향은 `project_status.md` §3 참조.
-- `[미구현]` NPU 실기기 검증(보드 NPU/NNAPI 자체는 준비 확인됨 — `project_status.md` §0)
+- `[시도 후 보류]` TFLite INT8 양자화 (MobileNetV3 기반) — PTQ는 활성 양자화에서 붕괴, QAT는 학습은 되나 직렬화(litert/eIQ) 실패. 전체 시도 기록은 `project_status.md` §3 참조.
+- `[검증 실패]` NPU 실기기 실행 — Android NNAPI delegate를 시도하지만 현재 Keras NPU-friendly INT8 모델도 `ANEURALNETWORKS_BAD_DATA ... while adding operation`으로 실패하고 CPU/XNNPACK으로 fallback된다. `Backend CPU`는 NPU 가속이 아니다.
 - `[미구현]` 의존성 lock 파일(재현성)
 
 > 작업 머신은 2대다: 코드/문서/Android는 **회사 머신(WSL, torch CPU)**, 학습·양자화·데이터는 **서브노트북(GPU, SSH `mysub`)**. 상세는 `project_status.md` §0.
@@ -194,6 +194,7 @@ dataset/
 - 정규화 명세(단일 출처는 Android `model_spec.json`, 학습은 `dataset.py`가 동일하게 적용):
   - RGB: 224×224, float32, mean `[0.485,0.456,0.406]` / std `[0.229,0.224,0.225]`
   - IR: 224×224, 1채널, float32, mean `[0.5]` / std `[0.5]`
+- NPU-friendly Keras INT8 export는 RGB Lambda 전처리를 TFLite 그래프 밖으로 빼기 때문에 RGB도 mean `[0.5]` / std `[0.5]`를 사용한다. Android `model_spec.json`과 TFLite input quantization을 항상 함께 확인한다.
 - 학습·TFLite 평가가 같은 입력에 대해 같은 전처리 결과를 내는지 테스트한다.
 - INT8 모델은 별도의 양자화 입력 규격을 기록한다.
 
@@ -259,7 +260,7 @@ dataset/
 - **산출물**: 호환성 결과, 미지원 연산자 목록, 초기 latency/FPS 결과
 - **검증**: 실제 i.MX 8M Plus에서 delegate 사용 여부와 추론 결과를 확인한다.
 - **통과 조건**: NPU에서 전체 모델이 실행되고 제품 목표에 접근 가능한 성능을 보인다.
-- **실패 시 처리**: CPU fallback을 성공으로 처리하지 않고 원인을 기록한 뒤 모델 연산 또는 변환 경로를 조정한다.
+- **실패 시 처리**: CPU fallback을 성공으로 처리하지 않는다. 현재 알려진 실패는 `ANEURALNETWORKS_BAD_DATA ... while adding operation`이며, 다음 조사는 남은 `AVERAGE_POOL_2D`, `RESHAPE`, `CONCATENATION`, `FULLY_CONNECTED`, 또는 quantized conv/depthwise 제약을 하나씩 분리하는 방향으로 진행한다.
 
 ### 단계 7. TFLite INT8 최종 변환
 
@@ -295,10 +296,10 @@ dataset/
 
 현재 단계와 검증 수치는 반드시 `project_status.md`에서 확인한다. 현 상태에서 새 AI는 다음 순서로 작업한다.
 
-1. 초기 기준선이 보존됐는지 재검증한다.
-2. 독립 평가와 데이터 누수 검사 규격을 구현 가능한 수준으로 확정한다.
-3. 원본 보존 데이터 구조와 metadata 규격을 확정한다.
-4. 얼굴 검출 및 ROI 파이프라인을 만든다.
-5. 위 단계가 검증된 후에만 사용자에게 신규 데이터 촬영 체크리스트를 제공한다.
+1. `project_status.md`의 최신 fold 4 INT8 / NPU-friendly INT8 평가 수치와 Android NNAPI 실패 로그를 확인한다.
+2. 코드와 모델 artifact가 같은 머신에 있는지 확인한다. 모델 파일은 gitignored이므로 `rsync`/`scp`로 별도 이동한다.
+3. 표준 INT8와 NPU-friendly INT8의 전처리 계약 차이를 확인한다. NPU-friendly export는 RGB/IR 모두 mean `[0.5]`, std `[0.5]`다.
+4. Android에서 `Backend CPU`가 뜨면 NPU 가속 실패로 기록한다. `Backend NNAPI`가 뜨기 전까지 inference timing을 NPU 성능으로 보고하지 않는다.
+5. 다음 NPU 디버깅은 남은 TFLite op를 줄이는 작은 실험으로 진행한다. 후보는 `AVERAGE_POOL_2D`, `RESHAPE`, `CONCATENATION`, `FULLY_CONNECTED`, quantized conv/depthwise 제약이다.
 
-사용자에게 바로 “데이터를 더 촬영해 달라”고 요청하거나, 현재 중앙 크롭 방식으로 데이터를 추가 학습하지 않는다.
+사용자에게 바로 “데이터를 더 촬영해 달라”고 요청하거나 새 학습을 시작하지 않는다. 현재 문제는 우선 데이터/학습 문제가 아니라 NNAPI/NPU 호환성 문제다.

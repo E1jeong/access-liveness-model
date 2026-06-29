@@ -104,11 +104,25 @@ def build_npu_export_model(trained_model):
         rgb_input_mobilenet_range=True,
         average_pool_op=True,
         fixed_batch_size=1,
+        classifier_as_conv=True,
     )
     _copy_nested_weights(trained_model, export_model, "rgb_mobilenetv2")
     _copy_nested_weights(trained_model, export_model, "ir_mobilenetv2")
-    for layer_name in ("classifier_dense", "logits"):
-        export_model.get_layer(layer_name).set_weights(trained_model.get_layer(layer_name).get_weights())
+
+    # classifier_dense (Dense) -> classifier_dense_conv (Conv2D 1x1)
+    trained_dense = trained_model.get_layer("classifier_dense")
+    export_dense_conv = export_model.get_layer("classifier_dense_conv")
+    dense_w, dense_b = trained_dense.get_weights()
+    conv_w = np.reshape(dense_w, (1, 1, 2560, 1024))
+    export_dense_conv.set_weights([conv_w, dense_b])
+
+    # logits (Dense) -> logits_conv (Conv2D 1x1)
+    trained_logits = trained_model.get_layer("logits")
+    export_logits_conv = export_model.get_layer("logits_conv")
+    logits_w, logits_b = trained_logits.get_weights()
+    logits_conv_w = np.reshape(logits_w, (1, 1, 1024, 5))
+    export_logits_conv.set_weights([logits_conv_w, logits_b])
+
     return export_model
 
 

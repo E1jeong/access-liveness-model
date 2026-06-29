@@ -31,3 +31,4 @@ git status --short
 - 현재 머신
 - 마지막으로 완료된 작업 (`project_status.md` §8 변경 로그 기준)
 - 다음으로 할 작업 (`project_status.md` §0.1 핸드오프 기준)
+- 현재 Android/NPU 상태: `Backend CPU`이면 NNAPI 실패 후 CPU/XNNPACK fallback이며, NPU 가속 성공으로 보고하지 않는다.

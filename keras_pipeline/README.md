@@ -18,20 +18,23 @@ than the current PyTorch `.pth` to TFLite path.
 
 ## Files
 
-- `tf_dataset.py`: subject-wise K-fold dataset reader for the existing data.
-- `tf_model.py`: dual-input MobileNetV2 Keras model.
-- `train_tf.py`: trains and saves `.keras` checkpoints.
+- `tf_dataset.py`: subject-wise K-fold dataset reader for the existing data. Spatial augmentation, resize, RGB ColorJitter, and normalization are aligned to the PyTorch pipeline.
+- `tf_model.py`: dual-input MobileNetV2 Keras model. RGB uses ImageNet weights; IR can copy those weights by averaging the first RGB convolution to one channel.
+- `train_tf.py`: trains and saves `.keras` checkpoints by best validation ACER.
 - `convert_h5_to_tflite.py`: converts a saved Keras model to float or full INT8 TFLite.
 
 ## Typical commands
 
-Run on the sub-laptop GPU environment:
+Run on the sub-laptop GPU environment. Use the root scripts because they set the
+TensorFlow CUDA library path automatically:
 
 ```bash
-source .venv/bin/activate
-python keras_pipeline/train_tf.py --epochs 10 --folds 5 --fold-idx 0
-python keras_pipeline/convert_h5_to_tflite.py --model-path model/keras/best_model_fold0.keras --float
-python keras_pipeline/convert_h5_to_tflite.py --model-path model/keras/best_model_fold0.keras --int8
+./run_keras_model.sh
+./run_keras_train.sh --epochs 30 --folds 5 --fold-idx 0
+./run_keras_convert.sh --float --int8 --fold-idx 0
+.venv/bin/python evaluate_tflite.py --models \
+  model/keras/best_model_fold0_float.tflite \
+  model/keras/best_model_fold0_int8.tflite
 ```
 
 The generated files go under `model/keras/` by default.
@@ -41,5 +44,11 @@ access to download RGB backbone weights. If that is not available, run training
 with:
 
 ```bash
-python keras_pipeline/train_tf.py --rgb-weights none
+./run_keras_train.sh --rgb-weights none --no-ir-imagenet-init
 ```
+
+Useful training switches:
+
+- `--classifier-units 1024` is the default and mirrors the PyTorch classifier capacity more closely than a linear head.
+- `--classifier-units 0` reverts to the old linear-head style for ablation.
+- `--no-ir-imagenet-init` disables RGB-to-IR ImageNet weight transfer.

@@ -2,8 +2,8 @@
 
 This file records changing facts and verification results. Fixed procedures/standards live in [project_guide.md](project_guide.md). Written in English for AI agents; a Korean non-expert summary is in [overview_ko.md](overview_ko.md).
 
-- **Last updated**: 2026-06-28
-- **Headline**: The float model works well (liveness ACER ≈ 0). INT8 quantization for the i.MX 8M Plus NPU was attempted exhaustively and **abandoned for now** — every available PyTorch/Google/NXP-eIQ path failed at a tool boundary. **Decision: ship the float model on CPU; treat INT8/NPU as a separate, properly-resourced future effort.** The TensorFlow/Keras MobileNetV2 pipeline (INT8 candidate) is now code-complete and GPU-ready — real training not yet run.
+- **Last updated**: 2026-06-29
+- **Headline**: The PyTorch float model works well (liveness ACER ≈ 0), and the current short-term deployment decision remains float-on-CPU. The previous PyTorch/MobileNetV3 INT8 path was abandoned after exhaustive toolchain failures. The TensorFlow/Keras MobileNetV2 path is now past the first real fold-0 run: full INT8 TFLite conversion and evaluation succeeded without collapse, but the 10-epoch result is not yet product-ready (`INT8 APCER=0.0250`, `BPCER=0.1080`, `ACER=0.0665`). The Keras training code has now been tightened to match the PyTorch recipe more closely; rerun fold 0 before judging Keras quality again.
 
 ## 0. Machine topology (important)
 
@@ -17,22 +17,24 @@ Typical transfer: edit on company machine → `rsync -avz <file> mysub:~/access-
 
 ## 0.1 Handoff for next session
 
-Current stopping point on Saturday 2026-06-28:
+Current stopping point on Monday 2026-06-29:
 
 - NVIDIA driver upgraded to 610.43.02; TF GPU confirmed working via `LD_LIBRARY_PATH` fix.
 - Full code refactor completed and pushed to GitHub (`master`). Repo is now git-managed; use `git pull` instead of rsync for code. Dataset/model weights are still gitignored and must be rsynced separately.
-- Keras/TensorFlow pipeline (MobileNetV2, INT8 candidate) is **code-complete but real training not yet run**.
+- Keras/TensorFlow pipeline (MobileNetV2, INT8 candidate) completed the first real fold-0 10-epoch run on the sub-laptop. Full INT8 TFLite conversion/evaluation succeeded without constant-class collapse, but metrics are not yet acceptable.
+- Keras training parity fixes are implemented but not fully trained yet: IR MobileNetV2 now copies ImageNet weights from the RGB backbone, the classifier has a 1024-unit hidden layer by default, augmentation order is aligned with PyTorch, and train items are pre-shuffled before `tf.data` buffering.
 - Sub-laptop now has `run_keras_*.sh` scripts in the project root (from git pull). These handle GPU env setup automatically.
+- User is now trying a longer fold-0 30-epoch Keras run.
 
 Next session order (all commands run on the sub-laptop):
 
-1. Verify GPU is still visible:
+1. If starting from a fresh shell, verify GPU is still visible:
    ```bash
    ./run_keras_model.sh
    ```
-2. Run Keras/MobileNetV2 training (GPU env handled automatically by the script):
+2. Run or continue the longer Keras/MobileNetV2 fold-0 experiment:
    ```bash
-   ./run_keras_train.sh --epochs 10 --fold-idx 0
+   ./run_keras_train.sh --epochs 30 --fold-idx 0
    ```
 3. Expected checkpoint: `model/keras/best_model_fold0.keras`.
 4. Convert to TFLite (float + INT8) after training completes:
@@ -54,13 +56,16 @@ Next session order (all commands run on the sub-laptop):
 - Added isolated `keras_pipeline/` for TensorFlow/Keras saved-model -> TFLite experiments without modifying `dataset/raw` or the existing PyTorch pipeline. Initial `.h5` checkpoint saving failed on Keras/HDF5 duplicate dataset names, so the pipeline now saves native `.keras` checkpoints and the converter accepts `--model-path` (with `--h5-path` kept as an alias). Smoke-tested random-weight dual MobileNetV2 `.h5 -> float TFLite` and `.h5 -> full INT8 TFLite`; generated TFLite I/O order is RGB input index 0 `[1,224,224,3]`, IR input index 1 `[1,224,224,1]`, output `[1,5]`.
 - **Float TFLite performance** (sub-laptop, merged dataset, fold-0 style validation, 1050 images): `val_acc=0.8905`, `APCER=0.0000`, `BPCER=0.0000`, `ACER=0.0000`. Per-class recall: `live=1.0000`, `print=0.4800`, `picture=0.9900`, `mask=1.0000`, `display=0.9550`. Liveness binary live-vs-spoof is excellent on this validation split, but `print` is weak as a 5-class subclass and is likely being confused with other spoof classes.
 - Float tflite I/O (litert_torch, NHWC): inputs `[1,224,224,3]`+`[1,224,224,1]`, output `[1,5]`, all float32. Matches Android `model_spec.json` normalization (RGB ImageNet, IR 0.5/0.5).
+- **First real Keras/MobileNetV2 fold-0 result** (sub-laptop, `./run_keras_train.sh --epochs 10 --fold-idx 0`, 1050-image validation): best Keras checkpoint reported `val_acc=0.7143`, `APCER=0.0612`, `BPCER=0.0160`, `ACER=0.0386`. Later epochs overfit/shifted toward rejecting live users (`epoch10 BPCER=0.2360`), so use the saved best checkpoint rather than the final epoch.
+- **First Keras TFLite evaluation** from that checkpoint: float TFLite `val_acc=0.7295`, `APCER=0.0625`, `BPCER=0.0120`, `ACER=0.0372`; full INT8 TFLite `val_acc=0.7981`, `APCER=0.0250`, `BPCER=0.1080`, `ACER=0.0665`. INT8 did **not** collapse and has real int8 I/O (`RGB int8 [1,224,224,3]`, `IR int8 [1,224,224,1]`, output int8 `[1,5]`), but BPCER is too high and APCER is still above the 2% development target.
+- **Keras parity fixes (implemented, not trained yet)**: `tf_model.py` now mirrors the PyTorch IR initialization pattern by copying ImageNet MobileNetV2 weights into the 1-channel IR backbone, and adds a default 1024-unit classifier hidden layer. `tf_dataset.py` now applies spatial augmentation before resize, ColorJitter after resize, and pre-shuffles train items before `tf.data` buffering to avoid class-blocked batches.
 
 ### Not measured / not done
-- TensorFlow/Keras GPU training on the sub-laptop: **GPU detection is now resolved** (see §0), but real training has not been run yet. Use `./run_keras_train.sh` which sets `LD_LIBRARY_PATH` automatically.
+- Longer Keras/MobileNetV2 training and/or all-fold validation. First fold-0 10-epoch run worked, but the result is preliminary.
 - Generalization to unseen people / lighting / distance. The merged dataset is larger, but the latest result is still validation/CV, not an independent field test.
 - Independent test split (only K-fold CV).
 - Dependency lock files.
-- **INT8 / NPU latency** — see §3, abandoned.
+- **INT8 / NPU latency** — Keras INT8 TFLite now exists and runs in CPU/XNNPACK evaluation, but actual i.MX 8M Plus NNAPI/NPU execution and latency are not measured.
 
 ## 2. Data status
 - Structure `dataset/raw/<class>/<class>_<subjectId>/<frame>/` with `cropRGB.bmp,cropIR.bmp,RGB.bmp,IR.bmp` (all four required by `dataset.py`). crop* are training inputs; RGB/IR are preserved originals.
@@ -140,7 +145,7 @@ Expected: `GPU: [PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU'
 ./run_keras_train.sh --epochs 30 --fold-idx 0              # 30 epochs, fold 0
 ./run_keras_train.sh --folds 5 --fold-idx 1 --batch-size 16 --learning-rate 5e-5
 ```
-`run_keras_train.sh` key args: `--epochs` `--fold-idx` `--folds` `--batch-size` `--learning-rate` `--seed` `--rgb-weights {imagenet,none}` `--dropout`
+`run_keras_train.sh` key args: `--epochs` `--fold-idx` `--folds` `--batch-size` `--learning-rate` `--seed` `--rgb-weights {imagenet,none}` `--dropout` `--classifier-units` `--no-ir-imagenet-init`
 
 Outputs:
 - Checkpoint: `model/keras/best_model_fold{N}.keras` (saved on best ACER each epoch)
@@ -173,7 +178,7 @@ Note: `evaluate_tflite.py` uses `.venv` (not `.venv-tf`) — it relies on `ai_ed
 ## 7. Known risks
 - Reproducibility: no dependency lock; data/checkpoints/tflite are gitignored — repo alone cannot reproduce results.
 - Small/possibly-homogeneous dataset (5 subjects) → liveness numbers may be optimistic; needs more subjects + varied capture conditions.
-- INT8/NPU unverified (abandoned this round).
+- INT8/NPU unverified on the target board. Keras INT8 no longer collapses in local evaluation, but board NNAPI/NPU execution and latency remain unmeasured.
 
 ## 8. Change log
 | Date | Change |
@@ -189,3 +194,5 @@ Note: `evaluate_tflite.py` uses `.venv` (not `.venv-tf`) — it relies on `ai_ed
 | 2026-06-28 | Git repository initialized on sub-laptop and pushed to GitHub (`E1jeong/access-liveness-model`, `master`). Previous commit history was not preserved (force push from unrelated history). Windows Git Credential Manager connected to WSL for authentication. |
 | 2026-06-28 | Keras pipeline synced with PyTorch pipeline: `tf_dataset.py` — rotation ±10° augmentation added (was missing), ColorJitter aligned to PyTorch params (brightness/contrast [0.7,1.3], saturation [0.8,1.2] added); `train_tf.py` — CosineDecay LR added (alpha=0.01, matches PyTorch CosineAnnealingLR), APCER self-check added, learning curve save added (`model/keras/learning_curves.png`). `matplotlib` added to `.venv-tf`. |
 | 2026-06-28 | `.venv` cleaned: `tensorflow` and `keras` removed (were manually installed during early TF-in-PyTorch-venv experiment; not required by any current dependency). `.venv` PyTorch pipeline verified intact after removal. §5 expanded with full script arguments, GPU root-cause explanation, and output file locations. |
+| 2026-06-29 | First real Keras/MobileNetV2 fold-0 10-epoch run completed on the sub-laptop. Best checkpoint: `val_acc=0.7143`, `APCER=0.0612`, `BPCER=0.0160`, `ACER=0.0386`; final epochs overfit/shifted toward higher BPCER, so best checkpoint matters. Converted both float and full INT8 TFLite. Float TFLite: `val_acc=0.7295`, `APCER=0.0625`, `BPCER=0.0120`, `ACER=0.0372`. INT8 TFLite: `val_acc=0.7981`, `APCER=0.0250`, `BPCER=0.1080`, `ACER=0.0665`. INT8 conversion/evaluation did not collapse, but metrics are not yet product-ready and target-board NPU latency is still unmeasured. |
+| 2026-06-29 | Keras training recipe tightened after comparing against PyTorch: IR MobileNetV2 now receives ImageNet weight transfer from the RGB backbone, the Keras classifier defaults to a 1024-unit hidden layer, augmentation order is aligned with PyTorch, and train item order is pre-shuffled before `tf.data` buffering. Smoke checks passed for Python compilation, Keras model construction (`output_shape=(None,5)`, 7,142,981 params), IR weight-copy count (104 layers), and a mixed-class shuffled first batch. Full retraining still required. |

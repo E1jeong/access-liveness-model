@@ -61,12 +61,10 @@ def load_sample(rgb_path, ir_path, augment=False):
     if rgb is None:
         raise ValueError(f"Failed to read RGB image: {rgb_path}")
     rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
-    rgb = cv2.resize(rgb, IMAGE_SIZE, interpolation=cv2.INTER_AREA)
 
     ir = cv2.imread(ir_path, cv2.IMREAD_GRAYSCALE)
     if ir is None:
         raise ValueError(f"Failed to read IR image: {ir_path}")
-    ir = cv2.resize(ir, IMAGE_SIZE, interpolation=cv2.INTER_AREA)
 
     if augment:
         # 공간 변환: RGB/IR 동일하게 적용해 두 채널 정렬 유지
@@ -78,7 +76,12 @@ def load_sample(rgb_path, ir_path, augment=False):
         M = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
         rgb = cv2.warpAffine(rgb, M, (w, h), flags=cv2.INTER_LINEAR)
         ir = cv2.warpAffine(ir, M, (w, h), flags=cv2.INTER_LINEAR)
-        # ColorJitter (RGB만): PyTorch ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2)와 동일
+
+    rgb = cv2.resize(rgb, IMAGE_SIZE, interpolation=cv2.INTER_AREA)
+    ir = cv2.resize(ir, IMAGE_SIZE, interpolation=cv2.INTER_AREA)
+
+    if augment:
+        # ColorJitter (RGB only): match PyTorch after resize.
         rgb_f = rgb.astype(np.float32)
         brightness_f = random.uniform(0.7, 1.3)
         rgb_f = np.clip(rgb_f * brightness_f, 0, 255)
@@ -107,6 +110,10 @@ def _generator(items, augment=False):
 
 
 def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False):
+    items = list(items)
+    if shuffle:
+        random.Random(seed).shuffle(items)
+
     output_signature = (
         (
             tf.TensorSpec(shape=(224, 224, 3), dtype=tf.float32),

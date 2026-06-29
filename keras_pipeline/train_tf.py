@@ -110,6 +110,8 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--rgb-weights", choices=["imagenet", "none"], default="imagenet")
     parser.add_argument("--dropout", type=float, default=0.2)
+    parser.add_argument("--classifier-units", type=int, default=1024)
+    parser.add_argument("--no-ir-imagenet-init", action="store_true")
     return parser.parse_args()
 
 
@@ -148,7 +150,12 @@ def main():
     )
 
     rgb_weights = None if args.rgb_weights == "none" else args.rgb_weights
-    model = build_dual_mobilenetv2(rgb_weights=rgb_weights, dropout=args.dropout)
+    model = build_dual_mobilenetv2(
+        rgb_weights=rgb_weights,
+        dropout=args.dropout,
+        classifier_units=args.classifier_units,
+        ir_imagenet_init=not args.no_ir_imagenet_init,
+    )
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=lr_schedule),
         loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),

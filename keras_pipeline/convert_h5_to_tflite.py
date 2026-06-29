@@ -85,7 +85,7 @@ def parse_args():
         "--model-path",
         "--h5-path",
         dest="model_path",
-        default="model/keras/best_model_fold0.keras",
+        default=None,
     )
     parser.add_argument("--output-dir", default="model/keras")
     parser.add_argument("--data-dir", default="dataset/raw")
@@ -102,6 +102,11 @@ def main():
     args = parse_args()
     if not args.float and not args.int8:
         raise SystemExit("Choose at least one conversion mode: --float and/or --int8")
+    if args.model_path is None:
+        args.model_path = os.path.join(
+            args.output_dir,
+            f"best_model_fold{args.fold_idx}.keras",
+        )
     if not os.path.exists(args.model_path):
         raise FileNotFoundError(args.model_path)
 

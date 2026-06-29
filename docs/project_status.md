@@ -17,14 +17,15 @@ Typical transfer: edit on company machine → `rsync -avz <file> mysub:~/access-
 
 ## 0.1 Handoff for next session
 
-Current stopping point on Monday 2026-06-29:
+Current stopping point on Sunday 2026-06-29:
 
 - NVIDIA driver upgraded to 610.43.02; TF GPU confirmed working via `LD_LIBRARY_PATH` fix.
 - Full code refactor completed and pushed to GitHub (`master`). Repo is now git-managed; use `git pull` instead of rsync for code. Dataset/model weights are still gitignored and must be rsynced separately.
 - Keras/TensorFlow pipeline (MobileNetV2, INT8 candidate) completed the first real fold-0 10-epoch run on the sub-laptop. Full INT8 TFLite conversion/evaluation succeeded without constant-class collapse, but metrics are not yet acceptable.
-- Keras training parity fixes are implemented but not fully trained yet: IR MobileNetV2 now copies ImageNet weights from the RGB backbone, the classifier has a 1024-unit hidden layer by default, augmentation order is aligned with PyTorch, and train items are pre-shuffled before `tf.data` buffering.
-- Sub-laptop now has `run_keras_*.sh` scripts in the project root (from git pull). These handle GPU env setup automatically.
-- User is now trying a longer fold-0 30-epoch Keras run.
+- Keras training parity fixes implemented: IR MobileNetV2 ImageNet weight transfer, 1024-unit hidden layer, augmentation order aligned with PyTorch, pre-shuffled train items.
+- NPU-specific INT8 export path added to `convert_h5_to_tflite.py`: `build_npu_export_model()` (removes Lambda layer, uses explicit `AveragePooling2D`, `fixed_batch_size=1`), `convert_int8_npu()`, `--npu-int8` flag. Corresponding new params in `tf_model.py`: `rgb_input_mobilenet_range`, `average_pool_op`, `fixed_batch_size`. Not yet smoke-tested.
+- `train_tf.py` now calls `tf.config.experimental.set_memory_growth(gpu, True)` — TF no longer pre-allocates all 6GB VRAM at startup.
+- 30-epoch fold-0 Keras run not yet started.
 
 Next session order (all commands run on the sub-laptop):
 
@@ -157,8 +158,11 @@ Outputs:
 ./run_keras_convert.sh --float --int8 --fold-idx 1                     # fold 1 model
 ./run_keras_convert.sh --float                                          # float only
 ./run_keras_convert.sh --int8 --calibration-samples 300                # INT8, fewer samples
+./run_keras_convert.sh --npu-int8                                       # NPU/NNAPI-friendly INT8 (no Lambda, AveragePooling2D, batch=1)
 ```
-`run_keras_convert.sh` key args: `--float` `--int8` `--fold-idx` `--model-path` `--output-dir` `--calibration-samples` (default 500)
+`run_keras_convert.sh` key args: `--float` `--int8` `--npu-int8` `--fold-idx` `--model-path` `--output-dir` `--calibration-samples` (default 500)
+
+`--npu-int8` vs `--int8` difference: `--npu-int8` uses `build_npu_export_model()` which removes the Lambda normalization layer (bakes normalization into the representative dataset instead) and replaces `pooling="avg"` with an explicit `AveragePooling2D` op — both changes improve NNAPI/eIQ compatibility. Output: `best_model_fold{N}_npu_int8.tflite`.
 
 Outputs: `model/keras/best_model_fold{N}_float.tflite`, `model/keras/best_model_fold{N}_int8.tflite`
 
@@ -196,3 +200,5 @@ Note: `evaluate_tflite.py` uses `.venv` (not `.venv-tf`) — it relies on `ai_ed
 | 2026-06-28 | `.venv` cleaned: `tensorflow` and `keras` removed (were manually installed during early TF-in-PyTorch-venv experiment; not required by any current dependency). `.venv` PyTorch pipeline verified intact after removal. §5 expanded with full script arguments, GPU root-cause explanation, and output file locations. |
 | 2026-06-29 | First real Keras/MobileNetV2 fold-0 10-epoch run completed on the sub-laptop. Best checkpoint: `val_acc=0.7143`, `APCER=0.0612`, `BPCER=0.0160`, `ACER=0.0386`; final epochs overfit/shifted toward higher BPCER, so best checkpoint matters. Converted both float and full INT8 TFLite. Float TFLite: `val_acc=0.7295`, `APCER=0.0625`, `BPCER=0.0120`, `ACER=0.0372`. INT8 TFLite: `val_acc=0.7981`, `APCER=0.0250`, `BPCER=0.1080`, `ACER=0.0665`. INT8 conversion/evaluation did not collapse, but metrics are not yet product-ready and target-board NPU latency is still unmeasured. |
 | 2026-06-29 | Keras training recipe tightened after comparing against PyTorch: IR MobileNetV2 now receives ImageNet weight transfer from the RGB backbone, the Keras classifier defaults to a 1024-unit hidden layer, augmentation order is aligned with PyTorch, and train item order is pre-shuffled before `tf.data` buffering. Smoke checks passed for Python compilation, Keras model construction (`output_shape=(None,5)`, 7,142,981 params), IR weight-copy count (104 layers), and a mixed-class shuffled first batch. Full retraining still required. |
+| 2026-06-29 | NPU INT8 export path added to `convert_h5_to_tflite.py`: `build_npu_export_model()` rebuilds the model without the Lambda normalization layer and with an explicit `AveragePooling2D` op + `fixed_batch_size=1` for NNAPI/eIQ compatibility; `convert_int8_npu()` runs PTQ calibration on this export model; `--npu-int8` CLI flag added to `run_keras_convert.sh`. New params in `tf_model.py`: `rgb_input_mobilenet_range`, `average_pool_op`, `fixed_batch_size`. Not yet smoke-tested. `overview_ko.md` updated with MobileNetV2 vs V3 quantization explanation and NPU speed comparison. |
+| 2026-06-29 | `train_tf.py`: added `tf.config.experimental.set_memory_growth(gpu, True)` — TF now allocates VRAM on demand instead of pre-allocating all 6GB at startup. Confirmed via `nvidia-smi` monitoring during a 3-epoch test run (batch_size=8): VRAM peaked at ~4.8GB during that run; with memory growth enabled, expected peak will reflect actual model+batch usage only. |

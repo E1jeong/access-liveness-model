@@ -44,6 +44,7 @@
 - `[구현 완료]` Android 디바이스에서 취득한 RGB+IR 크롭 이미지(`cropRGB.bmp`/`cropIR.bmp`)를 파일로 전달받아 학습
 - `[구현 완료]` Dual-Input MobileNetV3-Small 기반 5클래스 분류(live/print/picture/mask/display) — PyTorch 파이프라인
 - `[구현 완료]` Dual-Input MobileNetV2 기반 5클래스 분류 — Keras 파이프라인 (`keras_pipeline/`), INT8 양자화 목적
+- `[구현 완료]` NPU/NNAPI 호환 INT8 변환 경로 (`--npu-int8`): Lambda 레이어 제거, `AveragePooling2D` 명시, `fixed_batch_size=1` — 미검증
 - `[구현 완료]` subject 단위 K-fold 분할 및 누수 검사 (`utils.py`에 통합, 양쪽 파이프라인 공유)
 - `[구현 완료]` Accuracy/APCER/BPCER/ACER 평가 및 ACER 기준 best 저장 (양쪽 파이프라인)
 - `[구현 완료]` 학습 데이터 증강: RGB+IR 공동 flip/rotation, RGB ColorJitter (양쪽 파이프라인)
@@ -51,7 +52,7 @@
 - `[구현 완료]` `run_keras_*.sh` 실행 스크립트 — TF GPU용 `LD_LIBRARY_PATH` 자동 설정 포함
 - `[검증 완료]` float 모델 학습(서브노트북 GPU, subject 5명): liveness ACER≈0, 5클래스 val_acc≈0.89
 - `[검증 완료]` TF GPU 동작 (`LD_LIBRARY_PATH` 설정 시 GTX 1660 Ti 인식)
-- `[미구현]` Keras/MobileNetV2 실제 학습 실행 (코드는 완성, `./run_keras_train.sh`로 시작 가능)
+- `[검증 완료]` Keras/MobileNetV2 실제 학습 실행 — fold-0 10에폭 완료, best ACER=0.0386; 30에폭 재학습 예정
 - `[미구현]` 독립 test set(현재는 K-fold 교차검증만)
 - `[시도 후 보류]` TFLite INT8 양자화 (MobileNetV3 기반) — PTQ는 활성 양자화에서 붕괴, QAT는 학습은 되나 직렬화(litert/eIQ) 실패. **현재 float-CPU 배포로 결정. MobileNetV2 Keras 경로로 재시도 예정.** 전체 시도 기록과 향후 방향은 `project_status.md` §3 참조.
 - `[미구현]` NPU 실기기 검증(보드 NPU/NNAPI 자체는 준비 확인됨 — `project_status.md` §0)

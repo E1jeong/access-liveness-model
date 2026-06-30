@@ -2,7 +2,7 @@
 
 This file records changing facts and verification results. Fixed procedures/standards live in [project_guide.md](project_guide.md). Written in English for AI agents; a Korean non-expert summary is in [overview_ko.md](overview_ko.md).
 
-- **Last updated**: 2026-06-29
+- **Last updated**: 2026-06-30
 - **Headline**: Keras/MobileNetV2 full INT8 conversion now works and evaluates well locally, but i.MX 8M Plus NNAPI/NPU execution is still not working. Fold 4 standard INT8 validation is strong (`APCER=0.0000`, `BPCER=0.0120`, `ACER=0.0060`). A NPU-friendly export (`*_npu_int8.tflite`) removes RGB preprocessing ops and `MEAN` pooling from the TFLite graph, but Android still falls back to CPU with `ANEURALNETWORKS_BAD_DATA ... while adding operation`. Treat all current board timings labeled `Backend CPU` as CPU/XNNPACK, not NPU.
 
 ## 0. Machine topology (important)
@@ -63,10 +63,19 @@ Next session order (all commands run on the sub-laptop):
 - **First Keras TFLite evaluation** from that checkpoint: float TFLite `val_acc=0.7295`, `APCER=0.0625`, `BPCER=0.0120`, `ACER=0.0372`; full INT8 TFLite `val_acc=0.7981`, `APCER=0.0250`, `BPCER=0.1080`, `ACER=0.0665`. INT8 did **not** collapse and has real int8 I/O (`RGB int8 [1,224,224,3]`, `IR int8 [1,224,224,1]`, output int8 `[1,5]`), but BPCER is too high and APCER is still above the 2% development target.
 - **Keras parity fixes (implemented, not trained yet)**: `tf_model.py` now mirrors the PyTorch IR initialization pattern by copying ImageNet MobileNetV2 weights into the 1-channel IR backbone, and adds a default 1024-unit classifier hidden layer. `tf_dataset.py` now applies spatial augmentation before resize, ColorJitter after resize, and pre-shuffles train items before `tf.data` buffering to avoid class-blocked batches.
 - **Fold 4 Keras INT8 validation**: standard full INT8 TFLite `val_acc=0.9971`, `APCER=0.0000`, `BPCER=0.0120`, `ACER=0.0060`; NPU-friendly full INT8 TFLite `val_acc=0.9924`, `APCER=0.0000`, `BPCER=0.0320`, `ACER=0.0160`. NPU-friendly export is slightly worse on live recall (`0.9680` vs `0.9880`) but still useful for NPU execution experiments.
-- **NPU-friendly export structure**: `best_model_fold4_npu_int8.tflite` has INT8 RGB/IR inputs `[1,224,224,3]` and `[1,224,224,1]` with quantization `(0.007843..., -1)`, INT8 output `[1,5]`, and no RGB preprocessing `MUL/ADD/SUB` Lambda ops or `MEAN` global pooling. Remaining non-conv ops include `AVERAGE_POOL_2D`, `RESHAPE`, `CONCATENATION`, and `FULLY_CONNECTED`.
+- NPU-friendly export structure: `best_model_fold4_npu_int8.tflite` has INT8 RGB/IR inputs `[1,224,224,3]` and `[1,224,224,1]` with quantization `(0.007843..., -1)`, INT8 output `[1,5]`, and no RGB preprocessing `MUL/ADD/SUB` Lambda ops or `MEAN` global pooling. Remaining non-conv ops include `AVERAGE_POOL_2D`, `RESHAPE`, `CONCATENATION`, and `FULLY_CONNECTED`.
+
+### Field Test Results (2026-06-30)
+- **Test Environment**: Building rooftop (outdoor, strong natural sunlight).
+- **Key Findings**:
+  - **Excellent Spoofing Class Discrimination**: The model distinguishes spoofing classes (print, picture, display, mask) very robustly.
+  - **Liveness (live) Fluctuation beyond 1m**: Within 1m, the model correctly classifies `live`. However, when the subject is 1m or further away, the `live` classification tends to fluctuate/bounce.
+- **Team Hypotheses & Proposed Mitigations**:
+  - **IR Contrast Enhancement**: The team suspects that strong natural light outdoors enhances IR image quality/features, making spoofing characteristics highly visible to the model.
+  - **Temporal Smoothing**: To address the liveness fluctuation beyond 1m, the team proposes implementing multi-frame voting/aggregation or modifying post-processing algorithms to filter out transient class-switching frames.
 
 ### Not measured / not done
-- Generalization to unseen people / lighting / distance. The merged dataset is larger, but the latest result is still validation/CV, not an independent field test.
+- Generalization to unseen people / lighting / distance has had initial outdoor validation, but systematic testing across varied environments is still pending.
 - Independent test split (only K-fold CV).
 - Dependency lock files.
 - **INT8 / NPU latency** — Keras INT8 TFLite exists and runs in CPU/XNNPACK evaluation, but actual i.MX 8M Plus NNAPI/NPU execution has not succeeded. Current Android result is `Backend CPU` fallback with `ANEURALNETWORKS_BAD_DATA`.
@@ -212,3 +221,5 @@ Note: `evaluate_tflite.py` uses `.venv` (not `.venv-tf`) — it relies on `ai_ed
 | 2026-06-29 | Android INT8/NNAPI path restored for testing: app accepts INT8 I/O, tries NNAPI first, and falls back to CPU/XNNPACK while showing `Backend CPU/NNAPI`. Standard Keras fold 4 INT8 validates well (`ACER=0.0060`). Added NPU-friendly export (`--npu-int8`) that removes RGB preprocessing Lambda ops and `MEAN` pooling; it validates at `ACER=0.0160` but still fails target-board NNAPI with `ANEURALNETWORKS_BAD_DATA ... while adding operation`, so NPU acceleration remains unsolved. |
 | 2026-06-29 | `train_tf.py`: added `tf.config.experimental.set_memory_growth(gpu, True)` — TF now allocates VRAM on demand instead of pre-allocating all 6GB at startup. GPU utilization measured during batch_size=8 training: ~19% Epoch 1 (XLA compiling), ~64% Epoch 2+ (compiled). |
 | 2026-06-29 | [pending] Batch size / learning rate scaling experiment not yet run. Current baseline: batch_size=8, lr=1e-4. Plan to test batch_size=32 with lr=4e-4 and batch_size=64 with lr=8e-4 (linear scaling rule). GPU utilization at batch_size=8 averages ~30%, so larger batches are expected to improve both training speed and GPU efficiency. |
+| 2026-06-30 | Conducted outdoor field test (building rooftop). Spoofing detection was highly robust, potentially due to strong natural light enhancing IR features. Liveness detection was stable within 1m but fluctuated at >1m. Proposed multi-frame aggregation or heuristic smoothing as a mitigation. |
+

@@ -10,6 +10,7 @@ dataset/raw/<class>/<class>_<subjectId>/<frame>/
   cropIR.bmp
   RGB.bmp
   IR.bmp
+  face_heatmap.bmp
 ```
 
 The goal is to train a saved Keras model and convert it through the official
@@ -18,8 +19,8 @@ than the current PyTorch `.pth` to TFLite path.
 
 ## Files
 
-- `tf_dataset.py`: subject-wise K-fold dataset reader for the existing data. Spatial augmentation, resize, RGB ColorJitter, and normalization are aligned to the PyTorch pipeline.
-- `tf_model.py`: dual-input MobileNetV2 Keras model. RGB uses ImageNet weights; IR can copy those weights by averaging the first RGB convolution to one channel.
+- `tf_dataset.py`: subject-wise K-fold dataset reader for the existing data. The default Keras path returns five inputs: cropRGB, cropIR, RGB, IR, and heatmap.
+- `tf_model.py`: 5-input multimodal MobileNetV2 Keras model. RGB streams use ImageNet weights; 1-channel streams can copy those weights by averaging the first RGB convolution to one channel.
 - `train_tf.py`: trains and saves `.keras` checkpoints by best validation ACER.
 - `convert_h5_to_tflite.py`: converts a saved Keras model to float, standard full INT8, or NPU-friendly full INT8 TFLite.
 
@@ -47,7 +48,7 @@ The generated files go under `model/keras/` by default.
 - replaces `MEAN` global pooling with `AVERAGE_POOL_2D`,
 - fixes batch size to 1 for Android deployment.
 
-Android `model_spec.json` must match this export: RGB and IR both use `mean=[0.5]`, `std=[0.5]`. The standard float/int8 exports use RGB ImageNet mean/std instead.
+Android `model_spec.json` must match this export: cropRGB/RGB use MobileNet `[-1,1]` input range, cropIR/IR use `mean=[0.5]`, `std=[0.5]`, and heatmap uses raw `0..1`. The standard float/int8 exports use RGB ImageNet mean/std instead.
 
 Current target-board status: the NPU-friendly export still fails Android NNAPI with `ANEURALNETWORKS_BAD_DATA ... while adding operation` and falls back to CPU/XNNPACK. Treat `Backend CPU` as CPU inference, not NPU acceleration.
 

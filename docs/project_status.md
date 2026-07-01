@@ -2,14 +2,14 @@
 
 This file records changing facts and verification results. Fixed procedures/standards live in [project_guide.md](project_guide.md). Written in English for AI agents; a Korean non-expert summary is in [overview_ko.md](overview_ko.md).
 
-- **Last updated**: 2026-06-30
-- **Headline**: Keras/MobileNetV2 full INT8 conversion now works and evaluates well locally, but i.MX 8M Plus NNAPI/NPU execution is still not working. Fold 4 standard INT8 validation is strong (`APCER=0.0000`, `BPCER=0.0120`, `ACER=0.0060`). A NPU-friendly export (`*_npu_int8.tflite`) removes RGB preprocessing ops and `MEAN` pooling from the TFLite graph, but Android still falls back to CPU with `ANEURALNETWORKS_BAD_DATA ... while adding operation`. Treat all current board timings labeled `Backend CPU` as CPU/XNNPACK, not NPU.
+- **Last updated**: 2026-07-01
+- **Headline**: Keras/MobileNetV2 has been moved to a 5-input multimodal pipeline by default: `cropRGB`, `cropIR`, full-frame `RGB`, full-frame `IR`, and `face_heatmap`. The legacy PyTorch/MobileNetV3 code remains reference-only for this work. Float, full INT8, and NPU-friendly INT8 conversion paths have been updated to the 5-input contract and smoke-tested with a random Keras model. Historical fold 4 2-input INT8 metrics are still the latest real trained-model metrics; retraining the new 5-input model is required before comparing accuracy.
 
 ## 0. Machine topology (important)
 
 Work spans two machines. Do not assume everything is on one box.
 
-- **Sub-laptop** = **this repo's current host** (home GPU box). WSL2 Ubuntu, **GTX 1660 Ti 6GB**, NVIDIA driver **610.43.02** (upgraded 2026-06-28 from 535.98) / CUDA UMD 13.3 / CUDA toolkit 12.0 (`nvcc`). PyTorch env `.venv` is Python 3.12 with **torch 2.11.0+cu128** (`torch.cuda.is_available() == True`, confirmed). TensorFlow/Keras uses separate `.venv-tf` (Python 3.11, TensorFlow 2.21.0). **TF GPU fix confirmed 2026-06-28**: `tf.config.list_physical_devices('GPU')` returns the GTX 1660 Ti when `LD_LIBRARY_PATH` includes the nvidia package lib dirs inside `.venv-tf`. This is now handled automatically by `run_keras_*.sh` scripts — do not run `python keras_pipeline/train_tf.py` directly; use the shell scripts. Git is configured here; push to GitHub and pull on the company machine to sync code. `dataset/raw/` (training data) and `model/` (weights) are gitignored — sync these separately via rsync if needed on other machines. **All real training and quantization experiments run here.**
+- **Sub-laptop** = **this repo's current host** (home GPU box). WSL2 Ubuntu, **GTX 1660 Ti 6GB**, NVIDIA driver **610.43.02** (upgraded 2026-06-28 from 535.98) / CUDA UMD 13.3 / CUDA toolkit 12.0 (`nvcc`). Root PyTorch scripts use `.venv` (Python 3.12, **torch 2.11.0+cu128**, `torch.cuda.is_available() == True`, confirmed). TensorFlow/Keras scripts use separate `.venv-tf` (Python 3.11, TensorFlow 2.21.0). **TF GPU fix confirmed 2026-06-28**: `tf.config.list_physical_devices('GPU')` returns the GTX 1660 Ti when `LD_LIBRARY_PATH` includes the nvidia package lib dirs inside `.venv-tf`. This is now handled automatically by `run_keras_*.sh` scripts — do not run `python keras_pipeline/train_tf.py` directly; use the shell scripts. Git is configured here; push to GitHub and pull on the company machine to sync code. `dataset/raw/` (training data) and `model/` (weights) are gitignored — sync these separately via rsync if needed on other machines. **All real training and quantization experiments run here.**
 - **Company machine** = separate work PC. WSL Ubuntu 24.04, CPU-only torch. Used for Android project and code editing. Pull from GitHub (`git pull origin master`) to receive code updates made on the sub-laptop. The Android project is a *separate* repo on the Windows side (see §6).
 - **Target board** = i.MX 8M Plus running **Android** (accessed via `adb`). NPU = VeriSilicon (Vivante) VIP8000, INT8-only. NPU runtime confirmed present: `/dev/galcore`, `/vendor/lib64/{libGAL,libVSC,libnnrt,libovxlib,libOvx12VXCBinary-*}.so`, and `neuralnetworks_hal_vsi_npu_server: running`. So NPU acceleration is reachable via the Android **NNAPI delegate** once a working INT8 tflite exists.
 
@@ -17,37 +17,38 @@ Typical transfer: edit on company machine → `rsync -avz <file> mysub:~/access-
 
 ## 0.1 Handoff for next session
 
-Current stopping point on Monday 2026-06-29:
+Current stopping point on Wednesday 2026-07-01:
 
-- NVIDIA driver upgraded to 610.43.02; TF GPU confirmed working via `LD_LIBRARY_PATH` fix.
-- Full code refactor completed and pushed to GitHub (`master`). Repo is now git-managed; use `git pull` instead of rsync for code. Dataset/model weights are still gitignored and must be rsynced separately.
-- Keras/TensorFlow MobileNetV2 fold 4 artifacts exist under `model/keras/` (gitignored). Standard full INT8: `best_model_fold4_int8.tflite`. NPU-friendly full INT8: `best_model_fold4_npu_int8.tflite`.
-- NPU-friendly export code is implemented in `keras_pipeline/tf_model.py` and `keras_pipeline/convert_h5_to_tflite.py --npu-int8`. It reuses the trained `.keras` weights; no retraining is required for this export.
-- Android test app now supports INT8 I/O and attempts NNAPI first, then CPU/XNNPACK fallback. On target board, the current NPU-friendly model still displays `Backend CPU` and logs `ANEURALNETWORKS_BAD_DATA ... while adding operation`.
+- New branch: `codex/keras-multimodal-deploy`.
+- PyTorch root files are intentionally untouched; Keras is now the active implementation target.
+- Keras training now builds a 5-stream MobileNetV2 model by default. Inputs are ordered at the Keras model boundary as `a_crop_rgb`, `b_crop_ir`, `c_rgb`, `d_ir`, `e_heatmap`.
+- `tf_dataset.py` now loads full-frame RGB/IR and `face_heatmap.bmp` alongside the crop inputs. Missing or unreadable heatmaps fall back to a black 224x224 heatmap, matching the earlier PyTorch multimodal loader policy.
+- TFLite may reorder model inputs in the exported flatbuffer. INT8 representative datasets now yield name-keyed dictionaries, and `evaluate_tflite.py` maps inputs by tensor name instead of channel count.
+- Random-weight smoke checks passed for model construction, dataset batch creation, float conversion, full INT8 conversion, NPU-friendly INT8 conversion, and small-sample TFLite evaluation. A real 5-input training run has not been completed yet.
 - Model artifacts are not synced by git. Use `rsync`/`scp` for `model/keras/*.keras` and `model/keras/*.tflite`; use git only for code/docs.
 
 Next session order (all commands run on the sub-laptop):
 
-1. If starting from a fresh shell, verify GPU is still visible:
+1. If starting from a fresh shell, verify GPU is still visible and the 5-input model builds:
    ```bash
    ./run_keras_model.sh
    ```
-2. Pull code changes, then verify the fold 4 standard and NPU-friendly INT8 models still match the recorded metrics:
+2. Train the new 5-input model before making any accuracy claim:
    ```bash
-   git pull
+   ./run_keras_train.sh --epochs 30 --fold-idx 0
+   ```
+3. Convert the trained 5-input checkpoint:
+   ```bash
+   ./run_keras_convert.sh --float --int8 --npu-int8 --fold-idx 0 --calibration-samples 500
+   ```
+4. Evaluate the converted outputs:
+   ```bash
    .venv/bin/python evaluate_tflite.py --models \
-       model/keras/best_model_fold4_int8.tflite \
-       model/keras/best_model_fold4_npu_int8.tflite
+       model/keras/best_model_fold0_float.tflite \
+       model/keras/best_model_fold0_int8.tflite \
+       model/keras/best_model_fold0_npu_int8.tflite
    ```
-3. If the NPU-friendly artifact must be regenerated from the fold 4 checkpoint:
-   ```bash
-   .venv/bin/python keras_pipeline/convert_h5_to_tflite.py --npu-int8 --fold-idx 4 --calibration-samples 500
-   ```
-4. Copy only model artifacts between machines; preserve relative paths:
-   ```bash
-   rsync -avzR model/keras/best_model_fold4_npu_int8.tflite mysub:~/access-liveness-model/
-   ```
-5. On Android, deploy the NPU-friendly model with RGB/IR `mean=[0.5]`, `std=[0.5]`, then check whether the UI says `Backend NNAPI` or `Backend CPU`.
+5. Android deployment must be updated to feed five tensors before the new model can run on-device. The old Android 2-input asset contract is not compatible with this 5-input branch.
 
 ## 1. Status summary
 
@@ -64,6 +65,8 @@ Next session order (all commands run on the sub-laptop):
 - **Keras parity fixes (implemented, not trained yet)**: `tf_model.py` now mirrors the PyTorch IR initialization pattern by copying ImageNet MobileNetV2 weights into the 1-channel IR backbone, and adds a default 1024-unit classifier hidden layer. `tf_dataset.py` now applies spatial augmentation before resize, ColorJitter after resize, and pre-shuffles train items before `tf.data` buffering to avoid class-blocked batches.
 - **Fold 4 Keras INT8 validation**: standard full INT8 TFLite `val_acc=0.9971`, `APCER=0.0000`, `BPCER=0.0120`, `ACER=0.0060`; NPU-friendly full INT8 TFLite `val_acc=0.9924`, `APCER=0.0000`, `BPCER=0.0320`, `ACER=0.0160`. NPU-friendly export is slightly worse on live recall (`0.9680` vs `0.9880`) but still useful for NPU execution experiments.
 - NPU-friendly export structure: `best_model_fold4_npu_int8.tflite` has INT8 RGB/IR inputs `[1,224,224,3]` and `[1,224,224,1]` with quantization `(0.007843..., -1)`, INT8 output `[1,5]`, and no RGB preprocessing `MUL/ADD/SUB` Lambda ops or `MEAN` global pooling. Remaining non-conv ops include `AVERAGE_POOL_2D`, `RESHAPE`, `CONCATENATION`, and `FULLY_CONNECTED`.
+- **5-input Keras multimodal code path (implemented 2026-07-01)**: `keras_pipeline/tf_dataset.py` returns `(cropRGB, cropIR, RGB, IR, heatmap)` tensors in NHWC format. `keras_pipeline/tf_model.py` builds five MobileNetV2 streams and concatenates 5 x 1280 features before the classifier. `train_tf.py`, `convert_h5_to_tflite.py`, and `evaluate_tflite.py` are wired to this 5-input contract by default.
+- **5-input smoke tests (2026-07-01)**: Python compile passed for Keras dataset/model/train/convert and `evaluate_tflite.py`; `tf_model.py --rgb-weights none --no-gray-imagenet-init` built the 5-input model and produced output shape `(1,5)`; a real dataset batch produced shapes `[2,224,224,3]`, `[2,224,224,1]`, `[2,224,224,3]`, `[2,224,224,1]`, `[2,224,224,1]`; random `.keras` model conversion passed for float, full INT8, and NPU-friendly INT8; `evaluate_tflite.py --max-samples 2` ran on random float/int8 TFLite outputs. These are structural smoke tests, not accuracy measurements.
 
 ### Field Test Results (2026-06-30)
 - **Test Environment**: Building rooftop (outdoor, strong natural sunlight).
@@ -81,7 +84,8 @@ Next session order (all commands run on the sub-laptop):
 - **INT8 / NPU latency** — Keras INT8 TFLite exists and runs in CPU/XNNPACK evaluation, but actual i.MX 8M Plus NNAPI/NPU execution has not succeeded. Current Android result is `Backend CPU` fallback with `ANEURALNETWORKS_BAD_DATA`.
 
 ## 2. Data status
-- Structure `dataset/raw/<class>/<class>_<subjectId>/<frame>/` with `cropRGB.bmp,cropIR.bmp,RGB.bmp,IR.bmp` (all four required by `dataset.py`). crop* are training inputs; RGB/IR are preserved originals.
+- Structure `dataset/raw/<class>/<class>_<subjectId>/<frame>/` with `cropRGB.bmp,cropIR.bmp,RGB.bmp,IR.bmp,face_heatmap.bmp`. The 5-input Keras path uses all five files; the legacy PyTorch dual path still uses only `cropRGB.bmp,cropIR.bmp`.
+- `face_heatmap.bmp` is expected to be a 224x224 single-channel grayscale BMP. It represents the detected face region prior. The Keras loader uses raw `0..1` scaling for heatmap and falls back to all-zero heatmap if a frame is missing the file.
 - **Current merged real data: 3849 sessions / 15396 images** in `dataset/raw/` (verified on the company WSL after merge). Class folders:
   - `live`: `live_1` through `live_11` (11 subject folders)
   - `print`: `print_1` through `print_7` (7 subject folders)
@@ -145,7 +149,7 @@ Goal: INT8 tflite for the i.MX 8M Plus NPU (float on CPU is 80–220 ms; NPU INT
 
 **Always use the shell scripts — never run `python keras_pipeline/…` directly.**
 
-Root cause: `libcudnn.so.9` is installed only inside `.venv-tf` pip packages (`site-packages/nvidia/cudnn/lib/`), not in system paths. TensorFlow cannot find it without `LD_LIBRARY_PATH`. The shell scripts set this automatically. PyTorch finds its CUDA libs internally and does not have this requirement.
+Root cause: `libcudnn.so.9` is installed inside `.venv-tf` pip packages (`site-packages/nvidia/cudnn/lib/`), not in system paths. TensorFlow cannot find it without `LD_LIBRARY_PATH`. The Keras shell scripts set this automatically from `.venv-tf`. PyTorch finds its CUDA libs internally and uses root `.venv` instead.
 
 **Step 1 — verify GPU before training:**
 ```bash
@@ -159,7 +163,14 @@ Expected: `GPU: [PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU'
 ./run_keras_train.sh --epochs 30 --fold-idx 0              # 30 epochs, fold 0
 ./run_keras_train.sh --folds 5 --fold-idx 1 --batch-size 16 --learning-rate 5e-5
 ```
-`run_keras_train.sh` key args: `--epochs` `--fold-idx` `--folds` `--batch-size` `--learning-rate` `--seed` `--rgb-weights {imagenet,none}` `--dropout` `--classifier-units` `--no-ir-imagenet-init`
+`run_keras_train.sh` key args: `--epochs` `--fold-idx` `--folds` `--batch-size` `--learning-rate` `--seed` `--rgb-weights {imagenet,none}` `--dropout` `--classifier-units` `--no-gray-imagenet-init`. Deprecated alias: `--no-ir-imagenet-init`.
+
+Default Keras model inputs:
+- `a_crop_rgb`: crop RGB, ImageNet-normalized during training; NPU-friendly export expects MobileNet `[-1,1]`.
+- `b_crop_ir`: crop IR, `mean=[0.5]`, `std=[0.5]`.
+- `c_rgb`: full-frame RGB, ImageNet-normalized during training; NPU-friendly export expects MobileNet `[-1,1]`.
+- `d_ir`: full-frame IR, `mean=[0.5]`, `std=[0.5]`.
+- `e_heatmap`: face heatmap, raw `0..1`.
 
 Outputs:
 - Checkpoint: `model/keras/best_model_fold{N}.keras` (saved on best ACER each epoch)
@@ -173,9 +184,11 @@ Outputs:
 ./run_keras_convert.sh --int8 --calibration-samples 300                # INT8, fewer samples
 .venv/bin/python keras_pipeline/convert_h5_to_tflite.py --npu-int8 --fold-idx 4 --calibration-samples 500
 ```
-`run_keras_convert.sh` key args: `--float` `--int8` `--npu-int8` `--fold-idx` `--model-path` `--output-dir` `--calibration-samples` (default 500). If shell scripts have line-ending or `.venv-tf` issues on a given checkout, the direct `.venv/bin/python keras_pipeline/convert_h5_to_tflite.py ...` command is acceptable for conversion.
+`run_keras_convert.sh` key args: `--float` `--int8` `--npu-int8` `--fold-idx` `--model-path` `--output-dir` `--calibration-samples` (default 500). If shell scripts have line-ending issues on a given checkout, the direct `.venv/bin/python keras_pipeline/convert_h5_to_tflite.py ...` command is acceptable for conversion.
 
 Outputs: `model/keras/best_model_fold{N}_float.tflite`, `model/keras/best_model_fold{N}_int8.tflite`, `model/keras/best_model_fold{N}_npu_int8.tflite`
+
+For 5-input models, TFLite may list inputs in a different order than the Keras model. Do not bind by index only; bind by tensor name or by the exported `model_spec` contract.
 
 **Step 4 — evaluate TFLite outputs:**
 ```bash
@@ -189,12 +202,12 @@ For the current fold 4 INT8 comparison:
     --models model/keras/best_model_fold4_int8.tflite \
              model/keras/best_model_fold4_npu_int8.tflite
 ```
-Note: `evaluate_tflite.py` uses `.venv` (not `.venv-tf`) — it relies on `ai_edge_litert` which is in `.venv`.
+Note: `evaluate_tflite.py` was verified with `.venv` because `ai_edge_litert` is installed there in the current checkout.
 
 ## 6. Android project
 - Separate repo: `android-anti-spoofing-lab` (GitHub `E1jeong/android-anti-spoofing-lab`), on the Windows side at `C:\Users\Unionbiometrics\Desktop\company\2.source\ubio-anti-spoofing`.
 - Inference: `app/src/main/java/com/virditech/ac7000/model/AntiSpoofingClassifier.java`, config `app/src/main/assets/model_spec.json` (rgbInputIndex/irInputIndex, channelOrder, mean/std, outputIsLogits, cropMarginRatio), TFLite 2.16.1.
-- Current app supports FLOAT32/UINT8/INT8 inputs and FLOAT32/INT8 output `[1,5]`. It tries NNAPI first and falls back to CPU/XNNPACK. UI label `Backend CPU` means no NPU acceleration.
+- Current app supports FLOAT32/UINT8/INT8 inputs and FLOAT32/INT8 output `[1,5]` for the older 2-input contract. The new 5-input Keras branch requires Android-side changes before deployment: add full RGB, full IR, and heatmap input tensors and bind them by tensor name/order from the exported model.
 - Current target-board NNAPI failure: `java.lang.IllegalArgumentException: Internal error: Failed to apply delegate: NN API returned error ANEURALNETWORKS_BAD_DATA at line 1131 while adding operation.`
 
 ## 7. Known risks
@@ -222,4 +235,5 @@ Note: `evaluate_tflite.py` uses `.venv` (not `.venv-tf`) — it relies on `ai_ed
 | 2026-06-29 | `train_tf.py`: added `tf.config.experimental.set_memory_growth(gpu, True)` — TF now allocates VRAM on demand instead of pre-allocating all 6GB at startup. GPU utilization measured during batch_size=8 training: ~19% Epoch 1 (XLA compiling), ~64% Epoch 2+ (compiled). |
 | 2026-06-29 | [pending] Batch size / learning rate scaling experiment not yet run. Current baseline: batch_size=8, lr=1e-4. Plan to test batch_size=32 with lr=4e-4 and batch_size=64 with lr=8e-4 (linear scaling rule). GPU utilization at batch_size=8 averages ~30%, so larger batches are expected to improve both training speed and GPU efficiency. |
 | 2026-06-30 | Conducted outdoor field test (building rooftop). Spoofing detection was highly robust, potentially due to strong natural light enhancing IR features. Liveness detection was stable within 1m but fluctuated at >1m. Proposed multi-frame aggregation or heuristic smoothing as a mitigation. |
+| 2026-07-01 | Added 5-input Keras multimodal pipeline on branch `codex/keras-multimodal-deploy`: dataset loads cropRGB/cropIR/RGB/IR/heatmap, model builds five MobileNetV2 streams, train/convert/evaluate scripts use the new input contract by default, and float/int8/npu-int8 conversion smoke tests passed with a random Keras model. Real 5-input training and Android 5-input integration remain pending. |
 

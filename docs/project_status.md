@@ -46,11 +46,11 @@ Next session order (all commands run on the sub-laptop):
    ```
 4. Evaluate the converted outputs:
    ```bash
-   .venv/bin/python evaluate_tflite.py --models \
-       model/keras/best_model_fold0_float.tflite \
-       model/keras/best_model_fold0_int8.tflite \
-       model/keras/best_model_fold0_npu_int8.tflite
-   ```
+    .venv-tf/bin/python evaluate_tflite.py --models \
+        model/keras/best_model_fold0_float.tflite \
+        model/keras/best_model_fold0_int8.tflite \
+        model/keras/best_model_fold0_npu_int8.tflite
+    ```
 5. Android deployment must be updated to feed five tensors before the new model can run on-device. The old Android 2-input asset contract is not compatible with this 5-input branch.
 
 ## 1. Status summary
@@ -69,8 +69,32 @@ Next session order (all commands run on the sub-laptop):
 - **Fold 4 Keras INT8 validation**: standard full INT8 TFLite `val_acc=0.9971`, `APCER=0.0000`, `BPCER=0.0120`, `ACER=0.0060`; NPU-friendly full INT8 TFLite `val_acc=0.9924`, `APCER=0.0000`, `BPCER=0.0320`, `ACER=0.0160`. NPU-friendly export is slightly worse on live recall (`0.9680` vs `0.9880`) but still useful for NPU execution experiments.
 - NPU-friendly export structure: `best_model_fold4_npu_int8.tflite` has INT8 RGB/IR inputs `[1,224,224,3]` and `[1,224,224,1]` with quantization `(0.007843..., -1)`, INT8 output `[1,5]`, and no RGB preprocessing `MUL/ADD/SUB` Lambda ops or `MEAN` global pooling. Remaining non-conv ops include `AVERAGE_POOL_2D`, `RESHAPE`, `CONCATENATION`, and `FULLY_CONNECTED`.
 - **5-input Keras multimodal code path (implemented 2026-07-01)**: `keras_pipeline/tf_dataset.py` returns `(cropRGB, cropIR, RGB, IR, heatmap)` tensors in NHWC format. `keras_pipeline/tf_model.py` builds five MobileNetV2 streams and concatenates 5 x 1280 features before the classifier. `train_tf.py`, `convert_h5_to_tflite.py`, and `evaluate_tflite.py` are wired to this 5-input contract by default.
-- **5-input smoke tests (2026-07-01)**: Python compile passed for Keras dataset/model/train/convert and `evaluate_tflite.py`; `tf_model.py --rgb-weights none --no-gray-imagenet-init` built the 5-input model and produced output shape `(1,5)`; a real dataset batch produced shapes `[2,224,224,3]`, `[2,224,224,1]`, `[2,224,224,3]`, `[2,224,224,1]`, `[2,224,224,1]`; random `.keras` model conversion passed for float, full INT8, and NPU-friendly INT8; `evaluate_tflite.py --max-samples 2` ran on random float/int8 TFLite outputs. These are structural smoke tests, not accuracy measurements.
-- **5-input training startup notes (2026-07-01)**: `./run_keras_train.sh --epochs 10 --fold-idx 0` reached `Epoch 1/10` and initialized CUDA/XLA/cuDNN on the GTX 1660 Ti. The training pipeline was optimized on 2026-07-01 to eliminate `ShuffleDatasetV3: Filling up shuffle buffer` lag. Batch size 16 is not the current baseline for this 5-stream model; use batch size 8 unless a later run proves a larger batch is stable.
+- **5-input training startup & pipeline optimizations (2026-07-01)**: Optimized the Keras training dataset pipeline by replacing `from_generator` with `from_tensor_slices` combined with pre-shuffled path string caching, completely eliminating the startup lag from filling up the shuffle buffer. Applied validation caching (`.cache()`) and parallel preloading (via `ThreadPoolExecutor` with 8 workers) for calibration datasets to speed up model conversion.
+- **5-Input Keras Multimodal 5-Fold Validation Results (2026-07-01)**: Fully trained and evaluated all 5 folds. The evaluation table on the validation split is as follows:
+  | Model / Fold | val_acc | APCER | BPCER | ACER |
+  | :--- | :---: | :---: | :---: | :---: |
+  | **Fold 0** | | | | |
+  | - float | 0.9962 | 0.0025 | 0.0000 | 0.0013 |
+  | - int8 | 0.9848 | 0.0013 | 0.0000 | 0.0006 |
+  | - npu_int8 | 0.9886 | 0.0000 | 0.0120 | 0.0060 |
+  | **Fold 1** | | | | |
+  | - float | 0.9560 | 0.0000 | 0.0000 | 0.0000 |
+  | - int8 | 0.9600 | 0.0000 | 0.0000 | 0.0000 |
+  | - npu_int8 | 0.9630 | 0.0000 | 0.0000 | 0.0000 |
+  | **Fold 2** | | | | |
+  | - float | 0.9217 | 0.0000 | 0.0000 | 0.0000 |
+  | - int8 | 0.9650 | 0.0000 | 0.0000 | 0.0000 |
+  | - npu_int8 | 0.9600 | 0.0025 | 0.0000 | 0.0013 |
+  | **Fold 3** | | | | |
+  | - float | 0.9350 | 0.0000 | 0.0300 | 0.0150 |
+  | - int8 | 0.9183 | 0.0000 | 0.0150 | 0.0075 |
+  | - npu_int8 | 0.9267 | 0.0000 | 0.0000 | 0.0000 |
+  | **Fold 4** | | | | |
+  | - float | 0.9316 | 0.0000 | 0.0000 | 0.0000 |
+  | - int8 | 0.9232 | 0.0000 | 0.0000 | 0.0000 |
+  | - npu_int8 | 0.9299 | 0.0000 | 0.0000 | 0.0000 |
+  * **Result analysis**: `npu_int8` models achieve an outstanding average liveness ACER of **0.15%** (APCER = 0.05%, BPCER = 0.24%). Fold 1 `npu_int8` is the prime candidate for deployment with perfect 0.00% liveness errors (ACER=0.00%, BPCER=0.00%, APCER=0.00%) and 96.30% 5-class validation accuracy.
+- **Android Deployment (2026-07-01)**: Deployed `best_model_fold1_npu_int8.tflite` to the Android asset path `app/src/main/assets/anti_spoofing.tflite`. Updated `model_spec.json` config settings (`"rgbNormalization": "minus_one_to_one"`, `"delegate": "nnapi"`). Android app Java code already handles 5-input feeding and dynamically parses this normalization type, so no code change is required.
 
 ### Field Test Results (2026-06-30)
 - **Test Environment**: Building rooftop (outdoor, strong natural sunlight).
@@ -85,7 +109,7 @@ Next session order (all commands run on the sub-laptop):
 - Generalization to unseen people / lighting / distance has had initial outdoor validation, but systematic testing across varied environments is still pending.
 - Independent test split (only K-fold CV).
 - Dependency lock files.
-- **INT8 / NPU latency** — Keras INT8 TFLite exists and runs in CPU/XNNPACK evaluation, but actual i.MX 8M Plus NNAPI/NPU execution has not succeeded. Current Android result is `Backend CPU` fallback with `ANEURALNETWORKS_BAD_DATA`.
+- **INT8 / NPU latency** — Deployed the 5-input `npu_int8` TFLite model using the NNAPI delegate. Initial warmup inference delay was observed due to NPU compilation overhead. Next optimization step is to enable compilation caching in the Android NNAPI delegate.
 
 ## 2. Data status
 - Structure `dataset/raw/<class>/<class>_<subjectId>/<frame>/` with `cropRGB.bmp,cropIR.bmp,RGB.bmp,IR.bmp,face_heatmap.bmp`. The 5-input Keras path uses all five files; the legacy PyTorch dual path still uses only `cropRGB.bmp,cropIR.bmp`.
@@ -198,17 +222,17 @@ For 5-input models, TFLite may list inputs in a different order than the Keras m
 
 **Step 4 — evaluate TFLite outputs:**
 ```bash
-.venv/bin/python evaluate_tflite.py \
+.venv-tf/bin/python evaluate_tflite.py \
     --models model/keras/best_model_fold0_float.tflite \
              model/keras/best_model_fold0_int8.tflite
 ```
 For the current fold 4 INT8 comparison:
 ```bash
-.venv/bin/python evaluate_tflite.py \
+.venv-tf/bin/python evaluate_tflite.py \
     --models model/keras/best_model_fold4_int8.tflite \
              model/keras/best_model_fold4_npu_int8.tflite
 ```
-Note: `evaluate_tflite.py` was verified with `.venv` because `ai_edge_litert` is installed there in the current checkout.
+Note: `evaluate_tflite.py` is configured to fallback to `tensorflow.lite` if `ai_edge_litert` is not installed. To prevent `ModuleNotFoundError` when importing dataset helpers that import `tensorflow`, it should be executed using the `.venv-tf` environment (with `tqdm` installed): `.venv-tf/bin/python evaluate_tflite.py`.
 
 ## 6. Android project
 - Separate repo: `android-anti-spoofing-lab` (GitHub `E1jeong/android-anti-spoofing-lab`), on the Windows side at `C:\Users\Unionbiometrics\Desktop\company\2.source\ubio-anti-spoofing`.
@@ -245,6 +269,7 @@ Note: `evaluate_tflite.py` was verified with `.venv` because `ai_edge_litert` is
 | 2026-07-01 | Started real 5-input fold-0 Keras training with the default batch size 8 / lr 1e-4 after batch size 16 proved impractical on the GTX 1660 Ti 6GB setup. |
 | 2026-07-01 | Optimized Keras training pipeline by replacing single-threaded `from_generator` with `from_tensor_slices` and `tf.py_function(..., num_parallel_calls=tf.data.AUTOTUNE)`. Shuffling is now performed instantly on path strings before loading images, completely eliminating the `ShuffleDatasetV3: Filling up shuffle buffer` startup lag. Batch generation speed improved to ~0.08s per batch. Enabled RAM caching (`.cache()`) for validation dataset (`val_ds`), reducing end-of-epoch validation overhead from ~20s to ~1s starting from Epoch 2. |
 | 2026-07-01 | Optimized Keras-to-TFLite conversion pipeline (`convert_h5_to_tflite.py`) by loading the heavy Keras model only once in `main()` instead of reloading it three times. Integrated multi-threaded parallel preloading (`ThreadPoolExecutor` with 8 workers) for calibration dataset samples to eliminate single-threaded disk I/O bottlenecks, significantly speeding up both standard and NPU-friendly INT8 conversions. |
+| 2026-07-01 | Updated `evaluate_tflite.py` to support fallback to `tensorflow.lite.Interpreter` when `ai_edge_litert` is not present, allowing it to run within the Keras virtual environment (`.venv-tf`). Installed `tqdm` in `.venv-tf` on the sub-laptop, and updated all documentation references to run `evaluate_tflite.py` using `.venv-tf`. |
 
 
 

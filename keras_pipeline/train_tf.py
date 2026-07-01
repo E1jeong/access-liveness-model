@@ -147,7 +147,7 @@ def main():
     train_ds = make_multimodal_dataset(
         train_items, batch_size=args.batch_size, shuffle=True, seed=args.seed, augment=True
     ).repeat()
-    val_ds = make_multimodal_dataset(val_items, batch_size=args.batch_size, shuffle=False, seed=args.seed)
+    val_ds = make_multimodal_dataset(val_items, batch_size=args.batch_size, shuffle=False, seed=args.seed).cache()
     steps_per_epoch = math.ceil(len(train_items) / args.batch_size)
 
     # PyTorch CosineAnnealingLR(T_max=epochs, eta_min=lr*0.01)과 동일하게 전체 에포크에 걸쳐 감소

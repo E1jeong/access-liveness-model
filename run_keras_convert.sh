@@ -1,24 +1,32 @@
 #!/usr/bin/env bash
-# keras_pipeline/convert_h5_to_tflite.py — TFLite 변환 (float / INT8)
+# Convert a saved Keras 5-input multimodal model to TFLite.
 #
-# 사용 예:
-#   ./run_keras_convert.sh --float --int8                    # 기본 경로 모델 변환
-#   ./run_keras_convert.sh --float --int8 --fold-idx 1       # fold 1 모델 변환
-#   ./run_keras_convert.sh --float                           # float 전용
-#   ./run_keras_convert.sh --int8 --calibration-samples 300 # INT8 전용, 샘플 수 조정
-#   ./run_keras_convert.sh --npu-int8                        # NPU/NNAPI 호환 INT8 (Lambda 제거, AveragePooling2D, batch=1)
+# Examples:
+#   ./run_keras_convert.sh --float --int8
+#   ./run_keras_convert.sh --float --int8 --fold-idx 1
+#   ./run_keras_convert.sh --npu-int8 --fold-idx 4 --calibration-samples 500
 set -e
 cd "$(dirname "$0")"
 
-export LD_LIBRARY_PATH="$(find .venv-tf/lib -path "*/nvidia/*/lib" -type d | tr '\n' ':')"
+PYTHON=".venv-tf/bin/python"
+VENV_DIR=".venv-tf"
 
-echo "=== GPU 상태 확인 ==="
-.venv-tf/bin/python - <<'EOF'
+if [ ! -x "$PYTHON" ]; then
+  echo "Keras virtualenv not found: $PYTHON" >&2
+  echo "Keras/TensorFlow must run from .venv-tf. Root PyTorch scripts use .venv." >&2
+  exit 1
+fi
+
+export LD_LIBRARY_PATH="$(find "$VENV_DIR/lib" -path "*/nvidia/*/lib" -type d | tr '\n' ':')"
+
+echo "=== Python environment: $VENV_DIR ==="
+echo "=== GPU status ==="
+"$PYTHON" - <<'EOF'
 import tensorflow as tf
-gpus = tf.config.list_physical_devices('GPU')
-print(f"GPU: {gpus if gpus else '없음 (CPU로 변환됩니다)'}")
+gpus = tf.config.list_physical_devices("GPU")
+print(f"GPU: {gpus if gpus else 'none (CPU)'}")
 EOF
 
 echo ""
-echo "=== TFLite 변환 시작 ==="
-.venv-tf/bin/python -m keras_pipeline.convert_h5_to_tflite "$@"
+echo "=== Converting Keras 5-input multimodal model ==="
+"$PYTHON" -m keras_pipeline.convert_h5_to_tflite "$@"

@@ -1,17 +1,27 @@
 #!/usr/bin/env bash
-# keras_pipeline/tf_model.py — 모델 구조 확인 (학습 없이 구조만 출력)
+# Print the Keras multimodal model summary without training.
 set -e
 cd "$(dirname "$0")"
 
-export LD_LIBRARY_PATH="$(find .venv-tf/lib -path "*/nvidia/*/lib" -type d | tr '\n' ':')"
+PYTHON=".venv-tf/bin/python"
+VENV_DIR=".venv-tf"
 
-echo "=== GPU 상태 확인 ==="
-.venv-tf/bin/python - <<'EOF'
+if [ ! -x "$PYTHON" ]; then
+  echo "Keras virtualenv not found: $PYTHON" >&2
+  echo "Keras/TensorFlow must run from .venv-tf. Root PyTorch scripts use .venv." >&2
+  exit 1
+fi
+
+export LD_LIBRARY_PATH="$(find "$VENV_DIR/lib" -path "*/nvidia/*/lib" -type d | tr '\n' ':')"
+
+echo "=== Python environment: $VENV_DIR ==="
+echo "=== GPU status ==="
+"$PYTHON" - <<'EOF'
 import tensorflow as tf
-gpus = tf.config.list_physical_devices('GPU')
-print(f"GPU: {gpus if gpus else '없음 (CPU로 실행)'}")
+gpus = tf.config.list_physical_devices("GPU")
+print(f"GPU: {gpus if gpus else 'none (CPU)'}")
 EOF
 
 echo ""
-echo "=== MobileNetV2 듀얼 입력 모델 구조 출력 ==="
-.venv-tf/bin/python -m keras_pipeline.tf_model "$@"
+echo "=== MobileNetV2 5-input multimodal model summary ==="
+"$PYTHON" -m keras_pipeline.tf_model "$@"

@@ -17,8 +17,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from classes import CLASS_NAMES
 from utils import validate_kfold_coverage, calculate_validation_metrics
-from keras_pipeline.tf_dataset import collect_items, make_dataset
-from keras_pipeline.tf_model import build_dual_mobilenetv2
+from keras_pipeline.tf_dataset import collect_items, make_multimodal_dataset
+from keras_pipeline.tf_model import build_multimodal_mobilenetv2
 
 
 def _run_apcer_self_check():
@@ -102,7 +102,7 @@ class AcerCheckpoint(tf.keras.callbacks.Callback):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train a Keras dual-input MobileNetV2 anti-spoofing model.")
+    parser = argparse.ArgumentParser(description="Train a Keras 5-input multimodal MobileNetV2 anti-spoofing model.")
     parser.add_argument("--data-dir", default="dataset/raw")
     parser.add_argument("--output-dir", default="model/keras")
     parser.add_argument("--epochs", type=int, default=10)
@@ -114,7 +114,12 @@ def parse_args():
     parser.add_argument("--rgb-weights", choices=["imagenet", "none"], default="imagenet")
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--classifier-units", type=int, default=1024)
-    parser.add_argument("--no-ir-imagenet-init", action="store_true")
+    parser.add_argument("--no-gray-imagenet-init", action="store_true")
+    parser.add_argument(
+        "--no-ir-imagenet-init",
+        action="store_true",
+        help="Deprecated alias for --no-gray-imagenet-init.",
+    )
     return parser.parse_args()
 
 
@@ -138,10 +143,10 @@ def main():
 
     # val_ds는 AcerCheckpoint에서만 사용 — model.fit에 validation_data를 넘기지 않아
     # 에포크당 검증 forward pass가 1회만 실행된다.
-    train_ds = make_dataset(
+    train_ds = make_multimodal_dataset(
         train_items, batch_size=args.batch_size, shuffle=True, seed=args.seed, augment=True
     ).repeat()
-    val_ds = make_dataset(val_items, batch_size=args.batch_size, shuffle=False, seed=args.seed)
+    val_ds = make_multimodal_dataset(val_items, batch_size=args.batch_size, shuffle=False, seed=args.seed)
     steps_per_epoch = math.ceil(len(train_items) / args.batch_size)
 
     # PyTorch CosineAnnealingLR(T_max=epochs, eta_min=lr*0.01)과 동일하게 전체 에포크에 걸쳐 감소
@@ -153,11 +158,11 @@ def main():
     )
 
     rgb_weights = None if args.rgb_weights == "none" else args.rgb_weights
-    model = build_dual_mobilenetv2(
+    model = build_multimodal_mobilenetv2(
         rgb_weights=rgb_weights,
         dropout=args.dropout,
         classifier_units=args.classifier_units,
-        ir_imagenet_init=not args.no_ir_imagenet_init,
+        gray_imagenet_init=not (args.no_gray_imagenet_init or args.no_ir_imagenet_init),
     )
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=lr_schedule),

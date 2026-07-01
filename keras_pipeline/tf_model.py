@@ -43,6 +43,36 @@ def _transfer_imagenet_weights_to_ir_backbone(source_backbone, ir_backbone):
     print(f"[IR backbone] copied ImageNet weights into {copied} MobileNetV2 layers")
 
 
+def _transfer_imagenet_weights_to_gray_backbone(source_backbone, gray_backbone, label):
+    """Initialize a 1-channel MobileNetV2 from a 3-channel MobileNetV2."""
+    copied = 0
+    for source_layer in source_backbone.layers:
+        try:
+            target_layer = gray_backbone.get_layer(source_layer.name)
+        except ValueError:
+            continue
+
+        source_weights = source_layer.get_weights()
+        if not source_weights:
+            continue
+
+        if source_layer.name == "Conv1":
+            kernel = source_weights[0]
+            averaged_kernel = kernel.mean(axis=2, keepdims=True)
+            target_layer.set_weights([averaged_kernel])
+            copied += 1
+            continue
+
+        target_weights = target_layer.get_weights()
+        if len(source_weights) != len(target_weights):
+            continue
+        if all(sw.shape == tw.shape for sw, tw in zip(source_weights, target_weights)):
+            target_layer.set_weights(source_weights)
+            copied += 1
+
+    print(f"[{label} backbone] copied ImageNet weights into {copied} MobileNetV2 layers")
+
+
 def _rgb_current_norm_to_mobilenet_range(x):
     # Input follows the existing Android/PyTorch contract:
     # rgb = (raw_0_1 - ImageNet_mean) / ImageNet_std.
@@ -117,30 +147,155 @@ def build_dual_mobilenetv2(
     return keras.Model(inputs=[rgb_input, ir_input], outputs=logits, name="dual_mobilenetv2")
 
 
+def _make_backbone(input_shape, weights, pooling, name):
+    return keras.applications.MobileNetV2(
+        input_shape=input_shape,
+        include_top=False,
+        weights=weights,
+        pooling=pooling,
+        name=name,
+    )
+
+
+def _pool_backbone_output(features, prefix):
+    features = layers.AveragePooling2D(pool_size=(7, 7), name=f"{prefix}_average_pool")(features)
+    return layers.Reshape((1280,), name=f"{prefix}_reshape")(features)
+
+
+def build_multimodal_mobilenetv2(
+    rgb_weights="imagenet",
+    dropout=0.2,
+    classifier_units=1024,
+    gray_imagenet_init=True,
+    rgb_input_mobilenet_range=False,
+    average_pool_op=False,
+    fixed_batch_size=None,
+    classifier_as_conv=False,
+):
+    crop_rgb_input = keras.Input(batch_size=fixed_batch_size, shape=(224, 224, 3), name="a_crop_rgb")
+    crop_ir_input = keras.Input(batch_size=fixed_batch_size, shape=(224, 224, 1), name="b_crop_ir")
+    raw_rgb_input = keras.Input(batch_size=fixed_batch_size, shape=(224, 224, 3), name="c_rgb")
+    raw_ir_input = keras.Input(batch_size=fixed_batch_size, shape=(224, 224, 1), name="d_ir")
+    heatmap_input = keras.Input(batch_size=fixed_batch_size, shape=(224, 224, 1), name="e_heatmap")
+
+    if rgb_input_mobilenet_range:
+        crop_rgb_preprocessed = crop_rgb_input
+        raw_rgb_preprocessed = raw_rgb_input
+    else:
+        crop_rgb_preprocessed = layers.Lambda(
+            _rgb_current_norm_to_mobilenet_range,
+            name="crop_rgb_to_mobilenet_range",
+        )(crop_rgb_input)
+        raw_rgb_preprocessed = layers.Lambda(
+            _rgb_current_norm_to_mobilenet_range,
+            name="rgb_to_mobilenet_range",
+        )(raw_rgb_input)
+
+    pooling = None if average_pool_op else "avg"
+    crop_rgb_backbone = _make_backbone(
+        (224, 224, 3), rgb_weights, pooling, "crop_rgb_mobilenetv2"
+    )
+    crop_ir_backbone = _make_backbone(
+        (224, 224, 1), None, pooling, "crop_ir_mobilenetv2"
+    )
+    raw_rgb_backbone = _make_backbone(
+        (224, 224, 3), rgb_weights, pooling, "rgb_mobilenetv2"
+    )
+    raw_ir_backbone = _make_backbone(
+        (224, 224, 1), None, pooling, "ir_mobilenetv2"
+    )
+    heatmap_backbone = _make_backbone(
+        (224, 224, 1), None, pooling, "heatmap_mobilenetv2"
+    )
+
+    if rgb_weights == "imagenet" and gray_imagenet_init:
+        _transfer_imagenet_weights_to_gray_backbone(crop_rgb_backbone, crop_ir_backbone, "cropIR")
+        _transfer_imagenet_weights_to_gray_backbone(raw_rgb_backbone, raw_ir_backbone, "IR")
+        _transfer_imagenet_weights_to_gray_backbone(crop_rgb_backbone, heatmap_backbone, "heatmap")
+
+    features = [
+        crop_rgb_backbone(crop_rgb_preprocessed),
+        crop_ir_backbone(crop_ir_input),
+        raw_rgb_backbone(raw_rgb_preprocessed),
+        raw_ir_backbone(raw_ir_input),
+        heatmap_backbone(heatmap_input),
+    ]
+    if average_pool_op:
+        features = [
+            _pool_backbone_output(features[0], "crop_rgb"),
+            _pool_backbone_output(features[1], "crop_ir"),
+            _pool_backbone_output(features[2], "rgb"),
+            _pool_backbone_output(features[3], "ir"),
+            _pool_backbone_output(features[4], "heatmap"),
+        ]
+
+    fused = layers.Concatenate(name="fused_features")(features)
+    if classifier_as_conv:
+        if len(fused.shape) == 2:
+            fused = layers.Reshape((1, 1, fused.shape[-1]), name="fused_reshape_4d")(fused)
+        if classifier_units > 0:
+            fused = layers.Conv2D(
+                classifier_units,
+                kernel_size=(1, 1),
+                activation="relu",
+                name="classifier_dense_conv",
+            )(fused)
+        if dropout > 0:
+            fused = layers.Dropout(dropout, name="classifier_dropout")(fused)
+        logits_4d = layers.Conv2D(len(CLASS_NAMES), kernel_size=(1, 1), name="logits_conv")(fused)
+        logits = layers.Reshape((len(CLASS_NAMES),), name="logits")(logits_4d)
+    else:
+        if classifier_units > 0:
+            fused = layers.Dense(classifier_units, activation="relu", name="classifier_dense")(fused)
+        if dropout > 0:
+            fused = layers.Dropout(dropout, name="classifier_dropout")(fused)
+        logits = layers.Dense(len(CLASS_NAMES), name="logits")(fused)
+
+    return keras.Model(
+        inputs=[crop_rgb_input, crop_ir_input, raw_rgb_input, raw_ir_input, heatmap_input],
+        outputs=logits,
+        name="multimodal_mobilenetv2",
+    )
+
+
 def parse_args():
-    parser = argparse.ArgumentParser(description="Build and summarize the Keras dual MobileNetV2 model.")
+    parser = argparse.ArgumentParser(description="Build and summarize the Keras multimodal MobileNetV2 model.")
     parser.add_argument("--rgb-weights", choices=["imagenet", "none"], default="imagenet")
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--classifier-units", type=int, default=1024)
-    parser.add_argument("--no-ir-imagenet-init", action="store_true")
+    parser.add_argument("--no-gray-imagenet-init", action="store_true")
+    parser.add_argument("--dual", action="store_true", help="Show the legacy 2-input model instead.")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
     rgb_weights = None if args.rgb_weights == "none" else args.rgb_weights
-    model = build_dual_mobilenetv2(
-        rgb_weights=rgb_weights,
-        dropout=args.dropout,
-        classifier_units=args.classifier_units,
-        ir_imagenet_init=not args.no_ir_imagenet_init,
-    )
-    model.summary()
-    out = model(
-        [
+    if args.dual:
+        model = build_dual_mobilenetv2(
+            rgb_weights=rgb_weights,
+            dropout=args.dropout,
+            classifier_units=args.classifier_units,
+            ir_imagenet_init=not args.no_gray_imagenet_init,
+        )
+        dummy_inputs = [
             tf.zeros((1, 224, 224, 3), dtype=tf.float32),
             tf.zeros((1, 224, 224, 1), dtype=tf.float32),
-        ],
-        training=False,
-    )
+        ]
+    else:
+        model = build_multimodal_mobilenetv2(
+            rgb_weights=rgb_weights,
+            dropout=args.dropout,
+            classifier_units=args.classifier_units,
+            gray_imagenet_init=not args.no_gray_imagenet_init,
+        )
+        dummy_inputs = [
+            tf.zeros((1, 224, 224, 3), dtype=tf.float32),
+            tf.zeros((1, 224, 224, 1), dtype=tf.float32),
+            tf.zeros((1, 224, 224, 3), dtype=tf.float32),
+            tf.zeros((1, 224, 224, 1), dtype=tf.float32),
+            tf.zeros((1, 224, 224, 1), dtype=tf.float32),
+        ]
+    model.summary()
+    out = model(dummy_inputs, training=False)
     print("output shape:", out.shape)

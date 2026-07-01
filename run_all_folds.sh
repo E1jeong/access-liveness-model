@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 echo "========================================="
 echo "  [Start] Fold 1~4 Training & Conversion"
 echo "========================================="
-for idx in 1 2 3 4; do
+for idx in 0 1 2 3 4; do
   echo ">>> Processing Fold $idx / 4"
   ./run_keras_train.sh --epochs 10 --folds 5 --fold-idx $idx
   ./run_keras_convert.sh --float --int8 --folds 5 --fold-idx $idx

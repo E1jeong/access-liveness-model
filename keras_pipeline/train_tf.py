@@ -51,6 +51,7 @@ def _save_learning_curves(history, val_acers, output_dir):
 
     plt.tight_layout()
     os.makedirs(output_dir, exist_ok=True)
+
     out_path = os.path.join(output_dir, "learning_curves.png")
     plt.savefig(out_path)
     plt.close()
@@ -139,7 +140,7 @@ def main():
     print("[dataset]")
     print(f" - train images: {len(train_items)}")
     print(f" - val images: {len(val_items)}")
-    print(f" - fold: {args.fold_idx}/{args.folds - 1}")
+    print(f" - fold: {args.fold_idx + 1}/{args.folds}")
 
     # val_ds는 AcerCheckpoint에서만 사용 — model.fit에 validation_data를 넘기지 않아
     # 에포크당 검증 forward pass가 1회만 실행된다.

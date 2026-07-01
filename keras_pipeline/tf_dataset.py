@@ -203,36 +203,42 @@ def load_multimodal_sample(crop_rgb_path, crop_ir_path, augment=False):
     )
 
 
-def _generator(items, augment=False):
-    for rgb_path, ir_path, label in items:
-        rgb, ir = load_sample(rgb_path, ir_path, augment=augment)
-        yield (rgb, ir), np.int32(label)
-
-
 def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False):
     items = list(items)
     if shuffle:
         random.Random(seed).shuffle(items)
 
-    output_signature = (
-        (
-            tf.TensorSpec(shape=(224, 224, 3), dtype=tf.float32),
-            tf.TensorSpec(shape=(224, 224, 1), dtype=tf.float32),
-        ),
-        tf.TensorSpec(shape=(), dtype=tf.int32),
-    )
-    ds = tf.data.Dataset.from_generator(
-        lambda: _generator(items, augment=augment),
-        output_signature=output_signature,
-    )
+    rgb_paths = [item[0] for item in items]
+    ir_paths = [item[1] for item in items]
+    labels = [item[2] for item in items]
+
+    ds = tf.data.Dataset.from_tensor_slices((rgb_paths, ir_paths, labels))
+
     if shuffle:
-        ds = ds.shuffle(buffer_size=min(len(items), 1024), seed=seed, reshuffle_each_iteration=True)
+        ds = ds.shuffle(buffer_size=len(items), seed=seed, reshuffle_each_iteration=True)
+
+    def map_fn(rgb_path, ir_path, label):
+        def _py_fn(r_path, i_path, lbl):
+            r_path_str = r_path.numpy().decode('utf-8')
+            i_path_str = i_path.numpy().decode('utf-8')
+            lbl_val = int(lbl.numpy())
+            rgb, ir = load_sample(r_path_str, i_path_str, augment=augment)
+            return rgb, ir, np.int32(lbl_val)
+
+        outputs = tf.py_function(
+            _py_fn,
+            inp=[rgb_path, ir_path, label],
+            Tout=[tf.float32, tf.float32, tf.int32]
+        )
+        
+        outputs[0].set_shape((224, 224, 3))
+        outputs[1].set_shape((224, 224, 1))
+        outputs[2].set_shape(())
+        
+        return (outputs[0], outputs[1]), outputs[2]
+
+    ds = ds.map(map_fn, num_parallel_calls=tf.data.AUTOTUNE)
     return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
-
-
-def _multimodal_generator(items, augment=False):
-    for crop_rgb_path, crop_ir_path, label in items:
-        yield load_multimodal_sample(crop_rgb_path, crop_ir_path, augment=augment), np.int32(label)
 
 
 def make_multimodal_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False):
@@ -240,22 +246,39 @@ def make_multimodal_dataset(items, batch_size=8, shuffle=False, seed=42, augment
     if shuffle:
         random.Random(seed).shuffle(items)
 
-    output_signature = (
-        (
-            tf.TensorSpec(shape=(224, 224, 3), dtype=tf.float32),
-            tf.TensorSpec(shape=(224, 224, 1), dtype=tf.float32),
-            tf.TensorSpec(shape=(224, 224, 3), dtype=tf.float32),
-            tf.TensorSpec(shape=(224, 224, 1), dtype=tf.float32),
-            tf.TensorSpec(shape=(224, 224, 1), dtype=tf.float32),
-        ),
-        tf.TensorSpec(shape=(), dtype=tf.int32),
-    )
-    ds = tf.data.Dataset.from_generator(
-        lambda: _multimodal_generator(items, augment=augment),
-        output_signature=output_signature,
-    )
+    crop_rgb_paths = [item[0] for item in items]
+    crop_ir_paths = [item[1] for item in items]
+    labels = [item[2] for item in items]
+
+    ds = tf.data.Dataset.from_tensor_slices((crop_rgb_paths, crop_ir_paths, labels))
+
     if shuffle:
-        ds = ds.shuffle(buffer_size=min(len(items), 1024), seed=seed, reshuffle_each_iteration=True)
+        ds = ds.shuffle(buffer_size=len(items), seed=seed, reshuffle_each_iteration=True)
+
+    def map_fn(crop_rgb_path, crop_ir_path, label):
+        def _py_fn(c_rgb, c_ir, lbl):
+            c_rgb_str = c_rgb.numpy().decode('utf-8')
+            c_ir_str = c_ir.numpy().decode('utf-8')
+            lbl_val = int(lbl.numpy())
+            feats = load_multimodal_sample(c_rgb_str, c_ir_str, augment=augment)
+            return feats + (np.int32(lbl_val),)
+
+        outputs = tf.py_function(
+            _py_fn,
+            inp=[crop_rgb_path, crop_ir_path, label],
+            Tout=[tf.float32, tf.float32, tf.float32, tf.float32, tf.float32, tf.int32]
+        )
+        
+        outputs[0].set_shape((224, 224, 3))
+        outputs[1].set_shape((224, 224, 1))
+        outputs[2].set_shape((224, 224, 3))
+        outputs[3].set_shape((224, 224, 1))
+        outputs[4].set_shape((224, 224, 1))
+        outputs[5].set_shape(())
+        
+        return (outputs[0], outputs[1], outputs[2], outputs[3], outputs[4]), outputs[5]
+
+    ds = ds.map(map_fn, num_parallel_calls=tf.data.AUTOTUNE)
     return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 

@@ -12,22 +12,32 @@ sys.stderr.reconfigure(encoding="utf-8")
 
 
 def _make_interpreter(model_path):
-    from ai_edge_litert.interpreter import Interpreter, OpResolverType
+    try:
+        from ai_edge_litert.interpreter import Interpreter, OpResolverType
+        is_litert = True
+    except ImportError:
+        import tensorflow as tf
+        Interpreter = tf.lite.Interpreter
+        OpResolverType = None
+        is_litert = False
 
     num_threads = os.cpu_count() or 4
     try:
         interp = Interpreter(model_path=model_path, num_threads=num_threads)
         interp.allocate_tensors()
-        print(f"[interpreter] XNNPACK path (num_threads={num_threads})")
+        print(f"[interpreter] {'LiteRT' if is_litert else 'TF Lite'} XNNPACK path (num_threads={num_threads})")
         return interp
     except Exception:
-        interp = Interpreter(
-            model_path=model_path,
-            num_threads=num_threads,
-            experimental_op_resolver_type=OpResolverType.BUILTIN_WITHOUT_DEFAULT_DELEGATES,
-        )
+        if is_litert and OpResolverType is not None:
+            interp = Interpreter(
+                model_path=model_path,
+                num_threads=num_threads,
+                experimental_op_resolver_type=OpResolverType.BUILTIN_WITHOUT_DEFAULT_DELEGATES,
+            )
+        else:
+            interp = Interpreter(model_path=model_path, num_threads=num_threads)
         interp.allocate_tensors()
-        print(f"[interpreter] reference kernel path (num_threads={num_threads})")
+        print(f"[interpreter] {'LiteRT' if is_litert else 'TF Lite'} reference kernel path (num_threads={num_threads})")
         return interp
 
 

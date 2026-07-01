@@ -25,6 +25,8 @@ Current stopping point on Wednesday 2026-07-01:
 - `tf_dataset.py` now loads full-frame RGB/IR and `face_heatmap.bmp` alongside the crop inputs. Missing or unreadable heatmaps fall back to a black 224x224 heatmap, matching the earlier PyTorch multimodal loader policy.
 - TFLite may reorder model inputs in the exported flatbuffer. INT8 representative datasets now yield name-keyed dictionaries, and `evaluate_tflite.py` maps inputs by tensor name instead of channel count.
 - Random-weight smoke checks passed for model construction, dataset batch creation, float conversion, full INT8 conversion, NPU-friendly INT8 conversion, and small-sample TFLite evaluation. A real 5-input training run has not been completed yet.
+- First real 5-input fold-0 training was started with `./run_keras_train.sh --epochs 10 --fold-idx 0` on the sub-laptop. Batch size 8 / lr 1e-4 is the current safe baseline; batch size 16 / lr 2e-4 stalled or was impractical on the GTX 1660 Ti 6GB environment.
+- `ShuffleDatasetV3: Filling up shuffle buffer` during Keras training is expected, not an error. Because each 5-input sample reads cropRGB/cropIR/RGB/IR/heatmap, filling the shuffle buffer is slow. The train shuffle buffer was reduced from 2048 to 1024 for future runs.
 - Model artifacts are not synced by git. Use `rsync`/`scp` for `model/keras/*.keras` and `model/keras/*.tflite`; use git only for code/docs.
 
 Next session order (all commands run on the sub-laptop):
@@ -35,8 +37,9 @@ Next session order (all commands run on the sub-laptop):
    ```
 2. Train the new 5-input model before making any accuracy claim:
    ```bash
-   ./run_keras_train.sh --epochs 30 --fold-idx 0
+   ./run_keras_train.sh --epochs 10 --fold-idx 0
    ```
+   Use the default batch size 8 / learning rate 1e-4 first. Do not assume batch size 16 will fit or start quickly on the GTX 1660 Ti 6GB setup.
 3. Convert the trained 5-input checkpoint:
    ```bash
    ./run_keras_convert.sh --float --int8 --npu-int8 --fold-idx 0 --calibration-samples 500
@@ -67,6 +70,7 @@ Next session order (all commands run on the sub-laptop):
 - NPU-friendly export structure: `best_model_fold4_npu_int8.tflite` has INT8 RGB/IR inputs `[1,224,224,3]` and `[1,224,224,1]` with quantization `(0.007843..., -1)`, INT8 output `[1,5]`, and no RGB preprocessing `MUL/ADD/SUB` Lambda ops or `MEAN` global pooling. Remaining non-conv ops include `AVERAGE_POOL_2D`, `RESHAPE`, `CONCATENATION`, and `FULLY_CONNECTED`.
 - **5-input Keras multimodal code path (implemented 2026-07-01)**: `keras_pipeline/tf_dataset.py` returns `(cropRGB, cropIR, RGB, IR, heatmap)` tensors in NHWC format. `keras_pipeline/tf_model.py` builds five MobileNetV2 streams and concatenates 5 x 1280 features before the classifier. `train_tf.py`, `convert_h5_to_tflite.py`, and `evaluate_tflite.py` are wired to this 5-input contract by default.
 - **5-input smoke tests (2026-07-01)**: Python compile passed for Keras dataset/model/train/convert and `evaluate_tflite.py`; `tf_model.py --rgb-weights none --no-gray-imagenet-init` built the 5-input model and produced output shape `(1,5)`; a real dataset batch produced shapes `[2,224,224,3]`, `[2,224,224,1]`, `[2,224,224,3]`, `[2,224,224,1]`, `[2,224,224,1]`; random `.keras` model conversion passed for float, full INT8, and NPU-friendly INT8; `evaluate_tflite.py --max-samples 2` ran on random float/int8 TFLite outputs. These are structural smoke tests, not accuracy measurements.
+- **5-input training startup notes (2026-07-01)**: `./run_keras_train.sh --epochs 10 --fold-idx 0` reached `Epoch 1/10` and initialized CUDA/XLA/cuDNN on the GTX 1660 Ti. The repeated `ShuffleDatasetV3: Filling up shuffle buffer` messages are expected dataset-loading logs. Batch size 16 is not the current baseline for this 5-stream model; use batch size 8 unless a later run proves a larger batch is stable.
 
 ### Field Test Results (2026-06-30)
 - **Test Environment**: Building rooftop (outdoor, strong natural sunlight).
@@ -160,10 +164,12 @@ Expected: `GPU: [PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU'
 **Step 2 — train (one fold at a time):**
 ```bash
 ./run_keras_train.sh                                        # defaults: fold 0, 10 epochs
-./run_keras_train.sh --epochs 30 --fold-idx 0              # 30 epochs, fold 0
+./run_keras_train.sh --epochs 10 --fold-idx 0              # current 5-input baseline
+./run_keras_train.sh --epochs 20 --fold-idx 0              # longer run if best ACER is still improving
 ./run_keras_train.sh --folds 5 --fold-idx 1 --batch-size 16 --learning-rate 5e-5
 ```
 `run_keras_train.sh` key args: `--epochs` `--fold-idx` `--folds` `--batch-size` `--learning-rate` `--seed` `--rgb-weights {imagenet,none}` `--dropout` `--classifier-units` `--no-gray-imagenet-init`. Deprecated alias: `--no-ir-imagenet-init`.
+For the current 5-input model on GTX 1660 Ti 6GB, default batch size 8 / lr 1e-4 is the safe starting point. Batch size 16 caused startup/stability trouble in the observed run; only retry larger batches as a separate experiment and write to a separate `--output-dir`.
 
 Default Keras model inputs:
 - `a_crop_rgb`: crop RGB, ImageNet-normalized during training; NPU-friendly export expects MobileNet `[-1,1]`.
@@ -236,4 +242,5 @@ Note: `evaluate_tflite.py` was verified with `.venv` because `ai_edge_litert` is
 | 2026-06-29 | [pending] Batch size / learning rate scaling experiment not yet run. Current baseline: batch_size=8, lr=1e-4. Plan to test batch_size=32 with lr=4e-4 and batch_size=64 with lr=8e-4 (linear scaling rule). GPU utilization at batch_size=8 averages ~30%, so larger batches are expected to improve both training speed and GPU efficiency. |
 | 2026-06-30 | Conducted outdoor field test (building rooftop). Spoofing detection was highly robust, potentially due to strong natural light enhancing IR features. Liveness detection was stable within 1m but fluctuated at >1m. Proposed multi-frame aggregation or heuristic smoothing as a mitigation. |
 | 2026-07-01 | Added 5-input Keras multimodal pipeline on branch `codex/keras-multimodal-deploy`: dataset loads cropRGB/cropIR/RGB/IR/heatmap, model builds five MobileNetV2 streams, train/convert/evaluate scripts use the new input contract by default, and float/int8/npu-int8 conversion smoke tests passed with a random Keras model. Real 5-input training and Android 5-input integration remain pending. |
+| 2026-07-01 | Started real 5-input fold-0 Keras training with the default batch size 8 / lr 1e-4 after batch size 16 proved impractical on the GTX 1660 Ti 6GB setup. Documented that `ShuffleDatasetV3: Filling up shuffle buffer` is expected with the 5-input loader, and reduced the Keras `tf.data` shuffle buffer from 2048 to 1024 for future fold runs. |
 

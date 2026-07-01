@@ -226,7 +226,7 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False):
         output_signature=output_signature,
     )
     if shuffle:
-        ds = ds.shuffle(buffer_size=min(len(items), 2048), seed=seed, reshuffle_each_iteration=True)
+        ds = ds.shuffle(buffer_size=min(len(items), 1024), seed=seed, reshuffle_each_iteration=True)
     return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 
@@ -255,7 +255,7 @@ def make_multimodal_dataset(items, batch_size=8, shuffle=False, seed=42, augment
         output_signature=output_signature,
     )
     if shuffle:
-        ds = ds.shuffle(buffer_size=min(len(items), 2048), seed=seed, reshuffle_each_iteration=True)
+        ds = ds.shuffle(buffer_size=min(len(items), 1024), seed=seed, reshuffle_each_iteration=True)
     return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 

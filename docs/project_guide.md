@@ -50,8 +50,8 @@
 - `[구현 완료]` `litert_torch` 기반 TFLite(NHWC) 변환 및 Android 통합(추론 경로 존재)
 - `[구현 완료]` Keras/MobileNetV2 full INT8 및 NPU-friendly INT8 export 경로 (`--npu-int8`)
 - `[구현 완료]` `run_keras_*.sh` 실행 스크립트 — TF GPU용 `LD_LIBRARY_PATH` 자동 설정 포함
-- `[검증 완료]` float 모델 학습(서브노트북 GPU, subject 5명): liveness ACER≈0, 5클래스 val_acc≈0.89
-- `[검증 완료]` TF GPU 동작 (`LD_LIBRARY_PATH` 설정 시 GTX 1660 Ti 인식)
+- `[검증 완료]` Keras 멀티모달 5개 입출력 전체 5개 fold 학습 완료 및 TFLite 변환 성공
+- `[검증 완료]` TF GPU 동작 및 학습 파이프라인 고속화 (셔플 버퍼 지연 제거, 검증 데이터 RAM 캐싱, 캘리브레이션 병렬 로딩 적용)
 - `[검증 완료]` Keras/MobileNetV2 fold 4 full INT8 validation: 표준 INT8 `ACER=0.0060`, NPU-friendly INT8 `ACER=0.0160`
 - `[미구현]` 독립 test set(현재는 K-fold 교차검증만)
 - `[시도 후 보류]` TFLite INT8 양자화 (MobileNetV3 기반) — PTQ는 활성 양자화에서 붕괴, QAT는 학습은 되나 직렬화(litert/eIQ) 실패. 전체 시도 기록은 `project_status.md` §3 참조.
@@ -106,6 +106,11 @@ nvidia-smi 2>/dev/null | grep -q "GTX 1660 Ti" && echo "서브노트북" || echo
 git status --short
 .venv/bin/python -m py_compile model.py dataset.py train.py classes.py utils.py convert_to_tflite.py verify_setup.py
 .venv/bin/python verify_setup.py
+```
+
+Keras 멀티모달 TFLite 모델의 성능 평가(`evaluate_tflite.py`)는 TensorFlow 가양자화 데이터셋 의존성 때문에 `.venv-tf` 가상환경을 사용하여 실행해야 합니다:
+```bash
+.venv-tf/bin/python evaluate_tflite.py --folds 5 --fold-idx {idx} --models model/keras/best_model_fold{idx}_float.tflite ...
 ```
 
 Keras 파이프라인 확인은 반드시 셸 스크립트를 사용한다(TF GPU `LD_LIBRARY_PATH` 설정 포함, 서브노트북 전용):

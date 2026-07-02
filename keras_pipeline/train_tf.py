@@ -29,7 +29,7 @@ def _run_apcer_self_check():
     print("[APCER self-check passed] all-spoof-as-live gives APCER=1.0")
 
 
-def _save_learning_curves(history, val_acers, output_dir):
+def _save_learning_curves(history, val_acers, output_dir, fold_idx):
     epochs = range(1, len(history.history["loss"]) + 1)
     plt.figure(figsize=(12, 5))
 
@@ -52,7 +52,7 @@ def _save_learning_curves(history, val_acers, output_dir):
     plt.tight_layout()
     os.makedirs(output_dir, exist_ok=True)
 
-    out_path = os.path.join(output_dir, "learning_curves.png")
+    out_path = os.path.join(output_dir, f"learning_curves_fold{fold_idx}.png")
     plt.savefig(out_path)
     plt.close()
     print(f"[learning curves saved] {out_path}")
@@ -66,17 +66,21 @@ class AcerCheckpoint(tf.keras.callbacks.Callback):
         self.best_acer = float("inf")
         self.best_metrics = None
         self.acer_history = []
+        self._val_labels = None
 
     def on_epoch_end(self, epoch, logs=None):
-        labels = []
-        preds = []
-        for inputs, batch_labels in self.val_ds:
-            logits = self.model(inputs, training=False)
-            labels.extend(batch_labels.numpy().tolist())
-            preds.extend(tf.argmax(logits, axis=1).numpy().tolist())
+        if self._val_labels is None:
+            # val_ds는 셔플 없는 캐시 데이터셋이라 순서가 고정 — 라벨은 1회만 추출
+            self._val_labels = np.concatenate(
+                [batch_labels.numpy() for _, batch_labels in self.val_ds]
+            )
+        # predict는 컴파일된 그래프 경로를 타므로 배치별 eager 호출보다 빠르다
+        logits = self.model.predict(self.val_ds, verbose=0)
+        labels = self._val_labels
+        preds = np.argmax(logits, axis=1)
 
         cm, recalls, apcer, bpcer, acer = calculate_validation_metrics(labels, preds)
-        acc = float(np.mean(np.asarray(labels) == np.asarray(preds)))
+        acc = float(np.mean(labels == preds))
 
         print("\n -> Confusion Matrix (row=true, col=pred):")
         print(cm)
@@ -121,12 +125,23 @@ def parse_args():
         action="store_true",
         help="Deprecated alias for --no-gray-imagenet-init.",
     )
+    parser.add_argument(
+        "--mixed-precision",
+        action="store_true",
+        help="Experimental: train with mixed_float16 (logits stay float32). "
+        "May allow larger batches on the GTX 1660 Ti; TFLite conversion "
+        "compatibility of the saved checkpoint is unverified.",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
     tf.keras.utils.set_random_seed(args.seed)
+
+    if args.mixed_precision:
+        tf.keras.mixed_precision.set_global_policy("mixed_float16")
+        print("[mixed precision] global policy = mixed_float16 (experimental)")
 
     _run_apcer_self_check()
     validate_kfold_coverage(args.data_dir, k_folds=args.folds, seed=args.seed)
@@ -182,7 +197,7 @@ def main():
         callbacks=[checkpoint],
     )
 
-    _save_learning_curves(history, checkpoint.acer_history, args.output_dir)
+    _save_learning_curves(history, checkpoint.acer_history, args.output_dir, args.fold_idx)
 
     if checkpoint.best_metrics:
         print("[best]")

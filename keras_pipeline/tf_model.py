@@ -230,6 +230,7 @@ def build_multimodal_mobilenetv2(
         ]
 
     fused = layers.Concatenate(name="fused_features")(features)
+    # logits는 dtype float32 고정 — mixed_float16 학습 시에도 손실 계산이 안정적이다.
     if classifier_as_conv:
         if len(fused.shape) == 2:
             fused = layers.Reshape((1, 1, fused.shape[-1]), name="fused_reshape_4d")(fused)
@@ -242,14 +243,16 @@ def build_multimodal_mobilenetv2(
             )(fused)
         if dropout > 0:
             fused = layers.Dropout(dropout, name="classifier_dropout")(fused)
-        logits_4d = layers.Conv2D(len(CLASS_NAMES), kernel_size=(1, 1), name="logits_conv")(fused)
-        logits = layers.Reshape((len(CLASS_NAMES),), name="logits")(logits_4d)
+        logits_4d = layers.Conv2D(
+            len(CLASS_NAMES), kernel_size=(1, 1), name="logits_conv", dtype="float32"
+        )(fused)
+        logits = layers.Reshape((len(CLASS_NAMES),), name="logits", dtype="float32")(logits_4d)
     else:
         if classifier_units > 0:
             fused = layers.Dense(classifier_units, activation="relu", name="classifier_dense")(fused)
         if dropout > 0:
             fused = layers.Dropout(dropout, name="classifier_dropout")(fused)
-        logits = layers.Dense(len(CLASS_NAMES), name="logits")(fused)
+        logits = layers.Dense(len(CLASS_NAMES), name="logits", dtype="float32")(fused)
 
     return keras.Model(
         inputs=[crop_rgb_input, crop_ir_input, raw_rgb_input, raw_ir_input, heatmap_input],

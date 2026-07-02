@@ -17,8 +17,12 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from classes import CLASS_NAMES
 from utils import validate_kfold_coverage, calculate_validation_metrics
-from keras_pipeline.tf_dataset import collect_items, make_dataset
-from keras_pipeline.tf_model import build_dual_mobilenetv2
+from keras_pipeline.tf_dataset import (
+    collect_items, make_dataset, make_multimodal_dataset
+)
+from keras_pipeline.tf_model import (
+    build_dual_mobilenetv2, build_multimodal_mobilenetv2
+)
 
 
 def _run_apcer_self_check():
@@ -29,7 +33,7 @@ def _run_apcer_self_check():
     print("[APCER self-check passed] all-spoof-as-live gives APCER=1.0")
 
 
-def _save_learning_curves(history, val_acers, output_dir):
+def _save_learning_curves(history, val_acers, output_dir, fold_idx, model_type):
     epochs = range(1, len(history.history["loss"]) + 1)
     plt.figure(figsize=(12, 5))
 
@@ -51,7 +55,8 @@ def _save_learning_curves(history, val_acers, output_dir):
 
     plt.tight_layout()
     os.makedirs(output_dir, exist_ok=True)
-    out_path = os.path.join(output_dir, "learning_curves.png")
+    suffix = f"_{model_type}" if model_type != "dual" else ""
+    out_path = os.path.join(output_dir, f"learning_curves{suffix}_fold{fold_idx}.png")
     plt.savefig(out_path)
     plt.close()
     print(f"[learning curves saved] {out_path}")
@@ -65,17 +70,21 @@ class AcerCheckpoint(tf.keras.callbacks.Callback):
         self.best_acer = float("inf")
         self.best_metrics = None
         self.acer_history = []
+        self._val_labels = None
 
     def on_epoch_end(self, epoch, logs=None):
-        labels = []
-        preds = []
-        for inputs, batch_labels in self.val_ds:
-            logits = self.model(inputs, training=False)
-            labels.extend(batch_labels.numpy().tolist())
-            preds.extend(tf.argmax(logits, axis=1).numpy().tolist())
+        if self._val_labels is None:
+            # val_ds는 셔플 없는 캐시 데이터셋이라 순서가 고정 — 라벨은 1회만 추출
+            self._val_labels = np.concatenate(
+                [batch_labels.numpy() for _, batch_labels in self.val_ds]
+            )
+        # predict는 컴파일된 그래프 경로를 타므로 배치별 eager 호출보다 빠르다
+        logits = self.model.predict(self.val_ds, verbose=0)
+        labels = self._val_labels
+        preds = np.argmax(logits, axis=1)
 
         cm, recalls, apcer, bpcer, acer = calculate_validation_metrics(labels, preds)
-        acc = float(np.mean(np.asarray(labels) == np.asarray(preds)))
+        acc = float(np.mean(labels == preds))
 
         print("\n -> Confusion Matrix (row=true, col=pred):")
         print(cm)
@@ -102,9 +111,15 @@ class AcerCheckpoint(tf.keras.callbacks.Callback):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train a Keras dual-input MobileNetV2 anti-spoofing model.")
+    parser = argparse.ArgumentParser(description="Train a Keras dual/multimodal MobileNetV2 anti-spoofing model.")
     parser.add_argument("--data-dir", default="dataset/raw")
     parser.add_argument("--output-dir", default="model/keras")
+    parser.add_argument(
+        "--model-type",
+        choices=["dual", "multimodal"],
+        default="dual",
+        help="학습할 모델 종류 (dual: 2입력, multimodal: 5입력)"
+    )
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--learning-rate", type=float, default=1e-4)
@@ -114,7 +129,12 @@ def parse_args():
     parser.add_argument("--rgb-weights", choices=["imagenet", "none"], default="imagenet")
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--classifier-units", type=int, default=1024)
-    parser.add_argument("--no-ir-imagenet-init", action="store_true")
+    parser.add_argument("--no-gray-imagenet-init", action="store_true")
+    parser.add_argument(
+        "--no-ir-imagenet-init",
+        action="store_true",
+        help="Deprecated alias for --no-gray-imagenet-init.",
+    )
     return parser.parse_args()
 
 
@@ -134,17 +154,22 @@ def main():
     print("[dataset]")
     print(f" - train images: {len(train_items)}")
     print(f" - val images: {len(val_items)}")
-    print(f" - fold: {args.fold_idx}/{args.folds - 1}")
+    print(f" - fold: {args.fold_idx + 1}/{args.folds}")
+    print(f" - model type: {args.model_type}")
 
-    # val_ds는 AcerCheckpoint에서만 사용 — model.fit에 validation_data를 넘기지 않아
-    # 에포크당 검증 forward pass가 1회만 실행된다.
-    train_ds = make_dataset(
-        train_items, batch_size=args.batch_size, shuffle=True, seed=args.seed, augment=True
-    ).repeat()
-    val_ds = make_dataset(val_items, batch_size=args.batch_size, shuffle=False, seed=args.seed)
+    if args.model_type == "dual":
+        train_ds = make_dataset(
+            train_items, batch_size=args.batch_size, shuffle=True, seed=args.seed, augment=True
+        ).repeat()
+        val_ds = make_dataset(val_items, batch_size=args.batch_size, shuffle=False, seed=args.seed).cache()
+    else:
+        train_ds = make_multimodal_dataset(
+            train_items, batch_size=args.batch_size, shuffle=True, seed=args.seed, augment=True
+        ).repeat()
+        val_ds = make_multimodal_dataset(val_items, batch_size=args.batch_size, shuffle=False, seed=args.seed).cache()
+
     steps_per_epoch = math.ceil(len(train_items) / args.batch_size)
 
-    # PyTorch CosineAnnealingLR(T_max=epochs, eta_min=lr*0.01)과 동일하게 전체 에포크에 걸쳐 감소
     total_steps = args.epochs * steps_per_epoch
     lr_schedule = tf.keras.optimizers.schedules.CosineDecay(
         initial_learning_rate=args.learning_rate,
@@ -153,12 +178,24 @@ def main():
     )
 
     rgb_weights = None if args.rgb_weights == "none" else args.rgb_weights
-    model = build_dual_mobilenetv2(
-        rgb_weights=rgb_weights,
-        dropout=args.dropout,
-        classifier_units=args.classifier_units,
-        ir_imagenet_init=not args.no_ir_imagenet_init,
-    )
+    
+    if args.model_type == "dual":
+        model = build_dual_mobilenetv2(
+            rgb_weights=rgb_weights,
+            dropout=args.dropout,
+            classifier_units=args.classifier_units,
+            ir_imagenet_init=not (args.no_gray_imagenet_init or args.no_ir_imagenet_init),
+        )
+        output_filename = f"best_model_fold{args.fold_idx}.keras"
+    else:
+        model = build_multimodal_mobilenetv2(
+            rgb_weights=rgb_weights,
+            dropout=args.dropout,
+            classifier_units=args.classifier_units,
+            gray_imagenet_init=not (args.no_gray_imagenet_init or args.no_ir_imagenet_init),
+        )
+        output_filename = f"best_multimodal_fold{args.fold_idx}.keras"
+
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=lr_schedule),
         loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
@@ -166,7 +203,7 @@ def main():
     )
     model.summary()
 
-    output_path = os.path.join(args.output_dir, f"best_model_fold{args.fold_idx}.keras")
+    output_path = os.path.join(args.output_dir, output_filename)
     checkpoint = AcerCheckpoint(val_ds=val_ds, output_path=output_path)
 
     history = model.fit(
@@ -176,7 +213,7 @@ def main():
         callbacks=[checkpoint],
     )
 
-    _save_learning_curves(history, checkpoint.acer_history, args.output_dir)
+    _save_learning_curves(history, checkpoint.acer_history, args.output_dir, args.fold_idx, args.model_type)
 
     if checkpoint.best_metrics:
         print("[best]")
@@ -188,3 +225,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

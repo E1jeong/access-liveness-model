@@ -21,4 +21,4 @@ EOF
 
 echo ""
 echo "=== TFLite 변환 시작 ==="
-.venv-tf/bin/python -m keras_pipeline.convert_h5_to_tflite "$@"
+CUDA_VISIBLE_DEVICES="" .venv-tf/bin/python -m keras_pipeline.convert_h5_to_tflite "$@"

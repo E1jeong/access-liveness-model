@@ -55,7 +55,7 @@
 - `[검증 완료]` Keras/MobileNetV2 fold 4 full INT8 validation: 표준 INT8 `ACER=0.0060`, NPU-friendly INT8 `ACER=0.0160`
 - `[미구현]` 독립 test set(현재는 K-fold 교차검증만)
 - `[시도 후 보류]` TFLite INT8 양자화 (MobileNetV3 기반) — PTQ는 활성 양자화에서 붕괴, QAT는 학습은 되나 직렬화(litert/eIQ) 실패. 전체 시도 기록은 `project_status.md` §3 참조.
-- `[검증 실패]` NPU 실기기 실행 — Android NNAPI delegate를 시도하지만 현재 Keras NPU-friendly INT8 모델도 `ANEURALNETWORKS_BAD_DATA ... while adding operation`으로 실패하고 CPU/XNNPACK으로 fallback된다. `Backend CPU`는 NPU 가속이 아니다.
+- `[검증 완료]` NPU 실기기 실행 — 5-입력 Keras npu_int8 모델이 Android NNAPI delegate로 보드에서 실행됨(사용자 실기기 확인, 2026-07-02). 초기 웜업(온디바이스 NPU 컴파일)이 10분 이상 걸려 NNAPI compilation cache 적용이 남은 과제다. `Backend CPU` 표시는 여전히 fallback(회귀)으로 간주한다.
 - `[미구현]` 의존성 lock 파일(재현성)
 
 > 작업 머신은 2대다: 코드/문서/Android는 **회사 머신(WSL, torch CPU)**, 학습·양자화·데이터는 **서브노트북(GPU, SSH `mysub`)**. 상세는 `project_status.md` §0.
@@ -265,7 +265,7 @@ dataset/
 - **산출물**: 호환성 결과, 미지원 연산자 목록, 초기 latency/FPS 결과
 - **검증**: 실제 i.MX 8M Plus에서 delegate 사용 여부와 추론 결과를 확인한다.
 - **통과 조건**: NPU에서 전체 모델이 실행되고 제품 목표에 접근 가능한 성능을 보인다.
-- **실패 시 처리**: CPU fallback을 성공으로 처리하지 않는다. 현재 알려진 실패는 `ANEURALNETWORKS_BAD_DATA ... while adding operation`이며, 다음 조사는 남은 `AVERAGE_POOL_2D`, `RESHAPE`, `CONCATENATION`, `FULLY_CONNECTED`, 또는 quantized conv/depthwise 제약을 하나씩 분리하는 방향으로 진행한다.
+- **실패 시 처리**: CPU fallback을 성공으로 처리하지 않는다. 과거 2-입력 시절 실패(`ANEURALNETWORKS_BAD_DATA ... while adding operation`)는 5-입력 Keras npu_int8 export에서 해소되었다(2026-07-02 사용자 확인). 남은 과제는 10분 이상 걸리는 웜업(NNAPI compilation cache 적용)과 NPU 지연시간/FPS/메모리 측정이다.
 
 ### 단계 7. TFLite INT8 최종 변환
 
@@ -301,10 +301,10 @@ dataset/
 
 현재 단계와 검증 수치는 반드시 `project_status.md`에서 확인한다. 현 상태에서 새 AI는 다음 순서로 작업한다.
 
-1. `project_status.md`의 최신 fold 4 INT8 / NPU-friendly INT8 평가 수치와 Android NNAPI 실패 로그를 확인한다.
+1. `project_status.md` §0.1의 2026-07-02 핸드오프를 확인한다. NNAPI 실기기 실행은 확인되었고, 기존 int8/npu_int8 지표는 평가·캘리브레이션 수정 이전 값이라 재측정 대상이다.
 2. 코드와 모델 artifact가 같은 머신에 있는지 확인한다. 모델 파일은 gitignored이므로 `rsync`/`scp`로 별도 이동한다.
-3. 표준 INT8와 NPU-friendly INT8의 전처리 계약 차이를 확인한다. NPU-friendly export는 RGB/IR 모두 mean `[0.5]`, std `[0.5]`다.
-4. Android에서 `Backend CPU`가 뜨면 NPU 가속 실패로 기록한다. `Backend NNAPI`가 뜨기 전까지 inference timing을 NPU 성능으로 보고하지 않는다.
-5. 다음 NPU 디버깅은 남은 TFLite op를 줄이는 작은 실험으로 진행한다. 후보는 `AVERAGE_POOL_2D`, `RESHAPE`, `CONCATENATION`, `FULLY_CONNECTED`, quantized conv/depthwise 제약이다.
+3. 서브노트북에서 fold별로 `./run_keras_convert.sh --float --int8 --npu-int8`(수정된 캘리브레이션 샘플링)로 재변환하고, `evaluate_tflite.py`(RGB 범위 자동 선택)로 재평가해 `project_status.md` §1 표를 갱신한다.
+4. 표준 INT8와 NPU-friendly INT8의 전처리 계약 차이를 확인한다. NPU-friendly export는 RGB/IR 모두 mean `[0.5]`, std `[0.5]`다.
+5. Android에서 `Backend CPU`가 뜨면 NPU 가속 회귀로 기록한다. 다음 Android 과제는 NNAPI compilation cache로 10분 이상 걸리는 첫 실행 웜업을 줄이는 것이다.
 
-사용자에게 바로 “데이터를 더 촬영해 달라”고 요청하거나 새 학습을 시작하지 않는다. 현재 문제는 우선 데이터/학습 문제가 아니라 NNAPI/NPU 호환성 문제다.
+사용자에게 바로 “데이터를 더 촬영해 달라”고 요청하거나 새 학습을 시작하지 않는다. 현재 우선순위는 데이터/학습이 아니라 수정된 변환·평가 파이프라인으로 지표를 재측정하고 웜업을 개선하는 것이다.

@@ -1,6 +1,18 @@
-"""Evaluate float/int8 TFLite models on the validation split."""
+"""Evaluate float/int8 TFLite models on the validation split.
+
+Run with .venv-tf (see docs/project_status.md §5). All --models are evaluated
+in a single pass over the validation items: each sample is loaded once (with
+threaded prefetch) and fed to every interpreter, so comparing N models costs
+one dataset read instead of N.
+
+NPU-friendly exports (filename contains "npu") take RGB in MobileNet [-1,1]
+range instead of ImageNet normalization; --rgb-range auto handles this.
+"""
 
 import argparse
+import collections
+import concurrent.futures
+import itertools
 import os
 import sys
 
@@ -9,6 +21,17 @@ from tqdm import tqdm
 
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
+
+# (logical name, tflite tensor-name token, fallback index in Keras input order)
+INPUT_BINDINGS = [
+    ("cropRGB", "crop_rgb", 0),
+    ("cropIR", "crop_ir", 1),
+    ("RGB", "c_rgb", 2),
+    ("IR", "d_ir", 3),
+    ("heatmap", "heatmap", 4),
+]
+# load_multimodal_sample 반환 순서에서 RGB 텐서 위치 (cropRGB, RGB)
+RGB_INPUT_POSITIONS = (0, 2)
 
 
 def _make_interpreter(model_path):
@@ -59,77 +82,90 @@ def _dequantize_output(arr, detail):
     return (arr.astype(np.float32) - zero_point) * scale
 
 
-def evaluate(model_path, data_dir, folds, fold_idx, seed, max_samples=None):
-    from classes import CLASS_NAMES
-    from keras_pipeline.tf_dataset import collect_items, load_multimodal_sample
-    from utils import calculate_validation_metrics
+def _describe(detail):
+    shape = [int(x) for x in detail["shape"]]
+    if len(shape) == 4 and shape[1] in (1, 3):
+        return "NCHW", shape[1]
+    return "NHWC", shape[-1]
 
-    interp = _make_interpreter(model_path)
-    in_details = interp.get_input_details()
-    out_detail = interp.get_output_details()[0]
 
-    def describe(detail):
-        shape = [int(x) for x in detail["shape"]]
-        if len(shape) == 4 and shape[1] in (1, 3):
-            return "NCHW", shape[1]
-        return "NHWC", shape[-1]
+class TFLiteRunner:
+    """One interpreter plus its input bindings and accumulated predictions."""
 
-    def find_input(token, fallback_idx):
-        token = token.lower()
-        for detail in in_details:
-            if token in detail["name"].lower():
-                return detail
-        return in_details[fallback_idx]
+    def __init__(self, model_path, rgb_range, rgb_mean, rgb_std):
+        self.model_path = model_path
+        self.interp = _make_interpreter(model_path)
+        in_details = self.interp.get_input_details()
+        if len(in_details) != len(INPUT_BINDINGS):
+            raise ValueError(
+                f"{model_path}: expected {len(INPUT_BINDINGS)} inputs for the "
+                f"5-input multimodal contract, got {len(in_details)}"
+            )
+        self.out_detail = self.interp.get_output_details()[0]
 
-    input_specs = [
-        ("cropRGB", find_input("crop_rgb", 0)),
-        ("cropIR", find_input("crop_ir", 1)),
-        ("RGB", find_input("c_rgb", 2)),
-        ("IR", find_input("d_ir", 3)),
-        ("heatmap", find_input("heatmap", 4)),
-    ]
-    layout_msg = ", ".join(f"{name}={describe(detail)[0]}" for name, detail in input_specs)
-    print(f"[inputs] {layout_msg}")
+        def find_input(token, fallback_idx):
+            for detail in in_details:
+                if token in detail["name"].lower():
+                    return detail
+            return in_details[fallback_idx]
 
-    def build(sample_hwc, layout):
-        batched = np.expand_dims(sample_hwc, axis=0).astype(np.float32)
-        if layout == "NCHW":
-            return np.transpose(batched, (0, 3, 1, 2))
-        return batched
+        self.input_specs = [
+            (name, find_input(token, idx)) for name, token, idx in INPUT_BINDINGS
+        ]
+        indexes = [detail["index"] for _, detail in self.input_specs]
+        if len(set(indexes)) != len(indexes):
+            raise ValueError(
+                f"{model_path}: input-name matching bound two logical inputs to "
+                "the same tensor — check tensor names: "
+                + ", ".join(d["name"] for d in in_details)
+            )
 
-    _, val_items = collect_items(data_dir, k_folds=folds, fold_idx=fold_idx, seed=seed)
-    total = len(val_items) if max_samples is None else min(len(val_items), max_samples)
+        if rgb_range == "auto":
+            self.rgb_mobilenet_range = "npu" in os.path.basename(model_path).lower()
+        else:
+            self.rgb_mobilenet_range = rgb_range == "mobilenet"
+        self.rgb_mean = rgb_mean
+        self.rgb_std = rgb_std
 
-    all_labels, all_preds = [], []
-    pbar = tqdm(total=total, desc=f"evaluate {os.path.basename(model_path)}")
-    for crop_rgb_path, crop_ir_path, label in val_items:
-        sample = load_multimodal_sample(crop_rgb_path, crop_ir_path, augment=False)
-        for sample_arr, (_, detail) in zip(sample, input_specs):
-            layout, _ = describe(detail)
-            arr = build(sample_arr, layout)
-            interp.set_tensor(detail["index"], _quantize_input(arr, detail))
+        layout_msg = ", ".join(
+            f"{name}={_describe(detail)[0]}" for name, detail in self.input_specs
+        )
+        rgb_msg = "mobilenet [-1,1]" if self.rgb_mobilenet_range else "imagenet-normalized"
+        print(f"[{os.path.basename(model_path)}] inputs: {layout_msg} | RGB range: {rgb_msg}")
 
-        interp.invoke()
-        logits = _dequantize_output(interp.get_tensor(out_detail["index"]), out_detail)[0]
-        all_labels.append(int(label))
-        all_preds.append(int(np.argmax(logits)))
-        pbar.update(1)
+        self.labels = []
+        self.preds = []
 
-        if max_samples is not None and len(all_labels) >= max_samples:
-            break
-    pbar.close()
+    def run(self, sample, label):
+        for pos, (sample_arr, (_, detail)) in enumerate(zip(sample, self.input_specs)):
+            if self.rgb_mobilenet_range and pos in RGB_INPUT_POSITIONS:
+                # load_multimodal_sample yields ImageNet-normalized RGB; NPU
+                # exports expect MobileNet [-1,1] input (no in-graph Lambda).
+                sample_arr = (sample_arr * self.rgb_std + self.rgb_mean) * 2.0 - 1.0
+            arr = np.expand_dims(sample_arr, axis=0).astype(np.float32)
+            if _describe(detail)[0] == "NCHW":
+                arr = np.transpose(arr, (0, 3, 1, 2))
+            self.interp.set_tensor(detail["index"], _quantize_input(arr, detail))
 
-    cm, recalls, apcer, bpcer, acer = calculate_validation_metrics(all_labels, all_preds)
-    acc = sum(int(l == p) for l, p in zip(all_labels, all_preds)) / len(all_labels)
+        self.interp.invoke()
+        logits = _dequantize_output(self.interp.get_tensor(self.out_detail["index"]), self.out_detail)[0]
+        self.labels.append(int(label))
+        self.preds.append(int(np.argmax(logits)))
 
-    in_dtype = input_specs[0][1]["dtype"].__name__
-    print(f"\n===== evaluation: {model_path} (input dtype={in_dtype}, samples={len(all_labels)}) =====")
-    print(f" val_acc: {acc:.4f}")
-    print(f" APCER: {apcer:.4f} | BPCER: {bpcer:.4f} | ACER: {acer:.4f}")
-    print(" class recall:")
-    for name, recall in zip(CLASS_NAMES, recalls):
-        print(f"   {name}: {recall:.4f}")
-    return {"model": model_path, "val_acc": acc, "apcer": apcer, "bpcer": bpcer, "acer": acer}
+
+def _prefetched_samples(items, load_fn, num_workers, prefetch_depth):
+    """Yield (item, loaded_sample) in order while loading ahead on threads."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+        it = iter(items)
+        pending = collections.deque(
+            (item, executor.submit(load_fn, item))
+            for item in itertools.islice(it, prefetch_depth)
+        )
+        while pending:
+            item, future = pending.popleft()
+            for nxt in itertools.islice(it, 1):
+                pending.append((nxt, executor.submit(load_fn, nxt)))
+            yield item, future.result()
 
 
 def main():
@@ -137,22 +173,78 @@ def main():
     parser.add_argument(
         "--models",
         nargs="+",
-        default=["model/anti_spoofing.tflite", "model/anti_spoofing_float.tflite"],
-        help="TFLite model paths to evaluate.",
+        default=[
+            "model/keras/best_model_fold0_float.tflite",
+            "model/keras/best_model_fold0_int8.tflite",
+            "model/keras/best_model_fold0_npu_int8.tflite",
+        ],
+        help="TFLite model paths to evaluate (all run in one dataset pass).",
     )
     parser.add_argument("--data-dir", default="dataset/raw")
     parser.add_argument("--folds", type=int, default=5)
     parser.add_argument("--fold-idx", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max-samples", type=int, default=None)
+    parser.add_argument(
+        "--rgb-range",
+        choices=["auto", "imagenet", "mobilenet"],
+        default="auto",
+        help="RGB input range fed to each model. auto: MobileNet [-1,1] when the "
+        "filename contains 'npu', ImageNet normalization otherwise.",
+    )
+    parser.add_argument("--num-workers", type=int, default=4, help="Sample-loading threads.")
     args = parser.parse_args()
 
-    results = []
+    from classes import CLASS_NAMES
+    from keras_pipeline.tf_dataset import (
+        RGB_MEAN,
+        RGB_STD,
+        collect_items,
+        load_multimodal_sample,
+    )
+    from utils import calculate_validation_metrics
+
+    runners = []
     for path in args.models:
         if not os.path.exists(path):
             print(f"[skip] missing model: {path}")
             continue
-        results.append(evaluate(path, args.data_dir, args.folds, args.fold_idx, args.seed, args.max_samples))
+        runners.append(TFLiteRunner(path, args.rgb_range, RGB_MEAN, RGB_STD))
+    if not runners:
+        raise SystemExit("No model file found to evaluate.")
+
+    _, val_items = collect_items(args.data_dir, k_folds=args.folds, fold_idx=args.fold_idx, seed=args.seed)
+    if args.max_samples is not None:
+        val_items = val_items[: args.max_samples]
+
+    def load_fn(item):
+        return load_multimodal_sample(item[0], item[1], augment=False)
+
+    pbar = tqdm(total=len(val_items), desc=f"evaluate fold {args.fold_idx} ({len(runners)} models)")
+    for item, sample in _prefetched_samples(
+        val_items, load_fn, num_workers=args.num_workers, prefetch_depth=4 * args.num_workers
+    ):
+        for runner in runners:
+            runner.run(sample, item[2])
+        pbar.update(1)
+    pbar.close()
+
+    results = []
+    for runner in runners:
+        _, recalls, apcer, bpcer, acer = calculate_validation_metrics(runner.labels, runner.preds)
+        acc = float(np.mean(np.asarray(runner.labels) == np.asarray(runner.preds)))
+        in_dtype = runner.input_specs[0][1]["dtype"].__name__
+        rgb_msg = "mobilenet [-1,1]" if runner.rgb_mobilenet_range else "imagenet-normalized"
+        print(
+            f"\n===== evaluation: {runner.model_path} "
+            f"(input dtype={in_dtype}, RGB range={rgb_msg}, samples={len(runner.labels)}) ====="
+        )
+        print(f" val_acc: {acc:.4f}")
+        print(f" APCER: {apcer:.4f} | BPCER: {bpcer:.4f} | ACER: {acer:.4f}")
+        print(" class recall:")
+        for name, recall in zip(CLASS_NAMES, recalls):
+            print(f"   {name}: {recall:.4f}")
+        results.append({"model": runner.model_path, "val_acc": acc, "apcer": apcer, "bpcer": bpcer, "acer": acer})
 
     if len(results) > 1:
         print("\n===== model comparison =====")

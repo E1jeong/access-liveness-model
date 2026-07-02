@@ -1,5 +1,6 @@
 import argparse
 import os
+import random
 import sys
 from pathlib import Path
 
@@ -83,10 +84,18 @@ def _copy_nested_weights(source_model, target_model, layer_name):
 def build_npu_export_model(trained_model):
     from keras_pipeline.tf_model import build_multimodal_mobilenetv2
 
+    # 학습 체크포인트에서 classifier 구성을 읽는다 (--classifier-units 0 지원).
+    try:
+        trained_dense = trained_model.get_layer("classifier_dense")
+        classifier_units = trained_dense.units
+    except ValueError:
+        trained_dense = None
+        classifier_units = 0
+
     export_model = build_multimodal_mobilenetv2(
         rgb_weights=None,
         dropout=0.0,
-        classifier_units=1024,
+        classifier_units=classifier_units,
         gray_imagenet_init=False,
         rgb_input_mobilenet_range=True,
         average_pool_op=True,
@@ -103,11 +112,11 @@ def build_npu_export_model(trained_model):
         _copy_nested_weights(trained_model, export_model, layer_name)
 
     # classifier_dense (Dense) -> classifier_dense_conv (Conv2D 1x1)
-    trained_dense = trained_model.get_layer("classifier_dense")
-    export_dense_conv = export_model.get_layer("classifier_dense_conv")
-    dense_w, dense_b = trained_dense.get_weights()
-    conv_w = np.reshape(dense_w, (1, 1, dense_w.shape[0], dense_w.shape[1]))
-    export_dense_conv.set_weights([conv_w, dense_b])
+    if trained_dense is not None:
+        export_dense_conv = export_model.get_layer("classifier_dense_conv")
+        dense_w, dense_b = trained_dense.get_weights()
+        conv_w = np.reshape(dense_w, (1, 1, dense_w.shape[0], dense_w.shape[1]))
+        export_dense_conv.set_weights([conv_w, dense_b])
 
     # logits (Dense) -> logits_conv (Conv2D 1x1)
     trained_logits = trained_model.get_layer("logits")
@@ -186,7 +195,8 @@ def parse_args():
 
 
 def preload_calibration_samples(items, max_samples):
-    print(f"Preloading {max_samples} calibration samples in parallel...")
+    count = min(len(items), max_samples)
+    print(f"Preloading {count} calibration samples in parallel...")
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
         def worker(item):
             crop_rgb_path, crop_ir_path, _ = item
@@ -225,6 +235,9 @@ def main():
             fold_idx=args.fold_idx,
             seed=args.seed,
         )
+        # collect_items는 클래스 순서(live부터)로 쌓이므로 앞에서 자르면
+        # 캘리브레이션이 live에 편향된다 — 전 클래스가 섞이도록 셔플 후 샘플링.
+        random.Random(args.seed).shuffle(train_items)
         preloaded_samples = preload_calibration_samples(train_items, args.calibration_samples)
 
     base_name = Path(args.model_path).stem

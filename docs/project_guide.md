@@ -104,8 +104,8 @@ nvidia-smi 2>/dev/null | grep -q "GTX 1660 Ti" && echo "서브노트북" || echo
 
 ```bash
 git status --short
-.venv/bin/python -m py_compile model.py dataset.py train.py classes.py utils.py convert_to_tflite.py verify_setup.py
-.venv/bin/python verify_setup.py
+.venv/bin/python -m py_compile pytorch_pipeline/model.py pytorch_pipeline/dataset.py pytorch_pipeline/train.py classes.py utils.py pytorch_pipeline/convert_to_tflite.py pytorch_pipeline/verify_setup.py
+./run_pytorch_verify.sh
 ```
 
 Keras 파이프라인 확인은 반드시 셸 스크립트를 사용한다(TF GPU `LD_LIBRARY_PATH` 설정 포함, 서브노트북 전용):

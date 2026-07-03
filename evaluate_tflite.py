@@ -54,7 +54,7 @@ def _dequantize_output(arr, detail):
 
 
 def evaluate(model_path, data_dir, folds, fold_idx, seed, max_samples=None):
-    from dataset import get_data_loaders
+    from pytorch_pipeline.dataset import get_data_loaders
     from utils import calculate_validation_metrics
     from classes import CLASS_NAMES
 

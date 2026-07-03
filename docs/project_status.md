@@ -131,15 +131,15 @@ Goal: INT8 tflite for the i.MX 8M Plus NPU (float on CPU is 80–220 ms; NPU INT
 ### PyTorch pipeline (`.venv`, Python 3.12)
 
 ```bash
-.venv/bin/python model.py                              # smoke-test: prints output shape [1,5]
-.venv/bin/python verify_setup.py                       # torch version, CUDA, litert_torch check
-.venv/bin/python train.py --folds 5 --epochs 30        # K-fold train, all folds
-.venv/bin/python train.py --folds 5 --max-folds 1      # single fold quick test
-.venv/bin/python convert_to_tflite.py                  # float tflite -> model/anti_spoofing.tflite
+./run_pytorch_model.sh                                 # smoke-test: prints output shape [1,5]
+./run_pytorch_verify.sh                                # torch version, CUDA, litert_torch check
+./run_pytorch_train.sh --folds 5 --epochs 30           # K-fold train, all folds
+./run_pytorch_train.sh --folds 5 --max-folds 1         # single fold quick test
+./run_pytorch_convert.sh                               # float tflite -> model/anti_spoofing.tflite
 .venv/bin/python evaluate_tflite.py --models model/anti_spoofing.tflite
 ```
 
-`train.py` key args: `--epochs` `--batch-size` `--learning-rate` `--folds` `--max-folds` `--seed` `--num-workers`
+`run_pytorch_train.sh` key args: `--epochs` `--batch-size` `--learning-rate` `--folds` `--max-folds` `--seed` `--num-workers`
 
 ### Keras/TensorFlow pipeline (`.venv-tf`, Python 3.11)
 

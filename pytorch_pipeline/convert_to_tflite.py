@@ -73,7 +73,7 @@ def convert_pytorch_to_tflite(pth_path="model/best_model_fold0.pth", tflite_path
             print("[Calibration 데이터 로드 중...]")
             _, val_loader = get_data_loaders(
                 "dataset/raw",
-                batch_size=8,
+                batch_size=1,  # 배치 크기 1로 명시하여 export 가드(batch=1) 조건 일치
                 k_folds=5,
                 fold_idx=0,
                 num_workers=2

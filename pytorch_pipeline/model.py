@@ -11,16 +11,35 @@ import torch.nn as nn
 import torchvision.models as models
 from classes import CLASS_NAMES
 
+def replace_hardswish_with_relu(model):
+    for name, child in model.named_children():
+        if isinstance(child, nn.Hardswish):
+            setattr(model, name, nn.ReLU(inplace=True))
+        else:
+            replace_hardswish_with_relu(child)
+
+def disable_se_blocks(model):
+    from torchvision.ops.misc import SqueezeExcitation
+    for name, child in model.named_children():
+        if isinstance(child, SqueezeExcitation):
+            setattr(model, name, nn.Identity())
+        else:
+            disable_se_blocks(child)
+
 class DualInputMobileNetV3(nn.Module):
     def __init__(self):
         super().__init__()
         # RGB Backbone (MobileNetV3-Small)
         rgb_model = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.DEFAULT)
+        replace_hardswish_with_relu(rgb_model)
+        disable_se_blocks(rgb_model)
         self.rgb_features = rgb_model.features
         self.rgb_pool = rgb_model.avgpool
 
         # IR Backbone (MobileNetV3-Small)
         ir_model = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.DEFAULT)
+        replace_hardswish_with_relu(ir_model)
+        disable_se_blocks(ir_model)
         first_conv = ir_model.features[0][0]
         new_conv = nn.Conv2d(
             in_channels=1,
@@ -41,7 +60,7 @@ class DualInputMobileNetV3(nn.Module):
         # Output features: 576 (RGB) + 576 (IR) = 1152 features
         self.classifier = nn.Sequential(
             nn.Linear(1152, 1024),
-            nn.Hardswish(),
+            nn.ReLU(inplace=True),
             nn.Dropout(p=0.2),
             nn.Linear(1024, len(CLASS_NAMES))
         )

@@ -69,9 +69,9 @@ def convert_pytorch_to_tflite(pth_path="model/best_model_fold0.pth", tflite_path
             )
             prepared_model = prepare_pt2e(exported_model, quantizer)
 
-            # Step 3: Calibration 데이터 로드 및 캡처
+            # Step 3: Calibration 데이터 로드 및 캡처 (골고루 섞인 train_loader 사용)
             print("[Calibration 데이터 로드 중...]")
-            _, val_loader = get_data_loaders(
+            train_loader, _ = get_data_loaders(
                 "dataset/raw",
                 batch_size=1,  # 배치 크기 1로 명시하여 export 가드(batch=1) 조건 일치
                 k_folds=5,
@@ -79,14 +79,14 @@ def convert_pytorch_to_tflite(pth_path="model/best_model_fold0.pth", tflite_path
                 num_workers=2
             )
 
-            print("[보정(Calibration) 추론 실행 중...]")
+            print("[보정(Calibration) 추론 실행 중... (다양한 클래스 반영)]")
             with torch.no_grad():
-                for idx, (rgb, ir, _) in enumerate(val_loader):
+                for idx, (rgb, ir, _) in enumerate(train_loader):
                     # ToTensor()는 NCHW [B, 3, H, W]를 리턴하므로 NHWC [B, H, W, C]로 변환
                     rgb_nhwc = rgb.permute(0, 2, 3, 1)
                     ir_nhwc = ir.permute(0, 2, 3, 1)
                     prepared_model(rgb_nhwc, ir_nhwc)
-                    if idx >= 30:  # 30개 배치만 보정에 사용
+                    if idx >= 200:  # 셔플된 학습 데이터 중 200개 샘플을 보정에 활용
                         break
 
             # Step 4: PT2E 양자화 변환 완료

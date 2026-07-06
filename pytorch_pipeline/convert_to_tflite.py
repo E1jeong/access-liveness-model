@@ -110,11 +110,12 @@ def convert_pytorch_to_tflite(pth_path="model/best_model_fold0.pth", tflite_path
 
             # 보정(Calibration) 실행
             print(" -> 모델 보정 추론 중...")
-            qt.calibrate(calibration_data)
+            calibration_result = qt.calibrate(calibration_data)
 
             # 양자화 빌드 및 최종 저장
             print(" -> INT8 TFLite 파일 생성 중...")
-            quant_result = qt.quantize()
+            quant_result = qt.quantize(calibration_result)
+
             with open(tflite_path, "wb") as f:
                 f.write(quant_result.quantized_model)
             print(f"[TFLite 양자화 성공] {tflite_path} 파일이 성공적으로 생성되었습니다!")

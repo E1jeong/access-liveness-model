@@ -200,6 +200,16 @@ def train_model(args):
             values = np.array([m[metric_name] for m in fold_metrics], dtype=np.float32)
             print(f"{metric_name}: 평균 {values.mean():.4f} ± 표준편차 {values.std():.4f}")
 
+        # 가장 우수한 성능을 낸 Fold 색출 및 요약 출력
+        best_idx = int(np.argmin([m["acer"] for m in fold_metrics]))
+        print(f"\n==========================================")
+        print(f"★ [최적 성능 요약] Fold {best_idx}가 가장 우수한 성능을 기록했습니다.")
+        print(f"  - ACER: {fold_metrics[best_idx]['acer']:.4f}")
+        print(f"  - APCER: {fold_metrics[best_idx]['apcer']:.4f}")
+        print(f"  - BPCER: {fold_metrics[best_idx]['bpcer']:.4f}")
+        print(f"  - Val Accuracy: {fold_metrics[best_idx]['val_acc']*100:.2f}%")
+        print(f"==========================================")
+
     save_learning_curves(all_histories)
 
 

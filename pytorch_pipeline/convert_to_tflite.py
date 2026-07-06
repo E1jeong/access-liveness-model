@@ -48,8 +48,9 @@ def convert_pytorch_to_tflite(pth_path="model/best_model_fold0.pth", tflite_path
             exported_model = torch.export.export(nhwc_model, (sample_rgb, sample_ir)).module()
 
             # Step 2: PT2E Quantizer 준비 (Symmetric Per-Channel)
-            quantizer = PT2EQuantizer().set_global(
-                PT2EQuantizer.get_symmetric_quantization_config(is_per_channel=True)
+            quantizer = PT2EQuantizer()
+            quantizer.set_global(
+                quantizer.get_supported_quantization_configs()[2]
             )
             prepared_model = prepare_pt2e(exported_model, quantizer)
 

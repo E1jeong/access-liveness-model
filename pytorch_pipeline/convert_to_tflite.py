@@ -52,55 +52,72 @@ def convert_pytorch_to_tflite(pth_path="model/best_model_fold0.pth", tflite_path
         nhwc_model = litert_torch.to_channel_last_io(model, args=[0, 1])
         nhwc_model.eval()
 
+        # 1단계: 순수 Float32 TFLite 모델 변환 및 저장
+        print("[1단계] Float32 TFLite 변환 진행 중...")
+        edge_model = litert_torch.convert(nhwc_model, (sample_rgb, sample_ir))
+        
+        dirpath = os.path.dirname(tflite_path)
+        if dirpath:
+            os.makedirs(dirpath, exist_ok=True)
+            
+        float_tflite_path = tflite_path
         if quantize:
-            print("[INT8 양자화 파이프라인 활성화]")
-            from torchao.quantization.pt2e.quantize_pt2e import prepare_pt2e, convert_pt2e
-            from litert_torch.quantize.pt2e_quantizer import PT2EQuantizer
-            from litert_torch.quantize.quant_config import QuantConfig
+            float_tflite_path = tflite_path.replace(".tflite", "_float.tflite")
+            if float_tflite_path == tflite_path:
+                float_tflite_path = tflite_path + "_float.tflite"
+                
+        edge_model.export(float_tflite_path)
+        print(f" -> Float32 TFLite 생성 완료: {float_tflite_path}")
+
+        # 2단계: 양자화(INT8) 처리 진행
+        if quantize:
+            print("[2단계] ai_edge_quantizer를 이용한 INT8 정적 양자화 적용 중...")
+            import ai_edge_quantizer as aq
+            import numpy as np
             from pytorch_pipeline.dataset import get_data_loaders
 
-            # Step 1: Export structure using torch.export
-            exported_model = torch.export.export(nhwc_model, (sample_rgb, sample_ir)).module()
+            # Quantizer 인스턴스 생성
+            qt = aq.Quantizer(float_tflite_path)
+            # 빌트인 static 레시피 로드 (가중치 INT8, 활성화 INT8)
+            qt.load_quantization_recipe("static_wi8_ai8")
 
-            # Step 2: PT2E Quantizer 준비 (Symmetric Per-Channel)
-            quantizer = PT2EQuantizer()
-            quantizer.set_global(
-                quantizer.get_supported_quantization_configs()[2]
-            )
-            prepared_model = prepare_pt2e(exported_model, quantizer)
-
-            # Step 3: Calibration 데이터 로드 및 캡처 (골고루 섞인 train_loader 사용)
-            print("[Calibration 데이터 로드 중...]")
+            # 셔플된 train_loader로 보정 데이터 생성
+            print(" -> Calibration 데이터 수집 중...")
             train_loader, _ = get_data_loaders(
                 "dataset/raw",
-                batch_size=1,  # 배치 크기 1로 명시하여 export 가드(batch=1) 조건 일치
+                batch_size=1,
                 k_folds=5,
                 fold_idx=0,
                 num_workers=2
             )
 
-            print("[보정(Calibration) 추론 실행 중... (다양한 클래스 반영)]")
-            with torch.no_grad():
-                for idx, (rgb, ir, _) in enumerate(train_loader):
-                    # ToTensor()는 NCHW [B, 3, H, W]를 리턴하므로 NHWC [B, H, W, C]로 변환
-                    rgb_nhwc = rgb.permute(0, 2, 3, 1)
-                    ir_nhwc = ir.permute(0, 2, 3, 1)
-                    prepared_model(rgb_nhwc, ir_nhwc)
-                    if idx >= 200:  # 셔플된 학습 데이터 중 200개 샘플을 보정에 활용
-                        break
+            calibration_samples = []
+            for idx, (rgb, ir, _) in enumerate(train_loader):
+                # NHWC float32 NumPy 배열로 변환
+                rgb_np = rgb.permute(0, 2, 3, 1).numpy().astype(np.float32)
+                ir_np = ir.permute(0, 2, 3, 1).numpy().astype(np.float32)
+                # 시그니처 텐서 인풋 키 매핑
+                calibration_samples.append({
+                    "args_0": rgb_np,
+                    "args_1": ir_np
+                })
+                if idx >= 200:  # 200개 샘플 보정
+                    break
 
-            # Step 4: PT2E 양자화 변환 완료
-            quantized_model = convert_pt2e(prepared_model, fold_quantize=False)
+            calibration_data = {
+                "serving_default": calibration_samples
+            }
 
-            # Step 5: LiteRT 변환 진행 (QuantConfig 래핑)
-            q_config = QuantConfig(pt2e_quantizer=quantizer)
-            edge_model = litert_torch.convert(
-                quantized_model,
-                (sample_rgb, sample_ir),
-                quant_config=q_config
-            )
-        else:
-            edge_model = litert_torch.convert(nhwc_model, (sample_rgb, sample_ir))
+            # 보정(Calibration) 실행
+            print(" -> 모델 보정 추론 중...")
+            qt.calibrate(calibration_data)
+
+            # 양자화 빌드 및 최종 저장
+            print(" -> INT8 TFLite 파일 생성 중...")
+            quant_result = qt.quantize()
+            with open(tflite_path, "wb") as f:
+                f.write(quant_result.quantized_model)
+            print(f"[TFLite 양자화 성공] {tflite_path} 파일이 성공적으로 생성되었습니다!")
 
         dirpath = os.path.dirname(tflite_path)
         if dirpath:

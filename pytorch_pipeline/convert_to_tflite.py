@@ -39,7 +39,7 @@ def convert_pytorch_to_tflite(pth_path="model/best_model_fold0.pth", tflite_path
 
         if quantize:
             print("[INT8 양자화 파이프라인 활성화]")
-            from torch.ao.quantization.quantize_pt2e import prepare_pt2e, convert_pt2e
+            from torchao.quantization.pt2e.quantize_pt2e import prepare_pt2e, convert_pt2e
             from litert_torch.quantize.pt2e_quantizer import PT2EQuantizer
             from litert_torch.quantize.quant_config import QuantConfig
             from pytorch_pipeline.dataset import get_data_loaders

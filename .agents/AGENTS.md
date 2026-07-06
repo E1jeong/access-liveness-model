@@ -2,7 +2,15 @@
 
 Behavioral and technical constraints specific to the `access-liveness-model` project.
 
-> This repo no longer has a `docs/` folder. Fixed standards, current state, and open questions live in the Obsidian vault (GitHub `E1jeong/obsidian-vault`, clone locally if not present) under `Project/Company/Access Liveness Model/`: `개요.md` (goals, fixed scope), `운영.md` (per-machine setup state, verification commands), `로드맵/개발 단계.md` (development gates), `테스트/평가지표와 결과.md` (current metrics), `이슈/확인 필요.md` (open items — read this first), `log.md` (append-only change history). The paired Android evaluation app has its own wiki at `Project/Company/Anti-Spoofing Viewer/` — check it whenever the model contract or NPU status changes, since the two repos must move together.
+> This repo no longer has a `docs/` folder. Fixed standards, current state, and open questions live in the Obsidian vault (GitHub `E1jeong/obsidian-vault`, clone locally if not present) under `Project/Company/Access Liveness Model/`: **`핸드오프.md` (read this first — last session summary, current state, next starting point, blockers)**, `개요.md` (goals, fixed scope), `운영.md` (per-machine setup state, verification commands), `로드맵/개발 단계.md` (development gates), `테스트/평가지표와 결과.md` (current metrics), `이슈/확인 필요.md` (open items), `log.md` (append-only change history). The paired Android evaluation app has its own wiki at `Project/Company/Anti-Spoofing Viewer/` — check it whenever the model contract or NPU status changes, since the two repos must move together.
+
+## Wiki Push (on request — "위키 업데이트해" — or at session end)
+
+- Summarize what actually changed this session (training runs, quantization attempts, metrics, bugs found/fixed, decisions).
+- Update the relevant vault pages (`기술/`, `테스트/평가지표와 결과.md`, `로드맵/개발 단계.md`) with confirmed facts. Put anything uncertain in `이슈/확인 필요.md` instead of asserting it.
+- If the model contract or NPU status changed, update the paired `Project/Company/Anti-Spoofing Viewer/` wiki too — never update only one side.
+- Append an entry to `log.md` (never edit past entries).
+- **Overwrite `핸드오프.md`** with this session's summary, current state, next starting point, and any blocker (e.g. ALL-STOP status) — this file is the one exception to append-only; it replaces the previous content rather than adding to it.
 
 ## 0. Machine Topology (important)
 Work spans two machines — do not assume one box. This section is a fixed technical fact, not a status log; if it goes stale, fix it here directly (do not let the Obsidian wiki become the only source of truth for this repo's own machine names/paths).

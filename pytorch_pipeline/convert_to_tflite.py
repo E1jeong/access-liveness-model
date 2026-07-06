@@ -8,9 +8,24 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import argparse
 import torch
+import torch.nn as nn
 
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
+
+# torch.export.export 멍키 패치 (torchao/pytorch 버전 호환성 문제 해결용)
+_original_export = torch.export.export
+def _patched_export(mod, args, kwargs=None, *opt_args, **opt_kwargs):
+    if not isinstance(mod, nn.Module) and callable(mod):
+        class FunctionWrapper(nn.Module):
+            def __init__(self, fn):
+                super().__init__()
+                self.fn = fn
+            def forward(self, *args, **kwargs):
+                return self.fn(*args, **kwargs)
+        mod = FunctionWrapper(mod)
+    return _original_export(mod, args, kwargs, *opt_args, **opt_kwargs)
+torch.export.export = _patched_export
 
 
 def convert_pytorch_to_tflite(pth_path="model/best_model_fold0.pth", tflite_path="model/anti_spoofing.tflite", quantize=False):

@@ -119,12 +119,12 @@ def convert_pytorch_to_tflite(pth_path="model/best_model_fold0.pth", tflite_path
             with open(tflite_path, "wb") as f:
                 f.write(quant_result.quantized_model)
             print(f"[TFLite 양자화 성공] {tflite_path} 파일이 성공적으로 생성되었습니다!")
-
-        dirpath = os.path.dirname(tflite_path)
-        if dirpath:
-            os.makedirs(dirpath, exist_ok=True)
-        edge_model.export(tflite_path)
-        print(f"[TFLite 변환 성공] {tflite_path} 파일이 성공적으로 생성되었습니다!")
+        else:
+            dirpath = os.path.dirname(tflite_path)
+            if dirpath:
+                os.makedirs(dirpath, exist_ok=True)
+            edge_model.export(tflite_path)
+            print(f"[TFLite 변환 성공] {tflite_path} 파일이 성공적으로 생성되었습니다!")
     except ImportError as e:
         print(f"[-] 라이브러리 임포트 오류: {e}")
     except Exception as e:

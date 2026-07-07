@@ -49,6 +49,14 @@ def convert_int8(model, output_path, preloaded_samples, model_type):
                     np.expand_dims(sample[0], axis=0).astype(np.float32),
                     np.expand_dims(sample[1], axis=0).astype(np.float32),
                 ]
+            elif model_type == "crop_rgb":
+                yield [
+                    np.expand_dims(sample[0], axis=0).astype(np.float32),
+                ]
+            elif model_type == "crop_ir":
+                yield [
+                    np.expand_dims(sample[1], axis=0).astype(np.float32),
+                ]
             else:
                 yield {
                     "a_crop_rgb": np.expand_dims(sample[0], axis=0).astype(np.float32),
@@ -110,6 +118,20 @@ def build_npu_export_model(trained_model, model_type):
             classifier_as_conv=True,
         )
         backbones = ["rgb_mobilenetv2", "ir_mobilenetv2"]
+    elif model_type in ("crop_rgb", "crop_ir"):
+        from keras_pipeline.tf_model import build_single_mobilenetv2
+        export_model = build_single_mobilenetv2(
+            input_type=model_type,
+            rgb_weights=None,
+            dropout=0.0,
+            classifier_units=classifier_units,
+            ir_imagenet_init=False,
+            rgb_input_mobilenet_range=True,
+            average_pool_op=True,
+            fixed_batch_size=1,
+            classifier_as_conv=True,
+        )
+        backbones = [f"{model_type}_mobilenetv2"]
     else:
         from keras_pipeline.tf_model import build_multimodal_mobilenetv2
         export_model = build_multimodal_mobilenetv2(
@@ -164,6 +186,15 @@ def convert_int8_npu(trained_model, output_path, preloaded_samples, model_type):
                     np.expand_dims(rgb, axis=0).astype(np.float32),
                     np.expand_dims(sample[1], axis=0).astype(np.float32),
                 ]
+            elif model_type == "crop_rgb":
+                rgb = _rgb_imagenet_norm_to_mobilenet_range(sample[0])
+                yield [
+                    np.expand_dims(rgb, axis=0).astype(np.float32),
+                ]
+            elif model_type == "crop_ir":
+                yield [
+                    np.expand_dims(sample[1], axis=0).astype(np.float32),
+                ]
             else:
                 crop_rgb = _rgb_imagenet_norm_to_mobilenet_range(sample[0])
                 rgb = _rgb_imagenet_norm_to_mobilenet_range(sample[2])
@@ -215,9 +246,9 @@ def parse_args():
     parser.add_argument("--data-dir", default="dataset/raw")
     parser.add_argument(
         "--model-type",
-        choices=["dual", "multimodal"],
+        choices=["dual", "multimodal", "crop_rgb", "crop_ir"],
         default="dual",
-        help="변환할 모델 종류 (dual: 2입력, multimodal: 5입력)"
+        help="변환할 모델 종류 (dual: 2입력, multimodal: 5입력, crop_rgb: 단일 RGB, crop_ir: 단일 IR)"
     )
     parser.add_argument("--folds", type=int, default=5)
     parser.add_argument("--fold-idx", type=int, default=0)
@@ -233,7 +264,7 @@ def preload_calibration_samples(items, max_samples, model_type):
     count = min(len(items), max_samples)
     print(f"Preloading {count} calibration samples in parallel (mode: {model_type})...")
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-        if model_type == "dual":
+        if model_type in ("dual", "crop_rgb", "crop_ir"):
             def worker(item):
                 rgb_path, ir_path, _ = item
                 return load_sample(rgb_path, ir_path, augment=False)
@@ -251,7 +282,12 @@ def main():
     if not args.float and not args.int8 and not args.npu_int8:
         raise SystemExit("Choose at least one conversion mode: --float, --int8, and/or --npu-int8")
     if args.model_path is None:
-        filename = f"best_model_fold{args.fold_idx}.keras" if args.model_type == "dual" else f"best_multimodal_fold{args.fold_idx}.keras"
+        if args.model_type == "dual":
+            filename = f"best_model_fold{args.fold_idx}.keras"
+        elif args.model_type in ("crop_rgb", "crop_ir"):
+            filename = f"best_{args.model_type}_fold{args.fold_idx}.keras"
+        else:
+            filename = f"best_multimodal_fold{args.fold_idx}.keras"
         args.model_path = os.path.join(
             args.output_dir,
             filename,

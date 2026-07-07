@@ -282,6 +282,47 @@ def make_multimodal_dataset(items, batch_size=8, shuffle=False, seed=42, augment
     return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 
+def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=False, seed=42, augment=False):
+    items = list(items)
+    if shuffle:
+        random.Random(seed).shuffle(items)
+
+    rgb_paths = [item[0] for item in items]
+    ir_paths = [item[1] for item in items]
+    labels = [item[2] for item in items]
+
+    ds = tf.data.Dataset.from_tensor_slices((rgb_paths, ir_paths, labels))
+
+    if shuffle:
+        ds = ds.shuffle(buffer_size=len(items), seed=seed, reshuffle_each_iteration=True)
+
+    def map_fn(rgb_path, ir_path, label):
+        def _py_fn(r_path, i_path, lbl):
+            r_path_str = r_path.numpy().decode('utf-8')
+            i_path_str = i_path.numpy().decode('utf-8')
+            lbl_val = int(lbl.numpy())
+            rgb, ir = load_sample(r_path_str, i_path_str, augment=augment)
+            return rgb, ir, np.int32(lbl_val)
+
+        outputs = tf.py_function(
+            _py_fn,
+            inp=[rgb_path, ir_path, label],
+            Tout=[tf.float32, tf.float32, tf.int32]
+        )
+        
+        outputs[0].set_shape((224, 224, 3))
+        outputs[1].set_shape((224, 224, 1))
+        outputs[2].set_shape(())
+        
+        if input_type == "crop_rgb":
+            return outputs[0], outputs[2]
+        else:
+            return outputs[1], outputs[2]
+
+    ds = ds.map(map_fn, num_parallel_calls=tf.data.AUTOTUNE)
+    return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+
+
 def representative_dataset(items, max_samples=200):
     for rgb_path, ir_path, _ in items[:max_samples]:
         rgb, ir = load_sample(rgb_path, ir_path, augment=False)
@@ -289,6 +330,15 @@ def representative_dataset(items, max_samples=200):
             np.expand_dims(rgb, axis=0).astype(np.float32),
             np.expand_dims(ir, axis=0).astype(np.float32),
         ]
+
+
+def representative_single_dataset(items, input_type="crop_rgb", max_samples=200):
+    for rgb_path, ir_path, _ in items[:max_samples]:
+        rgb, ir = load_sample(rgb_path, ir_path, augment=False)
+        if input_type == "crop_rgb":
+            yield [np.expand_dims(rgb, axis=0).astype(np.float32)]
+        else:
+            yield [np.expand_dims(ir, axis=0).astype(np.float32)]
 
 
 def representative_multimodal_dataset(items, max_samples=200):
@@ -301,3 +351,4 @@ def representative_multimodal_dataset(items, max_samples=200):
             "d_ir": np.expand_dims(sample[3], axis=0).astype(np.float32),
             "e_heatmap": np.expand_dims(sample[4], axis=0).astype(np.float32),
         }
+

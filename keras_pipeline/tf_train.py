@@ -18,10 +18,10 @@ if str(PROJECT_ROOT) not in sys.path:
 from classes import CLASS_NAMES
 from utils import validate_kfold_coverage, calculate_validation_metrics
 from keras_pipeline.tf_dataset import (
-    collect_items, make_dataset, make_multimodal_dataset
+    collect_items, make_dataset, make_multimodal_dataset, make_single_dataset
 )
 from keras_pipeline.tf_model import (
-    build_dual_mobilenetv2, build_multimodal_mobilenetv2
+    build_dual_mobilenetv2, build_multimodal_mobilenetv2, build_single_mobilenetv2
 )
 
 
@@ -116,9 +116,9 @@ def parse_args():
     parser.add_argument("--output-dir", default="model/keras")
     parser.add_argument(
         "--model-type",
-        choices=["dual", "multimodal"],
+        choices=["dual", "multimodal", "crop_rgb", "crop_ir"],
         default="dual",
-        help="학습할 모델 종류 (dual: 2입력, multimodal: 5입력)"
+        help="학습할 모델 종류 (dual: 2입력, multimodal: 5입력, crop_rgb: 단일 RGB, crop_ir: 단일 IR)"
     )
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=8)
@@ -167,6 +167,11 @@ def main():
             train_items, batch_size=args.batch_size, shuffle=True, seed=args.seed, augment=True
         ).repeat()
         val_ds = make_dataset(val_items, batch_size=args.batch_size, shuffle=False, seed=args.seed).cache()
+    elif args.model_type in ("crop_rgb", "crop_ir"):
+        train_ds = make_single_dataset(
+            train_items, input_type=args.model_type, batch_size=args.batch_size, shuffle=True, seed=args.seed, augment=True
+        ).repeat()
+        val_ds = make_single_dataset(val_items, input_type=args.model_type, batch_size=args.batch_size, shuffle=False, seed=args.seed).cache()
     else:
         train_ds = make_multimodal_dataset(
             train_items, batch_size=args.batch_size, shuffle=True, seed=args.seed, augment=True
@@ -196,6 +201,15 @@ def main():
             ir_imagenet_init=not (args.no_gray_imagenet_init or args.no_ir_imagenet_init),
         )
         output_filename = f"best_model_fold{args.fold_idx}.keras"
+    elif args.model_type in ("crop_rgb", "crop_ir"):
+        model = build_single_mobilenetv2(
+            input_type=args.model_type,
+            rgb_weights=rgb_weights,
+            dropout=args.dropout,
+            classifier_units=args.classifier_units,
+            ir_imagenet_init=not (args.no_gray_imagenet_init or args.no_ir_imagenet_init),
+        )
+        output_filename = f"best_{args.model_type}_fold{args.fold_idx}.keras"
     else:
         model = build_multimodal_mobilenetv2(
             rgb_weights=rgb_weights,

@@ -73,6 +73,27 @@ def _transfer_imagenet_weights_to_gray_backbone(source_backbone, gray_backbone, 
     print(f"[{label} backbone] copied ImageNet weights into {copied} MobileNetV2 layers")
 
 
+def _load_custom_numpy_weights(model, npz_path):
+    import numpy as np
+    print(f"Loading custom numpy weights from {npz_path}...")
+    weights_data = np.load(npz_path, allow_pickle=True)
+    copied = 0
+    for layer in model.layers:
+        w_list = []
+        idx = 0
+        while True:
+            key = f"{layer.name}/{idx}"
+            if key in weights_data:
+                w_list.append(weights_data[key])
+                idx += 1
+            else:
+                break
+        if w_list:
+            layer.set_weights(w_list)
+            copied += 1
+    print(f"Successfully injected custom weights into {copied} layers.")
+
+
 def _rgb_current_norm_to_mobilenet_range(x):
     # Input follows the existing Android/PyTorch contract:
     # rgb = (raw_0_1 - ImageNet_mean) / ImageNet_std.
@@ -105,10 +126,15 @@ def build_dual_mobilenetv2(
         )(rgb_input)
 
     is_custom_weights = False
+    is_npz_weights = False
     rgb_weights_init = rgb_weights
-    if isinstance(rgb_weights, str) and (rgb_weights.endswith(".weights.h5") or rgb_weights.endswith(".h5")):
-        is_custom_weights = True
-        rgb_weights_init = None
+    if isinstance(rgb_weights, str):
+        if rgb_weights.endswith(".weights.h5") or rgb_weights.endswith(".h5"):
+            is_custom_weights = True
+            rgb_weights_init = None
+        elif rgb_weights.endswith(".npz"):
+            is_npz_weights = True
+            rgb_weights_init = None
 
     rgb_backbone = keras.applications.MobileNetV2(
         input_shape=(224, 224, 3),
@@ -128,6 +154,8 @@ def build_dual_mobilenetv2(
     if is_custom_weights:
         print(f"Loading custom weights into rgb_backbone from: {rgb_weights}")
         rgb_backbone.load_weights(rgb_weights)
+    elif is_npz_weights:
+        _load_custom_numpy_weights(rgb_backbone, rgb_weights)
 
     if rgb_weights is not None and ir_imagenet_init:
         _transfer_imagenet_weights_to_ir_backbone(rgb_backbone, ir_backbone)
@@ -156,6 +184,122 @@ def build_dual_mobilenetv2(
             fused = layers.Dropout(dropout, name="classifier_dropout")(fused)
         logits = layers.Dense(len(CLASS_NAMES), name="logits")(fused)
     return keras.Model(inputs=[rgb_input, ir_input], outputs=logits, name="dual_mobilenetv2")
+
+
+def build_single_mobilenetv2(
+    input_type="crop_rgb",
+    rgb_weights="imagenet",
+    dropout=0.2,
+    classifier_units=1024,
+    ir_imagenet_init=True,
+    rgb_input_mobilenet_range=False,
+    average_pool_op=False,
+    fixed_batch_size=None,
+    classifier_as_conv=False,
+):
+    if input_type not in ("crop_rgb", "crop_ir"):
+        raise ValueError(f"Unknown input_type: {input_type}")
+
+    if input_type == "crop_rgb":
+        rgb_input = keras.Input(batch_size=fixed_batch_size, shape=(224, 224, 3), name="a_crop_rgb")
+        if rgb_input_mobilenet_range:
+            rgb_preprocessed = rgb_input
+        else:
+            rgb_preprocessed = layers.Lambda(
+                _rgb_current_norm_to_mobilenet_range,
+                name="rgb_to_mobilenet_range",
+            )(rgb_input)
+
+        is_custom_weights = False
+        is_npz_weights = False
+        rgb_weights_init = rgb_weights
+        if isinstance(rgb_weights, str):
+            if rgb_weights.endswith(".weights.h5") or rgb_weights.endswith(".h5"):
+                is_custom_weights = True
+                rgb_weights_init = None
+            elif rgb_weights.endswith(".npz"):
+                is_npz_weights = True
+                rgb_weights_init = None
+
+        rgb_backbone = keras.applications.MobileNetV2(
+            input_shape=(224, 224, 3),
+            include_top=False,
+            weights=rgb_weights_init,
+            pooling=None if average_pool_op else "avg",
+            name="crop_rgb_mobilenetv2",
+        )
+        if is_custom_weights:
+            rgb_backbone.load_weights(rgb_weights)
+        elif is_npz_weights:
+            _load_custom_numpy_weights(rgb_backbone, rgb_weights)
+
+        features = rgb_backbone(rgb_preprocessed)
+        if average_pool_op:
+            features = layers.AveragePooling2D(pool_size=(7, 7), name="crop_rgb_average_pool")(features)
+            features = layers.Reshape((1280,), name="crop_rgb_reshape")(features)
+        
+        inputs = rgb_input
+    
+    else: # crop_ir
+        ir_input = keras.Input(batch_size=fixed_batch_size, shape=(224, 224, 1), name="b_crop_ir")
+        ir_backbone = keras.applications.MobileNetV2(
+            input_shape=(224, 224, 1),
+            include_top=False,
+            weights=None,
+            pooling=None if average_pool_op else "avg",
+            name="crop_ir_mobilenetv2",
+        )
+        
+        if rgb_weights is not None and ir_imagenet_init:
+            is_custom_weights = False
+            is_npz_weights = False
+            rgb_weights_init = rgb_weights
+            if isinstance(rgb_weights, str):
+                if rgb_weights.endswith(".weights.h5") or rgb_weights.endswith(".h5"):
+                    is_custom_weights = True
+                    rgb_weights_init = None
+                elif rgb_weights.endswith(".npz"):
+                    is_npz_weights = True
+                    rgb_weights_init = None
+
+            temp_rgb_backbone = keras.applications.MobileNetV2(
+                input_shape=(224, 224, 3),
+                include_top=False,
+                weights=rgb_weights_init,
+                pooling=None,
+                name="temp_rgb_mobilenetv2",
+            )
+            if is_custom_weights:
+                temp_rgb_backbone.load_weights(rgb_weights)
+            elif is_npz_weights:
+                _load_custom_numpy_weights(temp_rgb_backbone, rgb_weights)
+            
+            _transfer_imagenet_weights_to_ir_backbone(temp_rgb_backbone, ir_backbone)
+
+        features = ir_backbone(ir_input)
+        if average_pool_op:
+            features = layers.AveragePooling2D(pool_size=(7, 7), name="crop_ir_average_pool")(features)
+            features = layers.Reshape((1280,), name="crop_ir_reshape")(features)
+        
+        inputs = ir_input
+
+    if classifier_as_conv:
+        if len(features.shape) == 2:
+            features = layers.Reshape((1, 1, features.shape[-1]), name="fused_reshape_4d")(features)
+        if classifier_units > 0:
+            features = layers.Conv2D(classifier_units, kernel_size=(1, 1), activation="relu", name="classifier_dense_conv")(features)
+        if dropout > 0:
+            features = layers.Dropout(dropout, name="classifier_dropout")(features)
+        logits_4d = layers.Conv2D(len(CLASS_NAMES), kernel_size=(1, 1), name="logits_conv")(features)
+        logits = layers.Reshape((len(CLASS_NAMES),), name="logits")(logits_4d)
+    else:
+        if classifier_units > 0:
+            features = layers.Dense(classifier_units, activation="relu", name="classifier_dense")(features)
+        if dropout > 0:
+            features = layers.Dropout(dropout, name="classifier_dropout")(features)
+        logits = layers.Dense(len(CLASS_NAMES), name="logits")(features)
+
+    return keras.Model(inputs=inputs, outputs=logits, name=f"single_{input_type}_mobilenetv2")
 
 
 def _make_backbone(input_shape, weights, pooling, name):
@@ -204,10 +348,15 @@ def build_multimodal_mobilenetv2(
 
     pooling = None if average_pool_op else "avg"
     is_custom_weights = False
+    is_npz_weights = False
     rgb_weights_init = rgb_weights
-    if isinstance(rgb_weights, str) and (rgb_weights.endswith(".weights.h5") or rgb_weights.endswith(".h5")):
-        is_custom_weights = True
-        rgb_weights_init = None
+    if isinstance(rgb_weights, str):
+        if rgb_weights.endswith(".weights.h5") or rgb_weights.endswith(".h5"):
+            is_custom_weights = True
+            rgb_weights_init = None
+        elif rgb_weights.endswith(".npz"):
+            is_npz_weights = True
+            rgb_weights_init = None
 
     crop_rgb_backbone = _make_backbone(
         (224, 224, 3), rgb_weights_init, pooling, "crop_rgb_mobilenetv2"
@@ -229,6 +378,9 @@ def build_multimodal_mobilenetv2(
         print(f"Loading custom weights into crop_rgb_backbone & raw_rgb_backbone from: {rgb_weights}")
         crop_rgb_backbone.load_weights(rgb_weights)
         raw_rgb_backbone.load_weights(rgb_weights)
+    elif is_npz_weights:
+        _load_custom_numpy_weights(crop_rgb_backbone, rgb_weights)
+        _load_custom_numpy_weights(raw_rgb_backbone, rgb_weights)
 
     if rgb_weights is not None and gray_imagenet_init:
         _transfer_imagenet_weights_to_gray_backbone(crop_rgb_backbone, crop_ir_backbone, "cropIR")
@@ -284,19 +436,24 @@ def build_multimodal_mobilenetv2(
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Build and summarize the Keras multimodal MobileNetV2 model.")
+    parser = argparse.ArgumentParser(description="Build and summarize the Keras multimodal/single MobileNetV2 models.")
     parser.add_argument("--rgb-weights", choices=["imagenet", "none"], default="imagenet")
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--classifier-units", type=int, default=1024)
     parser.add_argument("--no-gray-imagenet-init", action="store_true")
-    parser.add_argument("--dual", action="store_true", help="Show the legacy 2-input model instead.")
+    parser.add_argument(
+        "--model-type",
+        choices=["dual", "multimodal", "crop_rgb", "crop_ir"],
+        default="multimodal",
+        help="학습할 모델 종류 (dual: 2입력, multimodal: 5입력, crop_rgb: 단일 RGB, crop_ir: 단일 IR)"
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
     rgb_weights = None if args.rgb_weights == "none" else args.rgb_weights
-    if args.dual:
+    if args.model_type == "dual":
         model = build_dual_mobilenetv2(
             rgb_weights=rgb_weights,
             dropout=args.dropout,
@@ -307,6 +464,18 @@ if __name__ == "__main__":
             tf.zeros((1, 224, 224, 3), dtype=tf.float32),
             tf.zeros((1, 224, 224, 1), dtype=tf.float32),
         ]
+    elif args.model_type in ("crop_rgb", "crop_ir"):
+        model = build_single_mobilenetv2(
+            input_type=args.model_type,
+            rgb_weights=rgb_weights,
+            dropout=args.dropout,
+            classifier_units=args.classifier_units,
+            ir_imagenet_init=not args.no_gray_imagenet_init,
+        )
+        if args.model_type == "crop_rgb":
+            dummy_inputs = tf.zeros((1, 224, 224, 3), dtype=tf.float32)
+        else:
+            dummy_inputs = tf.zeros((1, 224, 224, 1), dtype=tf.float32)
     else:
         model = build_multimodal_mobilenetv2(
             rgb_weights=rgb_weights,

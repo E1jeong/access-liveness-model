@@ -127,6 +127,11 @@ def parse_args():
     parser.add_argument("--fold-idx", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--rgb-weights", choices=["imagenet", "none"], default="imagenet")
+    parser.add_argument(
+        "--face-weights-path",
+        default=None,
+        help="얼굴 사전학습 가중치 파일(.weights.h5 또는 .h5) 경로"
+    )
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--classifier-units", type=int, default=1024)
     parser.add_argument("--no-gray-imagenet-init", action="store_true")
@@ -177,7 +182,11 @@ def main():
         alpha=0.01,
     )
 
-    rgb_weights = None if args.rgb_weights == "none" else args.rgb_weights
+    if args.face_weights_path:
+        rgb_weights = args.face_weights_path
+        print(f"[initialization] Using face recognition weights from: {rgb_weights}")
+    else:
+        rgb_weights = None if args.rgb_weights == "none" else args.rgb_weights
     
     if args.model_type == "dual":
         model = build_dual_mobilenetv2(

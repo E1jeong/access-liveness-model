@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# keras_pipeline/train_tf.py — MobileNetV2 학습
+# keras_pipeline/tf_train.py — MobileNetV2 학습
 #
 # 사용 예:
 #   ./run_keras_train.sh                          # 기본값(fold 0, 10 에포크)
@@ -19,4 +19,4 @@ EOF
 
 echo ""
 echo "=== 학습 시작 ==="
-.venv-tf/bin/python -m keras_pipeline.train_tf "$@"
+.venv-tf/bin/python -m keras_pipeline.tf_train "$@"

@@ -20,7 +20,7 @@ than the current PyTorch `.pth` to TFLite path.
 
 - `tf_dataset.py`: subject-wise K-fold dataset reader for the existing data. Spatial augmentation, resize, RGB ColorJitter, and normalization are aligned to the PyTorch pipeline.
 - `tf_model.py`: dual-input MobileNetV2 Keras model. RGB uses ImageNet weights; IR can copy those weights by averaging the first RGB convolution to one channel.
-- `train_tf.py`: trains and saves `.keras` checkpoints by best validation ACER.
+- `tf_train.py`: trains and saves `.keras` checkpoints by best validation ACER.
 - `convert_h5_to_tflite.py`: converts a saved Keras model to float, standard full INT8, or NPU-friendly full INT8 TFLite.
 
 ## Typical commands

@@ -104,10 +104,16 @@ def build_dual_mobilenetv2(
             name="rgb_to_mobilenet_range",
         )(rgb_input)
 
+    is_custom_weights = False
+    rgb_weights_init = rgb_weights
+    if isinstance(rgb_weights, str) and (rgb_weights.endswith(".weights.h5") or rgb_weights.endswith(".h5")):
+        is_custom_weights = True
+        rgb_weights_init = None
+
     rgb_backbone = keras.applications.MobileNetV2(
         input_shape=(224, 224, 3),
         include_top=False,
-        weights=rgb_weights,
+        weights=rgb_weights_init,
         pooling=None if average_pool_op else "avg",
         name="rgb_mobilenetv2",
     )
@@ -118,7 +124,12 @@ def build_dual_mobilenetv2(
         pooling=None if average_pool_op else "avg",
         name="ir_mobilenetv2",
     )
-    if rgb_weights == "imagenet" and ir_imagenet_init:
+    
+    if is_custom_weights:
+        print(f"Loading custom weights into rgb_backbone from: {rgb_weights}")
+        rgb_backbone.load_weights(rgb_weights)
+
+    if rgb_weights is not None and ir_imagenet_init:
         _transfer_imagenet_weights_to_ir_backbone(rgb_backbone, ir_backbone)
 
     rgb_features = rgb_backbone(rgb_preprocessed)
@@ -192,14 +203,20 @@ def build_multimodal_mobilenetv2(
         )(raw_rgb_input)
 
     pooling = None if average_pool_op else "avg"
+    is_custom_weights = False
+    rgb_weights_init = rgb_weights
+    if isinstance(rgb_weights, str) and (rgb_weights.endswith(".weights.h5") or rgb_weights.endswith(".h5")):
+        is_custom_weights = True
+        rgb_weights_init = None
+
     crop_rgb_backbone = _make_backbone(
-        (224, 224, 3), rgb_weights, pooling, "crop_rgb_mobilenetv2"
+        (224, 224, 3), rgb_weights_init, pooling, "crop_rgb_mobilenetv2"
     )
     crop_ir_backbone = _make_backbone(
         (224, 224, 1), None, pooling, "crop_ir_mobilenetv2"
     )
     raw_rgb_backbone = _make_backbone(
-        (224, 224, 3), rgb_weights, pooling, "rgb_mobilenetv2"
+        (224, 224, 3), rgb_weights_init, pooling, "rgb_mobilenetv2"
     )
     raw_ir_backbone = _make_backbone(
         (224, 224, 1), None, pooling, "ir_mobilenetv2"
@@ -208,7 +225,12 @@ def build_multimodal_mobilenetv2(
         (224, 224, 1), None, pooling, "heatmap_mobilenetv2"
     )
 
-    if rgb_weights == "imagenet" and gray_imagenet_init:
+    if is_custom_weights:
+        print(f"Loading custom weights into crop_rgb_backbone & raw_rgb_backbone from: {rgb_weights}")
+        crop_rgb_backbone.load_weights(rgb_weights)
+        raw_rgb_backbone.load_weights(rgb_weights)
+
+    if rgb_weights is not None and gray_imagenet_init:
         _transfer_imagenet_weights_to_gray_backbone(crop_rgb_backbone, crop_ir_backbone, "cropIR")
         _transfer_imagenet_weights_to_gray_backbone(raw_rgb_backbone, raw_ir_backbone, "IR")
         _transfer_imagenet_weights_to_gray_backbone(crop_rgb_backbone, heatmap_backbone, "heatmap")

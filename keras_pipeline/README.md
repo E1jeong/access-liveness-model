@@ -21,7 +21,7 @@ than the current PyTorch `.pth` to TFLite path.
 - `tf_dataset.py`: subject-wise K-fold dataset reader for the existing data. Spatial augmentation, resize, RGB ColorJitter, and normalization are aligned to the PyTorch pipeline.
 - `tf_model.py`: dual-input MobileNetV2 Keras model. RGB uses ImageNet weights; IR can copy those weights by averaging the first RGB convolution to one channel.
 - `tf_train.py`: trains and saves `.keras` checkpoints by best validation ACER.
-- `convert_h5_to_tflite.py`: converts a saved Keras model to float, standard full INT8, or NPU-friendly full INT8 TFLite.
+- `convert_keras_to_tflite.py`: converts a saved Keras model to float, standard full INT8, or NPU-friendly full INT8 TFLite.
 
 ## Typical commands
 
@@ -32,7 +32,7 @@ TensorFlow CUDA library path automatically:
 ./run_keras_model.sh
 ./run_keras_train.sh --epochs 30 --folds 5 --fold-idx 0
 ./run_keras_convert.sh --float --int8 --fold-idx 0
-.venv/bin/python keras_pipeline/convert_h5_to_tflite.py --npu-int8 --fold-idx 4 --calibration-samples 500
+.venv/bin/python keras_pipeline/convert_keras_to_tflite.py --npu-int8 --fold-idx 4 --calibration-samples 500
 .venv/bin/python evaluate_tflite.py --models \
   model/keras/best_model_fold0_float.tflite \
   model/keras/best_model_fold0_int8.tflite
@@ -63,11 +63,12 @@ access to download RGB backbone weights. If that is not available, run training
 with:
 
 ```bash
-./run_keras_train.sh --rgb-weights none --no-ir-imagenet-init
+./run_keras_train.sh --rgb-weights none --no-gray-imagenet-init
 ```
 
 Useful training switches:
 
 - `--classifier-units 1024` is the default and mirrors the PyTorch classifier capacity more closely than a linear head.
 - `--classifier-units 0` reverts to the old linear-head style for ablation.
-- `--no-ir-imagenet-init` disables RGB-to-IR ImageNet weight transfer.
+- `--no-gray-imagenet-init` disables RGB-to-gray (IR/heatmap) ImageNet weight transfer.
+- `--face-weights-path` loads a face-recognition-pretrained RGB backbone (`.weights.h5`/`.h5` via `Model.load_weights`, or `.npz` via the custom numpy loader in `tf_model.py`). These files (e.g. `model/mobilenetv2_mcp.pth`, `model/face_mobilenetv2_mcp.npz`, `model/pth_keys.txt`) are produced outside this repo and are gitignored under `model/` — see the Obsidian vault for provenance.

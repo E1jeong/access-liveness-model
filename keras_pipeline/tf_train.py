@@ -135,11 +135,6 @@ def parse_args():
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--classifier-units", type=int, default=1024)
     parser.add_argument("--no-gray-imagenet-init", action="store_true")
-    parser.add_argument(
-        "--no-ir-imagenet-init",
-        action="store_true",
-        help="Deprecated alias for --no-gray-imagenet-init.",
-    )
     return parser.parse_args()
 
 
@@ -198,7 +193,7 @@ def main():
             rgb_weights=rgb_weights,
             dropout=args.dropout,
             classifier_units=args.classifier_units,
-            ir_imagenet_init=not (args.no_gray_imagenet_init or args.no_ir_imagenet_init),
+            gray_imagenet_init=not args.no_gray_imagenet_init,
         )
         output_filename = f"best_model_fold{args.fold_idx}.keras"
     elif args.model_type in ("crop_rgb", "crop_ir"):
@@ -207,7 +202,7 @@ def main():
             rgb_weights=rgb_weights,
             dropout=args.dropout,
             classifier_units=args.classifier_units,
-            ir_imagenet_init=not (args.no_gray_imagenet_init or args.no_ir_imagenet_init),
+            gray_imagenet_init=not args.no_gray_imagenet_init,
         )
         output_filename = f"best_{args.model_type}_fold{args.fold_idx}.keras"
     else:
@@ -215,7 +210,7 @@ def main():
             rgb_weights=rgb_weights,
             dropout=args.dropout,
             classifier_units=args.classifier_units,
-            gray_imagenet_init=not (args.no_gray_imagenet_init or args.no_ir_imagenet_init),
+            gray_imagenet_init=not args.no_gray_imagenet_init,
         )
         output_filename = f"best_multimodal_fold{args.fold_idx}.keras"
 

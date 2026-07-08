@@ -38,35 +38,46 @@ def convert_float(model, output_path):
     print(f"[float tflite saved] {output_path}")
 
 
-def convert_int8(model, output_path, preloaded_samples, model_type):
-    converter = tf.lite.TFLiteConverter.from_keras_model(model)
-    converter.optimizations = [tf.lite.Optimize.DEFAULT]
-    
-    def representative_dataset_gen():
+def _rgb_imagenet_norm_to_mobilenet_range(rgb):
+    raw_0_1 = rgb * RGB_STD + RGB_MEAN
+    return raw_0_1 * 2.0 - 1.0
+
+
+def _make_representative_dataset_gen(preloaded_samples, model_type, remap_rgb=False):
+    """remap_rgb=True applies _rgb_imagenet_norm_to_mobilenet_range to the RGB
+    channel(s) — used only for the NPU export graph, which has no in-graph
+    Lambda to do this itself."""
+    def _rgb(sample_channel):
+        arr = _rgb_imagenet_norm_to_mobilenet_range(sample_channel) if remap_rgb else sample_channel
+        return np.expand_dims(arr, axis=0).astype(np.float32)
+
+    def gen():
         for sample in preloaded_samples:
             if model_type == "dual":
                 yield [
-                    np.expand_dims(sample[0], axis=0).astype(np.float32),
+                    _rgb(sample[0]),
                     np.expand_dims(sample[1], axis=0).astype(np.float32),
                 ]
             elif model_type == "crop_rgb":
-                yield [
-                    np.expand_dims(sample[0], axis=0).astype(np.float32),
-                ]
+                yield [_rgb(sample[0])]
             elif model_type == "crop_ir":
-                yield [
-                    np.expand_dims(sample[1], axis=0).astype(np.float32),
-                ]
+                yield [np.expand_dims(sample[1], axis=0).astype(np.float32)]
             else:
                 yield {
-                    "a_crop_rgb": np.expand_dims(sample[0], axis=0).astype(np.float32),
+                    "a_crop_rgb": _rgb(sample[0]),
                     "b_crop_ir": np.expand_dims(sample[1], axis=0).astype(np.float32),
-                    "c_rgb": np.expand_dims(sample[2], axis=0).astype(np.float32),
+                    "c_rgb": _rgb(sample[2]),
                     "d_ir": np.expand_dims(sample[3], axis=0).astype(np.float32),
                     "e_heatmap": np.expand_dims(sample[4], axis=0).astype(np.float32),
                 }
-            
-    converter.representative_dataset = representative_dataset_gen
+
+    return gen
+
+
+def _convert_int8_core(keras_model, output_path, preloaded_samples, model_type, remap_rgb, log_label):
+    converter = tf.lite.TFLiteConverter.from_keras_model(keras_model)
+    converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    converter.representative_dataset = _make_representative_dataset_gen(preloaded_samples, model_type, remap_rgb)
     converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
     converter.inference_input_type = tf.int8
     converter.inference_output_type = tf.int8
@@ -75,12 +86,11 @@ def convert_int8(model, output_path, preloaded_samples, model_type):
     _makedirs(output_path)
     with open(output_path, "wb") as f:
         f.write(tflite_model)
-    print(f"[int8 tflite saved] {output_path}")
+    print(f"[{log_label} tflite saved] {output_path}")
 
 
-def _rgb_imagenet_norm_to_mobilenet_range(rgb):
-    raw_0_1 = rgb * RGB_STD + RGB_MEAN
-    return raw_0_1 * 2.0 - 1.0
+def convert_int8(model, output_path, preloaded_samples, model_type):
+    _convert_int8_core(model, output_path, preloaded_samples, model_type, remap_rgb=False, log_label="int8")
 
 
 def _copy_nested_weights(source_model, target_model, layer_name):
@@ -111,7 +121,7 @@ def build_npu_export_model(trained_model, model_type):
             rgb_weights=None,
             dropout=0.0,
             classifier_units=classifier_units,
-            ir_imagenet_init=False,
+            gray_imagenet_init=False,
             rgb_input_mobilenet_range=True,
             average_pool_op=True,
             fixed_batch_size=1,
@@ -125,7 +135,7 @@ def build_npu_export_model(trained_model, model_type):
             rgb_weights=None,
             dropout=0.0,
             classifier_units=classifier_units,
-            ir_imagenet_init=False,
+            gray_imagenet_init=False,
             rgb_input_mobilenet_range=True,
             average_pool_op=True,
             fixed_batch_size=1,
@@ -174,48 +184,7 @@ def build_npu_export_model(trained_model, model_type):
 
 def convert_int8_npu(trained_model, output_path, preloaded_samples, model_type):
     export_model = build_npu_export_model(trained_model, model_type)
-
-    converter = tf.lite.TFLiteConverter.from_keras_model(export_model)
-    converter.optimizations = [tf.lite.Optimize.DEFAULT]
-    
-    def representative_dataset_gen_npu():
-        for sample in preloaded_samples:
-            if model_type == "dual":
-                rgb = _rgb_imagenet_norm_to_mobilenet_range(sample[0])
-                yield [
-                    np.expand_dims(rgb, axis=0).astype(np.float32),
-                    np.expand_dims(sample[1], axis=0).astype(np.float32),
-                ]
-            elif model_type == "crop_rgb":
-                rgb = _rgb_imagenet_norm_to_mobilenet_range(sample[0])
-                yield [
-                    np.expand_dims(rgb, axis=0).astype(np.float32),
-                ]
-            elif model_type == "crop_ir":
-                yield [
-                    np.expand_dims(sample[1], axis=0).astype(np.float32),
-                ]
-            else:
-                crop_rgb = _rgb_imagenet_norm_to_mobilenet_range(sample[0])
-                rgb = _rgb_imagenet_norm_to_mobilenet_range(sample[2])
-                yield {
-                    "a_crop_rgb": np.expand_dims(crop_rgb, axis=0).astype(np.float32),
-                    "b_crop_ir": np.expand_dims(sample[1], axis=0).astype(np.float32),
-                    "c_rgb": np.expand_dims(rgb, axis=0).astype(np.float32),
-                    "d_ir": np.expand_dims(sample[3], axis=0).astype(np.float32),
-                    "e_heatmap": np.expand_dims(sample[4], axis=0).astype(np.float32),
-                }
-            
-    converter.representative_dataset = representative_dataset_gen_npu
-    converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-    converter.inference_input_type = tf.int8
-    converter.inference_output_type = tf.int8
-
-    tflite_model = converter.convert()
-    _makedirs(output_path)
-    with open(output_path, "wb") as f:
-        f.write(tflite_model)
-    print(f"[npu int8 tflite saved] {output_path}")
+    _convert_int8_core(export_model, output_path, preloaded_samples, model_type, remap_rgb=True, log_label="npu int8")
 
 
 def inspect_tflite(path):

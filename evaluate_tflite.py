@@ -35,27 +35,9 @@ def _make_interpreter(model_path):
         return interp
 
 
-def _quantize_input(arr, detail):
-    dtype = detail['dtype']
-    if dtype == np.float32:
-        return arr.astype(np.float32)
-    scale, zero_point = detail['quantization']
-    q = np.round(arr / scale) + zero_point
-    info = np.iinfo(dtype)
-    return np.clip(q, info.min, info.max).astype(dtype)
-
-
-def _dequantize_output(arr, detail):
-    dtype = detail['dtype']
-    if dtype == np.float32:
-        return arr.astype(np.float32)
-    scale, zero_point = detail['quantization']
-    return (arr.astype(np.float32) - zero_point) * scale
-
-
 def evaluate(model_path, data_dir, folds, fold_idx, seed, model_type, max_samples=None):
-    from pytorch_pipeline.dataset import get_data_loaders
-    from utils import calculate_validation_metrics
+    from keras_pipeline.tf_dataset import collect_items, load_sample
+    from utils import calculate_validation_metrics, quantize_for_tflite, dequantize_from_tflite
     from classes import CLASS_NAMES
 
     interp = _make_interpreter(model_path)
@@ -69,10 +51,10 @@ def evaluate(model_path, data_dir, folds, fold_idx, seed, model_type, max_sample
         return "NHWC", shape[-1]
 
     metas = [(d, *describe(d)) for d in in_details]
-    
+
     rgb_d, rgb_layout = None, None
     ir_d, ir_layout = None, None
-    
+
     if model_type in ("dual", "multimodal"):
         rgb_d, rgb_layout, _ = next(m for m in metas if m[2] == 3)
         ir_d, ir_layout, _ = next(m for m in metas if m[2] == 1)
@@ -84,45 +66,34 @@ def evaluate(model_path, data_dir, folds, fold_idx, seed, model_type, max_sample
         ir_d, ir_layout, _ = next(m for m in metas if m[2] == 1)
         print(f" 입력 레이아웃: ir={ir_layout}")
 
-    def build(sample_chw, layout):
+    def build(sample_hwc, layout):
         if layout == "NCHW":
-            return sample_chw.unsqueeze(0).numpy().astype(np.float32)
-        return sample_chw.permute(1, 2, 0).unsqueeze(0).numpy().astype(np.float32)
+            sample_hwc = np.transpose(sample_hwc, (2, 0, 1))
+        return np.expand_dims(sample_hwc, axis=0).astype(np.float32)
 
-    _, val_loader = get_data_loaders(
-        data_dir, batch_size=8, k_folds=folds, fold_idx=fold_idx, seed=seed, num_workers=0
-    )
+    _, val_items = collect_items(data_dir, k_folds=folds, fold_idx=fold_idx, seed=seed)
+    print(f"[데이터셋 구성 완료] K-fold: {folds}개 중 fold {fold_idx}, 검증용 데이터 수: {len(val_items)}장")
 
     all_labels, all_preds = [], []
-    total = len(val_loader.dataset)
+    total = len(val_items)
     if max_samples is not None:
         total = min(total, max_samples)
     pbar = tqdm(total=total, desc=f"평가 {os.path.basename(model_path)}")
-    done = False
-    for rgb_b, ir_b, labels in val_loader:
-        for i in range(rgb_b.shape[0]):
-            if model_type in ("dual", "multimodal"):
-                rgb = build(rgb_b[i], rgb_layout)
-                ir = build(ir_b[i], ir_layout)
-                interp.set_tensor(rgb_d['index'], _quantize_input(rgb, rgb_d))
-                interp.set_tensor(ir_d['index'], _quantize_input(ir, ir_d))
-            elif model_type == "crop_rgb":
-                rgb = build(rgb_b[i], rgb_layout)
-                interp.set_tensor(rgb_d['index'], _quantize_input(rgb, rgb_d))
-            elif model_type == "crop_ir":
-                ir = build(ir_b[i], ir_layout)
-                interp.set_tensor(ir_d['index'], _quantize_input(ir, ir_d))
-                
-            interp.invoke()
-            logits = _dequantize_output(interp.get_tensor(out_detail['index']), out_detail)[0]
-            all_labels.append(int(labels[i]))
-            all_preds.append(int(np.argmax(logits)))
-            pbar.update(1)
-            if max_samples is not None and len(all_labels) >= max_samples:
-                done = True
-                break
-        if done:
-            break
+    for rgb_path, ir_path, label in val_items[:total]:
+        rgb_hwc, ir_hwc = load_sample(rgb_path, ir_path, augment=False)
+        if model_type in ("dual", "multimodal"):
+            interp.set_tensor(rgb_d['index'], quantize_for_tflite(build(rgb_hwc, rgb_layout), rgb_d))
+            interp.set_tensor(ir_d['index'], quantize_for_tflite(build(ir_hwc, ir_layout), ir_d))
+        elif model_type == "crop_rgb":
+            interp.set_tensor(rgb_d['index'], quantize_for_tflite(build(rgb_hwc, rgb_layout), rgb_d))
+        elif model_type == "crop_ir":
+            interp.set_tensor(ir_d['index'], quantize_for_tflite(build(ir_hwc, ir_layout), ir_d))
+
+        interp.invoke()
+        logits = dequantize_from_tflite(interp.get_tensor(out_detail['index']), out_detail)[0]
+        all_labels.append(int(label))
+        all_preds.append(int(np.argmax(logits)))
+        pbar.update(1)
     pbar.close()
 
     cm, recalls, apcer, bpcer, acer = calculate_validation_metrics(all_labels, all_preds)

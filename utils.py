@@ -71,6 +71,28 @@ def gather_frame_items(cat_path, subdirs_list, label):
     return gathered
 
 
+def quantize_for_tflite(arr, detail):
+    """int8/uint8-quantize `arr` per an interpreter tensor `detail` dict
+    (from `interpreter.get_input_details()`); float dtype is a no-op cast."""
+    dtype = detail['dtype']
+    if dtype not in (np.int8, np.uint8):
+        return arr.astype(np.float32)
+    scale, zero_point = detail['quantization']
+    if scale == 0.0:
+        scale = 1.0
+    q = np.round(arr / scale) + zero_point
+    info = np.iinfo(dtype)
+    return np.clip(q, info.min, info.max).astype(dtype)
+
+
+def dequantize_from_tflite(arr, detail):
+    dtype = detail['dtype']
+    if dtype not in (np.int8, np.uint8):
+        return arr.astype(np.float32)
+    scale, zero_point = detail['quantization']
+    return (arr.astype(np.float32) - zero_point) * scale
+
+
 def calculate_validation_metrics(labels, preds):
     """혼동 행렬, 클래스별 Recall, APCER/BPCER/ACER를 계산한다."""
     num_classes = len(CLASS_NAMES)

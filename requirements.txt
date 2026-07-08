@@ -6,6 +6,9 @@ opencv-python==4.13.0.92
 matplotlib==3.11.0
 tqdm
 
+# evaluate_tflite.py가 keras_pipeline.tf_dataset(데이터 로딩)을 직접 사용하므로 필요.
+tensorflow
+
 # ── tflite 변환용 (convert_to_tflite.py 쓸 때만 필요) ─────
 ai_edge_litert==2.1.5
 ai_edge_quantizer==0.7.0

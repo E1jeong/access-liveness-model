@@ -1,0 +1,13 @@
+# Normalize line endings regardless of which tool/agent/OS writes a file.
+# eol=lf takes precedence over core.autocrlf for matched paths.
+* text=auto eol=lf
+
+*.py text eol=lf
+*.sh text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+
+*.h5 binary
+*.png binary
+*.jpg binary
+*.jpeg binary

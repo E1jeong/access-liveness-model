@@ -53,7 +53,7 @@ def _dequantize_output(arr, detail):
     return (arr.astype(np.float32) - zero_point) * scale
 
 
-def evaluate(model_path, data_dir, folds, fold_idx, seed, max_samples=None):
+def evaluate(model_path, data_dir, folds, fold_idx, seed, model_type, max_samples=None):
     from pytorch_pipeline.dataset import get_data_loaders
     from utils import calculate_validation_metrics
     from classes import CLASS_NAMES
@@ -69,9 +69,20 @@ def evaluate(model_path, data_dir, folds, fold_idx, seed, max_samples=None):
         return "NHWC", shape[-1]
 
     metas = [(d, *describe(d)) for d in in_details]
-    rgb_d, rgb_layout, _ = next(m for m in metas if m[2] == 3)
-    ir_d, ir_layout, _ = next(m for m in metas if m[2] == 1)
-    print(f" 입력 레이아웃: rgb={rgb_layout}, ir={ir_layout}")
+    
+    rgb_d, rgb_layout = None, None
+    ir_d, ir_layout = None, None
+    
+    if model_type in ("dual", "multimodal"):
+        rgb_d, rgb_layout, _ = next(m for m in metas if m[2] == 3)
+        ir_d, ir_layout, _ = next(m for m in metas if m[2] == 1)
+        print(f" 입력 레이아웃: rgb={rgb_layout}, ir={ir_layout}")
+    elif model_type == "crop_rgb":
+        rgb_d, rgb_layout, _ = next(m for m in metas if m[2] == 3)
+        print(f" 입력 레이아웃: rgb={rgb_layout}")
+    elif model_type == "crop_ir":
+        ir_d, ir_layout, _ = next(m for m in metas if m[2] == 1)
+        print(f" 입력 레이아웃: ir={ir_layout}")
 
     def build(sample_chw, layout):
         if layout == "NCHW":
@@ -90,10 +101,18 @@ def evaluate(model_path, data_dir, folds, fold_idx, seed, max_samples=None):
     done = False
     for rgb_b, ir_b, labels in val_loader:
         for i in range(rgb_b.shape[0]):
-            rgb = build(rgb_b[i], rgb_layout)
-            ir = build(ir_b[i], ir_layout)
-            interp.set_tensor(rgb_d['index'], _quantize_input(rgb, rgb_d))
-            interp.set_tensor(ir_d['index'], _quantize_input(ir, ir_d))
+            if model_type in ("dual", "multimodal"):
+                rgb = build(rgb_b[i], rgb_layout)
+                ir = build(ir_b[i], ir_layout)
+                interp.set_tensor(rgb_d['index'], _quantize_input(rgb, rgb_d))
+                interp.set_tensor(ir_d['index'], _quantize_input(ir, ir_d))
+            elif model_type == "crop_rgb":
+                rgb = build(rgb_b[i], rgb_layout)
+                interp.set_tensor(rgb_d['index'], _quantize_input(rgb, rgb_d))
+            elif model_type == "crop_ir":
+                ir = build(ir_b[i], ir_layout)
+                interp.set_tensor(ir_d['index'], _quantize_input(ir, ir_d))
+                
             interp.invoke()
             logits = _dequantize_output(interp.get_tensor(out_detail['index']), out_detail)[0]
             all_labels.append(int(labels[i]))
@@ -131,6 +150,12 @@ def main():
     parser.add_argument("--folds", type=int, default=5)
     parser.add_argument("--fold-idx", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--model-type",
+        choices=["dual", "multimodal", "crop_rgb", "crop_ir"],
+        default="dual",
+        help="평가할 모델 종류"
+    )
     parser.add_argument("--max-samples", type=int, default=None)
     args = parser.parse_args()
 
@@ -139,7 +164,7 @@ def main():
         if not os.path.exists(path):
             print(f"[건너뜀] {path} 없음")
             continue
-        results.append(evaluate(path, args.data_dir, args.folds, args.fold_idx, args.seed, args.max_samples))
+        results.append(evaluate(path, args.data_dir, args.folds, args.fold_idx, args.seed, args.model_type, args.max_samples))
 
     if len(results) > 1:
         print("\n===== float vs int8 비교 =====")

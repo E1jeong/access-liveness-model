@@ -43,6 +43,12 @@ def evaluate(model_path, data_dir, folds, fold_idx, seed, model_type, max_sample
     interp = _make_interpreter(model_path)
     in_details = interp.get_input_details()
     out_detail = interp.get_output_details()[0]
+    output_size = int(out_detail["shape"][-1])
+    if output_size != len(CLASS_NAMES):
+        raise ValueError(
+            f"Model output size is {output_size}, expected {len(CLASS_NAMES)} "
+            f"for classes: {CLASS_NAMES}"
+        )
 
     def describe(d):
         shape = [int(x) for x in d['shape']]

@@ -30,6 +30,11 @@ def verify_tflite_quantization(tflite_path):
 
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
+    if len(output_details) != 1 or int(output_details[0]["shape"][-1]) != len(CLASS_NAMES):
+        raise ValueError(
+            f"Expected one output tensor with {len(CLASS_NAMES)} classes, "
+            f"got {[details['shape'].tolist() for details in output_details]}"
+        )
 
     print(f"[*] 모델 입력 텐서 정보:")
     for idx, details in enumerate(input_details):

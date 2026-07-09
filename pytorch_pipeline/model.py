@@ -76,7 +76,7 @@ class DualInputMobileNetV3(nn.Module):
         f_ir = torch.flatten(f_ir, 1)    # [B, 576]
 
         f_fused = torch.cat((f_rgb, f_ir), dim=1)  # [B, 1152]
-        return self.classifier(f_fused)             # [B, 5]
+        return self.classifier(f_fused)             # [B, 6]
 
 def get_anti_spoof_model():
     """
@@ -85,7 +85,7 @@ def get_anti_spoof_model():
     model = DualInputMobileNetV3()
     print("[모델 생성 완료]")
     print(f" - 베이스 모델: Dual-Input MobileNetV3-Small")
-    print(f" - 분류 클래스 수: {len(CLASS_NAMES)} (0=live, 1=print, 2=picture, 3=mask, 4=display)")
+    print(f" - 분류 클래스 수: {len(CLASS_NAMES)} ({', '.join(f'{idx}={name}' for idx, name in enumerate(CLASS_NAMES))})")
     return model
 
 if __name__ == "__main__":
@@ -93,5 +93,5 @@ if __name__ == "__main__":
     dummy_rgb = torch.randn(1, 3, 224, 224)
     dummy_ir = torch.randn(1, 1, 224, 224)
     output = model(dummy_rgb, dummy_ir)
-    print(f"모델 출력 텐서 크기: {output.shape}")  # [1, 5]
+    print(f"모델 출력 텐서 크기: {output.shape}")  # [1, 6]
     print(f"예측 출력값: {output}")

@@ -21,13 +21,14 @@ Two model variants co-exist in this codebase, selected via `--model-type` (`kera
   - **Index 0 (RGB):** Shape `[1, 224, 224, 3]`, type `FLOAT32` or `INT8`.
   - **Index 1 (IR):** Shape `[1, 224, 224, 1]`, type `FLOAT32` or `INT8`.
 - **`multimodal` (5-input)**: matches Android's `model_spec_npu.json` (NPU delegate). Five NHWC inputs matched by substring against `model_spec_npu.json`'s `inputs.*` targets (not exact name equality) — see the Obsidian wiki for the exact tensor names Keras exports (`a_crop_rgb`, `b_crop_ir`, `c_rgb`, `d_ir`, `e_heatmap`).
-- **Output (both variants):** Exactly one tensor, shape `[1, 5]`, type `FLOAT32` or `INT8` (raw logits, `outputIsLogits: true` in `model_spec*.json`).
+- **Output (both variants):** Exactly one tensor, shape `[1, 6]`, type `FLOAT32` or `INT8` (raw logits, `outputIsLogits: true` in `model_spec*.json`).
 - **Output Class Mapping (Fixed Indices):** Single source of truth is `classes.py` (`CLASS_NAMES`).
   - `[0]`: live
   - `[1]`: print
   - `[2]`: picture
   - `[3]`: mask
   - `[4]`: display
+  - `[5]`: pmask
 - **Normalization must match the exported model and the corresponding Android `model_spec*.json`:**
   - PyTorch/litert float and standard Keras export: RGB ImageNet mean `[0.485, 0.456, 0.406]` / std `[0.229, 0.224, 0.225]`; IR mean `[0.5]` / std `[0.5]`.
   - NPU-friendly Keras INT8 export (`*_npu_int8.tflite`): RGB and IR both use mean `[0.5]` / std `[0.5]`, so the model sees `[-1,1]` style inputs. This export removes the RGB Lambda preprocessing from the TFLite graph.

@@ -108,8 +108,7 @@ def get_data_loaders(data_dir="dataset/raw", batch_size=8, k_folds=5, fold_idx=0
     for category, label in CLASS_MAPPING.items():
         cat_path = os.path.join(data_dir, category)
         if not os.path.exists(cat_path):
-            print(f"[-] 경고: {cat_path} 디렉토리가 존재하지 않습니다.")
-            continue
+            raise FileNotFoundError(f"{cat_path} 디렉토리가 존재하지 않습니다.")
 
         subdirs = _sort_subject_dirs(cat_path, category)
         if len(subdirs) < k_folds:

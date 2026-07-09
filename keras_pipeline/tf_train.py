@@ -26,8 +26,8 @@ from keras_pipeline.tf_model import (
 
 
 def _run_apcer_self_check():
-    labels = [1, 2, 3, 4]
-    preds = [0, 0, 0, 0]
+    labels = list(range(1, len(CLASS_NAMES)))
+    preds = [0] * len(labels)
     _, _, apcer, _, _ = calculate_validation_metrics(labels, preds)
     assert apcer == 1.0, f"APCER self-check failed: {apcer}"
     print("[APCER self-check passed] all-spoof-as-live gives APCER=1.0")

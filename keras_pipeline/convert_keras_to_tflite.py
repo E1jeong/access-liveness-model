@@ -13,6 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import concurrent.futures
 
+from classes import CLASS_NAMES
 from keras_pipeline.tf_dataset import (
     RGB_MEAN,
     RGB_STD,
@@ -272,6 +273,12 @@ def main():
             "_rgb_current_norm_to_mobilenet_range": _rgb_current_norm_to_mobilenet_range,
         },
     )
+    output_size = int(model.output_shape[-1])
+    if output_size != len(CLASS_NAMES):
+        raise ValueError(
+            f"Model output size is {output_size}, expected {len(CLASS_NAMES)} "
+            f"for classes: {CLASS_NAMES}"
+        )
 
     preloaded_samples = None
     if args.int8 or args.npu_int8:

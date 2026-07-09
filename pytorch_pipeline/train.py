@@ -20,8 +20,8 @@ from utils import validate_kfold_coverage, calculate_validation_metrics
 
 
 def run_apcer_self_check():
-    labels = [1, 2, 3, 4]
-    preds = [0, 0, 0, 0]
+    labels = list(range(1, len(CLASS_NAMES)))
+    preds = [0] * len(labels)
     _, _, apcer, _, _ = calculate_validation_metrics(labels, preds)
     assert apcer == 1.0, f"APCER self-check failed: {apcer}"
     print("[APCER 점검 완료] spoof 샘플을 모두 live로 예측하면 APCER=1.0")

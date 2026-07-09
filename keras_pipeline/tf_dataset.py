@@ -37,8 +37,7 @@ def collect_items(data_dir="dataset/raw", k_folds=5, fold_idx=0, seed=42):
     for category, label in CLASS_MAPPING.items():
         cat_path = os.path.join(data_dir, category)
         if not os.path.exists(cat_path):
-            print(f"[-] warning: missing directory {cat_path}")
-            continue
+            raise FileNotFoundError(f"missing directory: {cat_path}")
 
         subdirs = _sort_subject_dirs(cat_path, category)
         if len(subdirs) < k_folds:

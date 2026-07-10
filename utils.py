@@ -6,14 +6,31 @@ from classes import CLASS_NAMES, CLASS_MAPPING
 
 def _sort_subject_dirs(cat_path, category):
     prefix = f"{category}_"
-    subdirs = [
-        d for d in os.listdir(cat_path)
-        if os.path.isdir(os.path.join(cat_path, d)) and d.startswith(prefix)
-    ]
-    try:
-        return sorted(subdirs, key=lambda x: int(x[len(prefix):]))
-    except ValueError:
-        return sorted(subdirs)
+    if category == "live":
+        subdirs = []
+        for subdir in ["high", "medium"]:
+            sub_path = os.path.join(cat_path, subdir)
+            if os.path.exists(sub_path):
+                matched = [
+                    os.path.join(subdir, d) for d in os.listdir(sub_path)
+                    if os.path.isdir(os.path.join(sub_path, d)) and d.startswith(prefix)
+                ]
+                try:
+                    matched = sorted(matched, key=lambda x: int(os.path.basename(x)[len(prefix):]))
+                except ValueError:
+                    matched = sorted(matched)
+                subdirs.extend(matched)
+        return subdirs
+    else:
+        subdirs = [
+            d for d in os.listdir(cat_path)
+            if os.path.isdir(os.path.join(cat_path, d)) and d.startswith(prefix)
+        ]
+        try:
+            return sorted(subdirs, key=lambda x: int(x[len(prefix):]))
+        except ValueError:
+            return sorted(subdirs)
+
 
 
 def _sort_frame_dirs(subject_path):

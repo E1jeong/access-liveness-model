@@ -105,7 +105,8 @@ def evaluate(model_path, data_dir, folds, fold_idx, seed, model_type, max_sample
     cm, recalls, apcer, bpcer, acer = calculate_validation_metrics(all_labels, all_preds)
     acc = sum(int(l == p) for l, p in zip(all_labels, all_preds)) / len(all_labels)
 
-    in_dtype = rgb_d['dtype'].__name__
+    active_d = rgb_d if rgb_d is not None else ir_d
+    in_dtype = active_d['dtype'].__name__
     print(f"\n===== 평가: {model_path} (입력 dtype={in_dtype}, {len(all_labels)}장) =====")
     print(f" val_acc: {acc:.4f}")
     print(f" APCER: {apcer:.4f} | BPCER: {bpcer:.4f} | ACER: {acer:.4f}")

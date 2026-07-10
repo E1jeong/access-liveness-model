@@ -35,7 +35,7 @@ echo "========================================="
 
 for idx in 0 1 2 3 4; do
   echo ""
-  echo ">>> Processing Fold $idx / 4"
+  echo ">>> Processing Fold $((idx + 1)) / 5"
   ./run_keras_train.sh --model-type "$MODEL_TYPE" --epochs "$EPOCHS" --fold-idx "$idx"
   ./run_keras_convert.sh --model-type "$MODEL_TYPE" --fold-idx "$idx" --float --int8 --npu-int8
 done
@@ -46,8 +46,8 @@ echo "  [Start] Evaluation for All Folds (0~4)"
 echo "========================================="
 for idx in 0 1 2 3 4; do
   echo ""
-  echo ">>> Evaluating Fold $idx"
-  .venv/bin/python evaluate_tflite.py --model-type "$MODEL_TYPE" --folds 5 --fold-idx "$idx" --models \
+  echo ">>> Evaluating Fold $((idx + 1)) / 5"
+  .venv-tf/bin/python evaluate_tflite.py --model-type "$MODEL_TYPE" --folds 5 --fold-idx "$idx" --models \
     "model/keras/${PREFIX}_fold${idx}_float.tflite" \
     "model/keras/${PREFIX}_fold${idx}_int8.tflite" \
     "model/keras/${PREFIX}_fold${idx}_npu_int8.tflite"

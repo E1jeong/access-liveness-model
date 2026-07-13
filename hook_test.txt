@@ -1,2 +1,2 @@
-Git hook test.
-This file is created for testing git commit and push hooks.
+Git hook test 2.
+This file content has been modified to trigger another git hook test.

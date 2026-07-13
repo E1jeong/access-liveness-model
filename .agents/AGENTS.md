@@ -39,7 +39,7 @@ Two model variants co-exist in this codebase, selected via `--model-type` (`kera
 
 ## 4. Output Directories and Deployment Handoff
 - **Gitignored Model Folder:** Export all generated model files (`*.tflite`, `*.pth`) to the project root `model/` directory (which is gitignored). Do not keep raw model weights in the project root directory.
-- **TFLite float and INT8 are both supported by the Android test app.** `convert_to_tflite.py` writes the PyTorch float path. `keras_pipeline/convert_keras_to_tflite.py --int8` writes standard Keras full INT8. `--npu-int8` writes the NPU-friendly full INT8 export.
+- **TFLite float and INT8 are both supported by the Android test app.** `pytorch_pipeline/convert_to_tflite.py` writes the PyTorch float path. `keras_pipeline/convert_keras_to_tflite.py --int8` writes standard Keras full INT8. `--npu-int8` writes the NPU-friendly full INT8 export.
 - **Android handoff:** To deploy, manually copy `model/anti_spoofing.tflite` to the Android project's `app/src/main/assets/anti_spoofing.tflite`. The model in `assets/` is the committed deployment artifact; `model/` is gitignored.
 - **Model artifacts are not synced by git.** Move `.keras` and `.tflite` files with `rsync`/`scp`, e.g. `rsync -avzR model/keras/best_model_fold4_npu_int8.tflite sub:~/access-liveness-model/`.
 

@@ -9,6 +9,9 @@ Work spans two machines — do not assume one box. This section is a fixed techn
 - **Company machine** (this repo's edit host): WSL Ubuntu, `.venv` (Python 3.11, **torch CPU**), created with `uv`. Holds code/docs/git. `dataset/raw` here is empty; data lives on the sub-laptop.
 - **Sub-laptop** (GPU box): native Ubuntu Server 24.04 (migrated from WSL2), GTX 1660 Ti, SSH alias `sub`. `.venv` (Python 3.12, `torch==2.11.0+cu128`) and `.venv-tf` (Python 3.11, `tensorflow[and-cuda]==2.21.0`), both created with **uv**. **All training, the dataset, and any quantization experiments run here.** Authoritative hardware/OS details: the Obsidian vault's `Server/서브노트북 (e1jeong)/` device wiki.
 Transfer: edit on company machine → `rsync -avz <file> sub:~/access-liveness-model/` → run on sub-laptop.
+- **tmux 및 백그라운드 학습 세션 연동**: 양측 머신에 모두 `tmux` 설정(`~/.tmux.conf`, 마우스 활성화, vi 키, Windows 클립보드 연동)을 적용함. 회사 PC WSL의 `~/.bashrc`에 `sub-train` alias가 등록되어 있어, 이를 사용해 원격 서버의 `train` 이라는 tmux 세션에 안전하게 연결(bind) 및 이탈(detach)할 수 있다.
+  - 실행 명령어: `sub-train` (접속 & 세션 자동 바인딩)
+  - 이탈 명령어 (세션 유지): `Ctrl + b` 후 `d`
 
 ## 1. Environment and Execution
 - **Use the project `.venv`.** Both machines now create their venvs with `uv` — run via `uv run python <script>` or `.venv/bin/python <script>`.

@@ -1,2 +1,2 @@
-Git hook test 3.
-Modified once more for testing git commit and push hooks.
+Git hook test 4.
+Modified once more to verify git commit and push hooks.

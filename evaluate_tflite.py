@@ -36,9 +36,11 @@ def _make_interpreter(model_path):
 
 
 def evaluate(model_path, data_dir, folds, fold_idx, seed, model_type, max_samples=None):
-    from keras_pipeline.tf_dataset import collect_items, load_sample
+    from keras_pipeline.tf_dataset import collect_items, load_sample, RGB_MEAN, RGB_STD
     from utils import calculate_validation_metrics, quantize_for_tflite, dequantize_from_tflite
     from classes import CLASS_NAMES
+
+    is_npu_int8 = "npu_int8" in os.path.basename(model_path)
 
     interp = _make_interpreter(model_path)
     in_details = interp.get_input_details()
@@ -87,6 +89,8 @@ def evaluate(model_path, data_dir, folds, fold_idx, seed, model_type, max_sample
     pbar = tqdm(total=total, desc=f"평가 {os.path.basename(model_path)}")
     for rgb_path, ir_path, label in val_items[:total]:
         rgb_hwc, ir_hwc = load_sample(rgb_path, ir_path, augment=False)
+        if is_npu_int8:
+            rgb_hwc = (rgb_hwc * RGB_STD + RGB_MEAN) * 2.0 - 1.0
         if model_type in ("dual", "multimodal"):
             interp.set_tensor(rgb_d['index'], quantize_for_tflite(build(rgb_hwc, rgb_layout), rgb_d))
             interp.set_tensor(ir_d['index'], quantize_for_tflite(build(ir_hwc, ir_layout), ir_d))

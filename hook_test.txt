@@ -1,0 +1,2 @@
+Git hook test.
+This file is created for testing git commit and push hooks.

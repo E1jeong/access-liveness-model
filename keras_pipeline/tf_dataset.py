@@ -45,7 +45,7 @@ def collect_items(data_dir="dataset/raw", k_folds=5, fold_idx=0, seed=42):
                 f"{category} subject count ({len(subdirs)}) is smaller than K ({k_folds})."
             )
 
-        train_subdirs, val_subdirs, _ = _split_kfold_subjects(subdirs, k_folds, fold_idx, seed)
+        train_subdirs, val_subdirs, _ = _split_kfold_subjects(subdirs, k_folds, fold_idx, seed, category)
         train_items.extend(gather_frame_items(cat_path, train_subdirs, label))
         val_items.extend(gather_frame_items(cat_path, val_subdirs, label))
 

@@ -116,7 +116,7 @@ def get_data_loaders(data_dir="dataset/raw", batch_size=8, k_folds=5, fold_idx=0
                 f"{category} 클래스의 subject 폴더 수({len(subdirs)})가 K({k_folds})보다 적습니다."
             )
 
-        train_subdirs, val_subdirs, _ = _split_kfold_subjects(subdirs, k_folds, fold_idx, seed)
+        train_subdirs, val_subdirs, _ = _split_kfold_subjects(subdirs, k_folds, fold_idx, seed, category)
         train_items.extend(gather_frame_items(cat_path, train_subdirs, label))
         val_items.extend(gather_frame_items(cat_path, val_subdirs, label))
 

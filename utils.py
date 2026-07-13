@@ -41,10 +41,41 @@ def _sort_frame_dirs(subject_path):
         return sorted(subdirs)
 
 
-def _split_kfold_subjects(subdirs, k_folds, fold_idx, seed):
-    shuffled = list(subdirs)
-    random.Random(seed).shuffle(shuffled)
-    folds = [shuffled[i::k_folds] for i in range(k_folds)]
+def _split_kfold_subjects(subdirs, k_folds, fold_idx, seed, category):
+    # subdirs는 이미 정렬되어 있는 상태입니다. (_sort_subject_dirs의 리턴값)
+    # 1. subdirs를 동일 인물(Group)로 묶습니다.
+    groups = {}
+    if category == "live":
+        # live의 경우: high/live_1, medium/live_1 등이 있으므로 basename에서 숫자를 추출하여 그룹화
+        for sd in subdirs:
+            basename = os.path.basename(sd)  # "live_1"
+            try:
+                group_key = int(basename.split("_")[1])
+            except (IndexError, ValueError):
+                group_key = basename  # fallback
+            groups.setdefault(group_key, []).append(sd)
+    else:
+        # 그 외 spoof: subject 목록을 정렬한 순서대로 2개씩 묶음
+        for i, sd in enumerate(subdirs):
+            group_key = i // 2
+            groups.setdefault(group_key, []).append(sd)
+    
+    # 2. 그룹 키 정렬 리스트 생성 (일관성 보장)
+    group_keys = sorted(list(groups.keys()))
+    # 3. 그룹 키들을 셔플합니다.
+    random.Random(seed).shuffle(group_keys)
+    
+    # 4. 그룹 키들을 k_folds로 나눕니다.
+    folds_keys = [group_keys[i::k_folds] for i in range(k_folds)]
+    
+    # 5. 각 fold의 실제 subdir 목록을 만듭니다.
+    folds = []
+    for f_keys in folds_keys:
+        fold_subdirs = []
+        for k in f_keys:
+            fold_subdirs.extend(groups[k])
+        folds.append(fold_subdirs)
+        
     val_subdirs = folds[fold_idx]
     train_subdirs = [sd for i, fold in enumerate(folds) if i != fold_idx for sd in fold]
     return train_subdirs, val_subdirs, folds
@@ -62,7 +93,7 @@ def validate_kfold_coverage(data_dir="dataset/raw", k_folds=5, seed=42):
                 f"{category} 클래스의 subject 폴더 수({len(subdirs)})가 K({k_folds})보다 적습니다."
             )
 
-        _, _, folds = _split_kfold_subjects(subdirs, k_folds, 0, seed)
+        _, _, folds = _split_kfold_subjects(subdirs, k_folds, 0, seed, category)
         seen = [sd for fold in folds for sd in fold]
         assert len(seen) == len(set(seen)), \
             f"{category} 클래스의 fold validation subject가 서로 겹칩니다."

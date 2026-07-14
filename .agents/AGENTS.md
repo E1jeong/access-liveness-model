@@ -6,7 +6,7 @@ Behavioral and technical constraints specific to the `access-liveness-model` pro
 
 ## 0. Machine Topology (important)
 Work spans two machines — do not assume one box. This section is a fixed technical fact, not a status log; if it goes stale, fix it here directly (do not let the Obsidian wiki become the only source of truth for this repo's own machine names/paths).
-- **Company machine** (this repo's edit host): WSL Ubuntu, `.venv` (Python 3.11, **torch CPU**), created with `uv`. Holds code/docs/git. `dataset/raw` here is empty; data lives on the sub-laptop.
+- **Company machine** (this repo's edit host): WSL Ubuntu, `.venv` (Python 3.11, **torch CPU**), created with `uv`. Holds code/docs/git. A local `dataset/` copy is present (8.3 GiB observed on 2026-07-14), but authoritative GPU training still runs on the sub-laptop.
 - **Sub-laptop** (GPU box): native Ubuntu Server 24.04 (migrated from WSL2), GTX 1660 Ti, SSH alias `sub`. `.venv` (Python 3.12, `torch==2.11.0+cu128`) and `.venv-tf` (Python 3.11, `tensorflow[and-cuda]==2.21.0`), both created with **uv**. **All training, the dataset, and any quantization experiments run here.** Authoritative hardware/OS details: the Obsidian vault's `Server/서브노트북 (e1jeong)/` device wiki.
 Transfer: edit on company machine → `rsync -avz <file> sub:~/access-liveness-model/` → run on sub-laptop.
 - **tmux 및 백그라운드 학습 세션 연동**: 양측 머신에 모두 `tmux` 설정(`~/.tmux.conf`, 마우스 활성화, vi 키, Windows 클립보드 연동)을 적용함. 회사 PC WSL의 `~/.bashrc`에 `sub-train` alias가 등록되어 있어, 이를 사용해 원격 서버의 `train` 이라는 tmux 세션에 안전하게 연결(bind) 및 이탈(detach)할 수 있다.
@@ -25,6 +25,11 @@ Several model variants co-exist in this codebase, selected via `--model-type` (`
 - The `multimodal` 5-input model performed substantially worse than the 2-input model in prior team testing. No quantitative comparison record remains, so do not invent metrics or call it permanently abandoned. It is provisionally not selected; do not prioritize 5-input training or deployment unless the user explicitly reopens it.
 - Six-class `dual` training did not complete and stopped mid-run. It is paused, not rejected. Do not report it as completed or discarded, and do not automatically resume the long-running training without user direction.
 - The currently verified on-device baseline is the six-class paired RGB fold3 + IR fold4 NPU-friendly INT8 configuration. The Android manifest now selects RGB fold4 + IR fold4; do not call that exact pairing verified until target-device model loading, backend labels, six-class output, and latency/FPS are checked. Keep both paired results separate from any future `dual` comparison.
+
+### Fixed Split Migration Decision (2026-07-14)
+- **User-confirmed, not implemented yet:** future training will replace K-Fold with fixed `dataset/raw/{train,validation,test}` directories.
+- Use `train` for model fitting and INT8 calibration, `validation` for checkpoint selection, and `test` only for final evaluation after all settings are frozen.
+- The active Keras loader/scripts still assume K-Fold. Do not launch new training until the fixed-split loader, conversion calibration path, evaluation split selection, and leakage checks are implemented and verified.
 
 - **`dual` (2-input, legacy default)**: matches Android's `model_spec.json` (standard, CPU-only). Exactly two NHWC inputs:
   - **Index 0 (RGB):** Shape `[1, 224, 224, 3]`, type `FLOAT32` or `INT8`.

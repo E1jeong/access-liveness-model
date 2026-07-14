@@ -18,7 +18,13 @@ Transfer: edit on company machine → `rsync -avz <file> sub:~/access-liveness-m
 - **Pre-execution Report:** Always explain to the user in Korean what command is being executed and why, prior to proposing or running the command.
 
 ## 2. Android Model Contract (Deployment Specifications)
-Two model variants co-exist in this codebase, selected via `--model-type` (`keras_pipeline`) — see the Obsidian wiki's `기술/Android 배포 계약.md` for the full comparison table and known open questions (e.g. which variant `docs`-era performance numbers actually came from).
+Several model variants co-exist in this codebase, selected via `--model-type` (`keras_pipeline`) — see the Obsidian wiki's `기술/Android 배포 계약.md` for the full comparison table and known open questions.
+
+### Current Team Selection Direction (2026-07-14)
+- The active comparison candidates are the `dual` 2-input model and the Android `paired_1_input` slot using separate RGB/IR 1-input models.
+- The `multimodal` 5-input model performed substantially worse than the 2-input model in prior team testing. No quantitative comparison record remains, so do not invent metrics or call it permanently abandoned. It is provisionally not selected; do not prioritize 5-input training or deployment unless the user explicitly reopens it.
+- Six-class `dual` training did not complete and stopped mid-run. It is paused, not rejected. Do not report it as completed or discarded, and do not automatically resume the long-running training without user direction.
+- The currently verified on-device baseline is the six-class paired RGB fold3 + IR fold4 NPU-friendly INT8 configuration. The Android manifest now selects RGB fold4 + IR fold4; do not call that exact pairing verified until target-device model loading, backend labels, six-class output, and latency/FPS are checked. Keep both paired results separate from any future `dual` comparison.
 
 - **`dual` (2-input, legacy default)**: matches Android's `model_spec.json` (standard, CPU-only). Exactly two NHWC inputs:
   - **Index 0 (RGB):** Shape `[1, 224, 224, 3]`, type `FLOAT32` or `INT8`.

@@ -29,7 +29,14 @@ nvidia-smi 2>/dev/null | grep -q "GTX 1660 Ti" && echo "서브노트북" || echo
 git status --short
 ```
 
-## 4. 사용자에게 보고
+## 4. 현재 모델 선택 방향
+
+- 현재 비교 대상은 `dual` 2-input 모델과 RGB/IR `paired_1_input` 모델이다.
+- `multimodal` 5-input 모델은 과거 테스트에서 2-input보다 성능이 현저히 낮았다는 팀 피드백이 있으나 정량 수치는 남아 있지 않다. 폐기 확정은 아니지만 당분간 사용하지 않으며, 사용자의 명시적 요청 없이 5-input 학습·배포를 우선하지 않는다.
+- 6클래스 `dual` 2-input 학습은 완료되지 않았고 실행 도중 멈춘 상태에서 보류 중이다. 후보에서 제외된 것은 아니므로 폐기된 것으로 기록하지 말고, 사용자 지시 없이 자동으로 재개하지 않는다.
+- 현재 실기기 검증 기준선은 RGB fold3 + IR fold4의 6클래스 `paired_1_input` NPU-friendly INT8 조합이다. Android manifest는 RGB를 fold4로 바꾸는 변경이 있으므로, fold4/fold4 조합은 실기기 검증 전까지 기준선으로 보고하지 않는다.
+
+## 5. 사용자에게 보고
 
 위 확인 결과를 바탕으로 다음을 한국어로 간단히 보고한다.
 

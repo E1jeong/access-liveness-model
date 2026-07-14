@@ -16,9 +16,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from classes import CLASS_NAMES
-from utils import validate_kfold_coverage, calculate_validation_metrics
+from utils import (
+    calculate_validation_metrics,
+    collect_split_items,
+    validate_fixed_split_coverage,
+)
 from keras_pipeline.tf_dataset import (
-    collect_items, make_dataset, make_multimodal_dataset, make_single_dataset
+    make_dataset, make_multimodal_dataset, make_single_dataset
 )
 from keras_pipeline.tf_model import (
     build_dual_mobilenetv2, build_multimodal_mobilenetv2, build_single_mobilenetv2
@@ -33,7 +37,7 @@ def _run_apcer_self_check():
     print("[APCER self-check passed] all-spoof-as-live gives APCER=1.0")
 
 
-def _save_learning_curves(history, val_acers, output_dir, fold_idx, model_type):
+def _save_learning_curves(history, val_acers, output_dir, model_type):
     epochs = range(1, len(history.history["loss"]) + 1)
     plt.figure(figsize=(12, 5))
 
@@ -56,7 +60,7 @@ def _save_learning_curves(history, val_acers, output_dir, fold_idx, model_type):
     plt.tight_layout()
     os.makedirs(output_dir, exist_ok=True)
     suffix = f"_{model_type}" if model_type != "dual" else ""
-    out_path = os.path.join(output_dir, f"learning_curves{suffix}_fold{fold_idx}.png")
+    out_path = os.path.join(output_dir, f"learning_curves{suffix}_fixed.png")
     plt.savefig(out_path)
     plt.close()
     print(f"[learning curves saved] {out_path}")
@@ -111,7 +115,9 @@ class AcerCheckpoint(tf.keras.callbacks.Callback):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train a Keras dual/multimodal MobileNetV2 anti-spoofing model.")
+    parser = argparse.ArgumentParser(
+        description="Train a Keras anti-spoofing model with fixed train/validation/test splits."
+    )
     parser.add_argument("--data-dir", default="dataset/raw")
     parser.add_argument("--output-dir", default="model/keras")
     parser.add_argument(
@@ -123,8 +129,6 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--learning-rate", type=float, default=1e-4)
-    parser.add_argument("--folds", type=int, default=5)
-    parser.add_argument("--fold-idx", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--rgb-weights", choices=["imagenet", "none"], default="imagenet")
     parser.add_argument(
@@ -143,18 +147,14 @@ def main():
     tf.keras.utils.set_random_seed(args.seed)
 
     _run_apcer_self_check()
-    validate_kfold_coverage(args.data_dir, k_folds=args.folds, seed=args.seed)
-    train_items, val_items = collect_items(
-        args.data_dir,
-        k_folds=args.folds,
-        fold_idx=args.fold_idx,
-        seed=args.seed,
-    )
+    split_counts = validate_fixed_split_coverage(args.data_dir)
+    train_items = collect_split_items(args.data_dir, "train")
+    val_items = collect_split_items(args.data_dir, "validation")
 
     print("[dataset]")
     print(f" - train images: {len(train_items)}")
-    print(f" - val images: {len(val_items)}")
-    print(f" - fold: {args.fold_idx + 1}/{args.folds}")
+    print(f" - validation images: {len(val_items)}")
+    print(f" - test images (isolated): {split_counts['test']}")
     print(f" - model type: {args.model_type}")
 
     if args.model_type == "dual":
@@ -195,7 +195,7 @@ def main():
             classifier_units=args.classifier_units,
             gray_imagenet_init=not args.no_gray_imagenet_init,
         )
-        output_filename = f"best_model_fold{args.fold_idx}.keras"
+        output_filename = "best_model_fixed.keras"
     elif args.model_type in ("crop_rgb", "crop_ir"):
         model = build_single_mobilenetv2(
             input_type=args.model_type,
@@ -204,7 +204,7 @@ def main():
             classifier_units=args.classifier_units,
             gray_imagenet_init=not args.no_gray_imagenet_init,
         )
-        output_filename = f"best_{args.model_type}_fold{args.fold_idx}.keras"
+        output_filename = f"best_{args.model_type}_fixed.keras"
     else:
         model = build_multimodal_mobilenetv2(
             rgb_weights=rgb_weights,
@@ -212,7 +212,7 @@ def main():
             classifier_units=args.classifier_units,
             gray_imagenet_init=not args.no_gray_imagenet_init,
         )
-        output_filename = f"best_multimodal_fold{args.fold_idx}.keras"
+        output_filename = "best_multimodal_fixed.keras"
 
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=lr_schedule),
@@ -231,7 +231,7 @@ def main():
         callbacks=[checkpoint],
     )
 
-    _save_learning_curves(history, checkpoint.acer_history, args.output_dir, args.fold_idx, args.model_type)
+    _save_learning_curves(history, checkpoint.acer_history, args.output_dir, args.model_type)
 
     if checkpoint.best_metrics:
         print("[best]")
@@ -243,4 +243,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

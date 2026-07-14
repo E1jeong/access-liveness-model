@@ -14,10 +14,10 @@ if str(PROJECT_ROOT) not in sys.path:
 import concurrent.futures
 
 from classes import CLASS_NAMES
+from utils import collect_split_items, validate_fixed_split_coverage
 from keras_pipeline.tf_dataset import (
     RGB_MEAN,
     RGB_STD,
-    collect_items,
     load_sample,
     load_multimodal_sample,
 )
@@ -220,8 +220,6 @@ def parse_args():
         default="dual",
         help="변환할 모델 종류 (dual: 2입력, multimodal: 5입력, crop_rgb: 단일 RGB, crop_ir: 단일 IR)"
     )
-    parser.add_argument("--folds", type=int, default=5)
-    parser.add_argument("--fold-idx", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--calibration-samples", type=int, default=500)
     parser.add_argument("--float", action="store_true", help="Write a float TFLite model.")
@@ -253,11 +251,11 @@ def main():
         raise SystemExit("Choose at least one conversion mode: --float, --int8, and/or --npu-int8")
     if args.model_path is None:
         if args.model_type == "dual":
-            filename = f"best_model_fold{args.fold_idx}.keras"
+            filename = "best_model_fixed.keras"
         elif args.model_type in ("crop_rgb", "crop_ir"):
-            filename = f"best_{args.model_type}_fold{args.fold_idx}.keras"
+            filename = f"best_{args.model_type}_fixed.keras"
         else:
-            filename = f"best_multimodal_fold{args.fold_idx}.keras"
+            filename = "best_multimodal_fixed.keras"
         args.model_path = os.path.join(
             args.output_dir,
             filename,
@@ -282,15 +280,12 @@ def main():
 
     preloaded_samples = None
     if args.int8 or args.npu_int8:
-        train_items, _ = collect_items(
-            args.data_dir,
-            k_folds=args.folds,
-            fold_idx=args.fold_idx,
-            seed=args.seed,
-        )
-        # collect_items는 클래스 순서(live부터)로 쌓이므로 앞에서 자르면
+        validate_fixed_split_coverage(args.data_dir)
+        train_items = collect_split_items(args.data_dir, "train")
+        # collect_split_items는 클래스 순서(live부터)로 쌓이므로 앞에서 자르면
         # 캘리브레이션이 live에 편향된다 — 전 클래스가 섞이도록 셔플 후 샘플링.
         random.Random(args.seed).shuffle(train_items)
+        print("[calibration split] train only")
         preloaded_samples = preload_calibration_samples(train_items, args.calibration_samples, args.model_type)
 
     base_name = Path(args.model_path).stem

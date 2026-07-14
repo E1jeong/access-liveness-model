@@ -36,11 +36,12 @@ git status --short
 - 6클래스 `dual` 2-input 학습은 완료되지 않았고 실행 도중 멈춘 상태에서 보류 중이다. 후보에서 제외된 것은 아니므로 폐기된 것으로 기록하지 말고, 사용자 지시 없이 자동으로 재개하지 않는다.
 - 현재 실기기 검증 기준선은 RGB fold3 + IR fold4의 6클래스 `paired_1_input` NPU-friendly INT8 조합이다. Android manifest는 RGB를 fold4로 바꾸는 변경이 있으므로, fold4/fold4 조합은 실기기 검증 전까지 기준선으로 보고하지 않는다.
 
-## 5. 데이터 분할 전환 상태
+## 5. 고정 데이터 분할
 
-- `[사용자 결정, 미구현]` 향후 신규 학습은 K-Fold 대신 `dataset/raw/train`, `dataset/raw/validation`, `dataset/raw/test` 고정 분할을 사용한다.
+- `[구현 완료]` 신규 Keras 학습은 K-Fold 대신 `dataset/raw/train`, `dataset/raw/validation`, `dataset/raw/test` 고정 분할을 사용한다.
 - `train`은 가중치 학습과 INT8 calibration, `validation`은 best checkpoint 선택, `test`는 설정 확정 후 최종 평가에만 사용한다.
-- 현재 Keras 코드와 실행 스크립트는 아직 K-Fold 전제다. 고정 분할 구현·모의 데이터 검증이 끝나기 전에는 신규 학습을 실행하지 않는다.
+- `validate_fixed_splits.py`가 클래스/파일 완전성과 subject/frame split 누수를 검사한다. `run_fixed_split.sh`는 validation까지만 자동 평가하며 test는 `evaluate_tflite.py --split test`로 명시해야 한다.
+- 실제 데이터의 고정 split 배치는 별도 작업이다. `dataset/raw/{train,validation,test}` 검증이 통과하기 전에는 신규 학습을 실행하지 않는다.
 
 ## 6. 사용자에게 보고
 

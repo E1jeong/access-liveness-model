@@ -11,48 +11,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from classes import CLASS_MAPPING
-from utils import (
-    _sort_subject_dirs, _split_kfold_subjects,
-    gather_frame_items, validate_kfold_coverage,
-)
-
 IMAGE_SIZE = (224, 224)
 RGB_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 RGB_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 IR_MEAN = np.array([0.5], dtype=np.float32)
 IR_STD = np.array([0.5], dtype=np.float32)
 MULTIMODAL_INPUT_NAMES = ("cropRGB", "cropIR", "RGB", "IR", "heatmap")
-
-
-def collect_items(data_dir="dataset/raw", k_folds=5, fold_idx=0, seed=42):
-    if k_folds < 2:
-        raise ValueError("k_folds must be at least 2.")
-    if fold_idx < 0 or fold_idx >= k_folds:
-        raise ValueError(f"fold_idx must be between 0 and {k_folds - 1}.")
-
-    train_items = []
-    val_items = []
-
-    for category, label in CLASS_MAPPING.items():
-        cat_path = os.path.join(data_dir, category)
-        if not os.path.exists(cat_path):
-            raise FileNotFoundError(f"missing directory: {cat_path}")
-
-        subdirs = _sort_subject_dirs(cat_path, category)
-        if len(subdirs) < k_folds:
-            raise ValueError(
-                f"{category} subject count ({len(subdirs)}) is smaller than K ({k_folds})."
-            )
-
-        train_subdirs, val_subdirs, _ = _split_kfold_subjects(subdirs, k_folds, fold_idx, seed, category)
-        train_items.extend(gather_frame_items(cat_path, train_subdirs, label))
-        val_items.extend(gather_frame_items(cat_path, val_subdirs, label))
-
-    train_rgb = {item[0] for item in train_items}
-    val_rgb = {item[0] for item in val_items}
-    assert train_rgb.isdisjoint(val_rgb), "train/val RGB paths overlap."
-    return train_items, val_items
 
 
 def load_sample(rgb_path, ir_path, augment=False):
@@ -350,4 +314,3 @@ def representative_multimodal_dataset(items, max_samples=200):
             "d_ir": np.expand_dims(sample[3], axis=0).astype(np.float32),
             "e_heatmap": np.expand_dims(sample[4], axis=0).astype(np.float32),
         }
-

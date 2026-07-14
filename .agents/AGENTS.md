@@ -26,10 +26,11 @@ Several model variants co-exist in this codebase, selected via `--model-type` (`
 - Six-class `dual` training did not complete and stopped mid-run. It is paused, not rejected. Do not report it as completed or discarded, and do not automatically resume the long-running training without user direction.
 - The currently verified on-device baseline is the six-class paired RGB fold3 + IR fold4 NPU-friendly INT8 configuration. The Android manifest now selects RGB fold4 + IR fold4; do not call that exact pairing verified until target-device model loading, backend labels, six-class output, and latency/FPS are checked. Keep both paired results separate from any future `dual` comparison.
 
-### Fixed Split Migration Decision (2026-07-14)
-- **User-confirmed, not implemented yet:** future training will replace K-Fold with fixed `dataset/raw/{train,validation,test}` directories.
+### Fixed Split Migration (implemented 2026-07-14)
+- Future Keras training uses fixed `dataset/raw/{train,validation,test}` directories instead of K-Fold.
 - Use `train` for model fitting and INT8 calibration, `validation` for checkpoint selection, and `test` only for final evaluation after all settings are frozen.
-- The active Keras loader/scripts still assume K-Fold. Do not launch new training until the fixed-split loader, conversion calibration path, evaluation split selection, and leakage checks are implemented and verified.
+- `validate_fixed_splits.py` checks class/file completeness plus subject/frame leakage. `run_fixed_split.sh` trains once, converts, and evaluates validation only; test requires explicit `evaluate_tflite.py --split test`.
+- Code and mock-data verification are complete, but the real dataset still needs to be arranged under the three split directories and pass validation before any new training starts.
 
 - **`dual` (2-input, legacy default)**: matches Android's `model_spec.json` (standard, CPU-only). Exactly two NHWC inputs:
   - **Index 0 (RGB):** Shape `[1, 224, 224, 3]`, type `FLOAT32` or `INT8`.
@@ -68,4 +69,3 @@ Several model variants co-exist in this codebase, selected via `--model-type` (`
 ## 6. AI Agent Behavioral Guidelines (Anti-Mistakes)
 - **도구 호출 시 TargetFile 경로 오류 방지:** 에이전트의 임시 스크립트 작성 시 `write_to_file` 도구의 `TargetFile` 인자에는 반드시 에이전트 아티팩트 디렉터리 하위의 스크래치 경로(예: `C:\Users\Unionbiometrics\.gemini\antigravity\brain\<conversation-id>\scratch\check_int8.py`)만 사용해야 합니다. Obsidian 위키 절대 경로 나 외부 로컬 폴더를 기입하면 `invalid_args (not a valid artifact path)` 에러가 발생하여 도구 기동이 실패하므로 절대 주의해야 합니다.
 - **프로젝트 대전제와 명확한 스코프 준수:** 디버깅 시 예상치 못한 성능적 블로커(예: PyTorch MobileNetV3의 PTQ 수치 붕괴 팩트)를 확인하면, 독단적으로 Keras 파이프라인 등으로 작업을 전환하여 임의 변환을 실행하지 마십시오. 즉각 작업을 일시 중단(Stop)하고 사용자에게 현재 팩트를 요약 보고한 뒤, 다음 배포 단계(Float32 전환 등)에 대한 명시적 피드백을 우선적으로 득해야 합니다.
-

@@ -2,15 +2,26 @@
 
 This folder is isolated from the existing PyTorch pipeline.
 
-It keeps the existing dataset layout unchanged:
+It uses fixed train/validation/test directories:
 
 ```text
-dataset/raw/<class>/<class>_<subjectId>/<frame>/
+dataset/raw/{train,validation,test}/<class>/<class>_<subjectId>/<frame>/
   cropRGB.bmp
   cropIR.bmp
   RGB.bmp
   IR.bmp
 ```
+
+`live` keeps its quality level:
+
+```text
+dataset/raw/{train,validation,test}/live/{high,medium}/live_<subjectId>/<frame>/
+```
+
+`train` is used for fitting and INT8 calibration, `validation` selects the
+best checkpoint, and `test` is evaluated only after the configuration is
+frozen. Run `validate_fixed_splits.py` before training to reject missing
+classes/files and subject leakage across splits.
 
 The goal is to train a saved Keras model and convert it through the official
 TensorFlow Lite converter path, which is a better fit for full INT8/NPU work
@@ -18,10 +29,11 @@ than the current PyTorch `.pth` to TFLite path.
 
 ## Files
 
-- `tf_dataset.py`: subject-wise K-fold dataset reader for the existing data. Spatial augmentation, resize, RGB ColorJitter, and normalization are aligned to the PyTorch pipeline.
+- `tf_dataset.py`: image loading and TensorFlow dataset construction. Spatial augmentation, resize, RGB ColorJitter, and normalization are aligned to the PyTorch pipeline.
 - `tf_model.py`: dual-input MobileNetV2 Keras model. RGB uses ImageNet weights; IR can copy those weights by averaging the first RGB convolution to one channel.
 - `tf_train.py`: trains and saves `.keras` checkpoints by best validation ACER.
 - `convert_keras_to_tflite.py`: converts a saved Keras model to float, standard full INT8, or NPU-friendly full INT8 TFLite.
+- `../validate_fixed_splits.py`: validates all three splits and blocks subject/frame leakage.
 
 ## Typical commands
 
@@ -30,17 +42,28 @@ TensorFlow CUDA library path automatically:
 
 ```bash
 ./run_keras_model.sh
-./run_keras_train.sh --epochs 30 --folds 5 --fold-idx 0
-./run_keras_convert.sh --float --int8 --fold-idx 0
-.venv/bin/python keras_pipeline/convert_keras_to_tflite.py --npu-int8 --fold-idx 4 --calibration-samples 500
-.venv/bin/python evaluate_tflite.py --models \
-  model/keras/best_model_fold0_float.tflite \
-  model/keras/best_model_fold0_int8.tflite
+.venv-tf/bin/python validate_fixed_splits.py
+./run_keras_train.sh --epochs 30
+./run_keras_convert.sh --float --int8 --npu-int8 --calibration-samples 500
+.venv-tf/bin/python evaluate_tflite.py --split validation --models \
+  model/keras/best_model_fixed_float.tflite \
+  model/keras/best_model_fixed_int8.tflite
+```
+
+The end-to-end command is `./run_fixed_split.sh`. It trains once, converts the
+checkpoint, and evaluates `validation`; it never evaluates `test`
+automatically. Final test evaluation must be requested explicitly:
+
+```bash
+.venv-tf/bin/python evaluate_tflite.py --split test --models \
+  model/keras/best_model_fixed_float.tflite \
+  model/keras/best_model_fixed_int8.tflite \
+  model/keras/best_model_fixed_npu_int8.tflite
 ```
 
 The generated files go under `model/keras/` by default.
 
-`--npu-int8` writes `model/keras/best_model_fold{N}_npu_int8.tflite`. It reuses the trained `.keras` weights and changes only the export graph:
+`--npu-int8` writes `model/keras/best_model_fixed_npu_int8.tflite`. It reuses the trained `.keras` weights and changes only the export graph:
 
 - removes the RGB normalization Lambda from the TFLite graph,
 - exports RGB input in MobileNet `[-1,1]` range,
@@ -49,14 +72,11 @@ The generated files go under `model/keras/` by default.
 
 Android `model_spec.json` must match this export: RGB and IR both use `mean=[0.5]`, `std=[0.5]`. The standard float/int8 exports use RGB ImageNet mean/std instead.
 
-Current target-board status: the NPU-friendly export still fails Android NNAPI with `ANEURALNETWORKS_BAD_DATA ... while adding operation` and falls back to CPU/XNNPACK. Treat `Backend CPU` as CPU inference, not NPU acceleration.
-
-Current fold 4 validation snapshot:
-
-```text
-best_model_fold4_int8.tflite      val_acc=0.9971 APCER=0.0000 BPCER=0.0120 ACER=0.0060
-best_model_fold4_npu_int8.tflite  val_acc=0.9924 APCER=0.0000 BPCER=0.0320 ACER=0.0160
-```
+Current target-board status is model-specific. The paired six-class RGB fold3
+and IR fold4 NPU-friendly INT8 models have run with `Backend RGB NNAPI / IR
+NNAPI`. New fixed-split exports, including `dual`, still require their own
+on-device backend and latency verification. Treat `Backend CPU` as fallback,
+not NPU acceleration.
 
 For the first MobileNetV2 ImageNet-weighted run, TensorFlow may need internet
 access to download RGB backbone weights. If that is not available, run training

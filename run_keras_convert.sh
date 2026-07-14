@@ -3,10 +3,10 @@
 #
 # 사용 예:
 #   ./run_keras_convert.sh --float --int8                    # 기본 경로 모델 변환
-#   ./run_keras_convert.sh --float --int8 --fold-idx 1       # fold 1 모델 변환
 #   ./run_keras_convert.sh --float                           # float 전용
 #   ./run_keras_convert.sh --int8 --calibration-samples 300 # INT8 전용, 샘플 수 조정
 #   ./run_keras_convert.sh --npu-int8                        # NPU/NNAPI 호환 INT8 (Lambda 제거, AveragePooling2D, batch=1)
+# INT8 representative dataset은 dataset/raw/train만 사용한다.
 set -e
 cd "$(dirname "$0")"
 

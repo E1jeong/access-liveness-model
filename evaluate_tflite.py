@@ -1,4 +1,4 @@
-"""학습한 tflite 모델(float/int8)을 검증셋으로 평가합니다.
+"""학습한 TFLite 모델을 고정 validation 또는 test split으로 평가합니다.
 
 INT8 양자화 후에도 보안 지표(APCER/BPCER/ACER)가 유지되는지 확인하는 용도.
 입력은 학습과 동일하게 정규화한 뒤, 모델이 int8이면 scale/zero_point로 양자화하고,
@@ -35,9 +35,20 @@ def _make_interpreter(model_path):
         return interp
 
 
-def evaluate(model_path, data_dir, folds, fold_idx, seed, model_type, max_samples=None):
-    from keras_pipeline.tf_dataset import collect_items, load_sample, RGB_MEAN, RGB_STD
-    from utils import calculate_validation_metrics, quantize_for_tflite, dequantize_from_tflite
+def evaluate(model_path, data_dir, split, model_type, max_samples=None):
+    from keras_pipeline.tf_dataset import (
+        load_multimodal_sample,
+        load_sample,
+        RGB_MEAN,
+        RGB_STD,
+    )
+    from utils import (
+        calculate_validation_metrics,
+        collect_split_items,
+        dequantize_from_tflite,
+        quantize_for_tflite,
+        validate_fixed_split_coverage,
+    )
     from classes import CLASS_NAMES
 
     is_npu_int8 = "npu_int8" in os.path.basename(model_path)
@@ -62,11 +73,26 @@ def evaluate(model_path, data_dir, folds, fold_idx, seed, model_type, max_sample
 
     rgb_d, rgb_layout = None, None
     ir_d, ir_layout = None, None
+    multimodal_metas = None
 
-    if model_type in ("dual", "multimodal"):
+    if model_type == "dual":
         rgb_d, rgb_layout, _ = next(m for m in metas if m[2] == 3)
         ir_d, ir_layout, _ = next(m for m in metas if m[2] == 1)
         print(f" 입력 레이아웃: rgb={rgb_layout}, ir={ir_layout}")
+    elif model_type == "multimodal":
+        targets = ("a_crop_rgb", "b_crop_ir", "c_rgb", "d_ir", "e_heatmap")
+        multimodal_metas = {}
+        for target in targets:
+            matches = [m for m in metas if target in m[0]["name"].lower()]
+            if len(matches) != 1:
+                raise ValueError(
+                    f"multimodal 입력 '{target}' 매칭 결과가 1개가 아닙니다: "
+                    f"{[m[0]['name'] for m in matches]}"
+                )
+            multimodal_metas[target] = matches[0]
+        print(" 입력 레이아웃: " + ", ".join(
+            f"{name}={meta[1]}" for name, meta in multimodal_metas.items()
+        ))
     elif model_type == "crop_rgb":
         rgb_d, rgb_layout, _ = next(m for m in metas if m[2] == 3)
         print(f" 입력 레이아웃: rgb={rgb_layout}")
@@ -79,19 +105,37 @@ def evaluate(model_path, data_dir, folds, fold_idx, seed, model_type, max_sample
             sample_hwc = np.transpose(sample_hwc, (2, 0, 1))
         return np.expand_dims(sample_hwc, axis=0).astype(np.float32)
 
-    _, val_items = collect_items(data_dir, k_folds=folds, fold_idx=fold_idx, seed=seed)
-    print(f"[데이터셋 구성 완료] K-fold: {folds}개 중 fold {fold_idx}, 검증용 데이터 수: {len(val_items)}장")
+    split_counts = validate_fixed_split_coverage(data_dir)
+    eval_items = collect_split_items(data_dir, split)
+    print(
+        f"[데이터셋 구성 완료] split={split}, 평가 데이터 수: {len(eval_items)}장 "
+        f"(train={split_counts['train']}, validation={split_counts['validation']}, "
+        f"test={split_counts['test']})"
+    )
 
     all_labels, all_preds = [], []
-    total = len(val_items)
+    total = len(eval_items)
     if max_samples is not None:
         total = min(total, max_samples)
     pbar = tqdm(total=total, desc=f"평가 {os.path.basename(model_path)}")
-    for rgb_path, ir_path, label in val_items[:total]:
-        rgb_hwc, ir_hwc = load_sample(rgb_path, ir_path, augment=False)
-        if is_npu_int8:
-            rgb_hwc = (rgb_hwc * RGB_STD + RGB_MEAN) * 2.0 - 1.0
-        if model_type in ("dual", "multimodal"):
+    for rgb_path, ir_path, label in eval_items[:total]:
+        if model_type == "multimodal":
+            samples = list(load_multimodal_sample(rgb_path, ir_path, augment=False))
+            if is_npu_int8:
+                for idx in (0, 2):
+                    samples[idx] = (samples[idx] * RGB_STD + RGB_MEAN) * 2.0 - 1.0
+            for target, sample in zip(multimodal_metas, samples):
+                detail, layout, _ = multimodal_metas[target]
+                interp.set_tensor(
+                    detail["index"],
+                    quantize_for_tflite(build(sample, layout), detail),
+                )
+        else:
+            rgb_hwc, ir_hwc = load_sample(rgb_path, ir_path, augment=False)
+            if is_npu_int8:
+                rgb_hwc = (rgb_hwc * RGB_STD + RGB_MEAN) * 2.0 - 1.0
+
+        if model_type == "dual":
             interp.set_tensor(rgb_d['index'], quantize_for_tflite(build(rgb_hwc, rgb_layout), rgb_d))
             interp.set_tensor(ir_d['index'], quantize_for_tflite(build(ir_hwc, ir_layout), ir_d))
         elif model_type == "crop_rgb":
@@ -109,19 +153,22 @@ def evaluate(model_path, data_dir, folds, fold_idx, seed, model_type, max_sample
     cm, recalls, apcer, bpcer, acer = calculate_validation_metrics(all_labels, all_preds)
     acc = sum(int(l == p) for l, p in zip(all_labels, all_preds)) / len(all_labels)
 
-    active_d = rgb_d if rgb_d is not None else ir_d
+    if multimodal_metas is not None:
+        active_d = multimodal_metas["a_crop_rgb"][0]
+    else:
+        active_d = rgb_d if rgb_d is not None else ir_d
     in_dtype = active_d['dtype'].__name__
-    print(f"\n===== 평가: {model_path} (입력 dtype={in_dtype}, {len(all_labels)}장) =====")
-    print(f" val_acc: {acc:.4f}")
+    print(f"\n===== 평가: {model_path} (split={split}, 입력 dtype={in_dtype}, {len(all_labels)}장) =====")
+    print(f" accuracy: {acc:.4f}")
     print(f" APCER: {apcer:.4f} | BPCER: {bpcer:.4f} | ACER: {acer:.4f}")
     print(" 클래스별 Recall:")
     for name, r in zip(CLASS_NAMES, recalls):
         print(f"   {name}: {r:.4f}")
-    return {"model": model_path, "val_acc": acc, "apcer": apcer, "bpcer": bpcer, "acer": acer}
+    return {"model": model_path, "accuracy": acc, "apcer": apcer, "bpcer": bpcer, "acer": acer}
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate float/int8 tflite on the validation set")
+    parser = argparse.ArgumentParser(description="Evaluate float/int8 TFLite on a fixed split")
     parser.add_argument(
         "--models",
         nargs="+",
@@ -129,9 +176,12 @@ def main():
         help="평가할 tflite 경로들. 기본값은 int8과 float 중간 산출물 비교",
     )
     parser.add_argument("--data-dir", default="dataset/raw")
-    parser.add_argument("--folds", type=int, default=5)
-    parser.add_argument("--fold-idx", type=int, default=0)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--split",
+        choices=["validation", "test"],
+        default="validation",
+        help="기본은 개발용 validation. 설정 확정 후 최종 평가에만 test를 명시한다.",
+    )
     parser.add_argument(
         "--model-type",
         choices=["dual", "multimodal", "crop_rgb", "crop_ir"],
@@ -146,13 +196,13 @@ def main():
         if not os.path.exists(path):
             print(f"[건너뜀] {path} 없음")
             continue
-        results.append(evaluate(path, args.data_dir, args.folds, args.fold_idx, args.seed, args.model_type, args.max_samples))
+        results.append(evaluate(path, args.data_dir, args.split, args.model_type, args.max_samples))
 
     if len(results) > 1:
         print("\n===== float vs int8 비교 =====")
-        print(f"{'model':40s} {'val_acc':>8s} {'APCER':>8s} {'BPCER':>8s} {'ACER':>8s}")
+        print(f"{'model':40s} {'accuracy':>8s} {'APCER':>8s} {'BPCER':>8s} {'ACER':>8s}")
         for r in results:
-            print(f"{os.path.basename(r['model']):40s} {r['val_acc']:8.4f} {r['apcer']:8.4f} {r['bpcer']:8.4f} {r['acer']:8.4f}")
+            print(f"{os.path.basename(r['model']):40s} {r['accuracy']:8.4f} {r['apcer']:8.4f} {r['bpcer']:8.4f} {r['acer']:8.4f}")
 
 
 if __name__ == "__main__":

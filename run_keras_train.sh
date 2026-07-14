@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # keras_pipeline/tf_train.py — MobileNetV2 학습
 #
+# dataset/raw/{train,validation,test} 고정 분할을 사용한다.
 # 사용 예:
-#   ./run_keras_train.sh                          # 기본값(fold 0, 10 에포크)
-#   ./run_keras_train.sh --epochs 30 --fold-idx 1
-#   ./run_keras_train.sh --folds 5 --fold-idx 0 --batch-size 16 --learning-rate 5e-5
+#   ./run_keras_train.sh --epochs 30 --batch-size 16 --learning-rate 5e-5
 set -e
 cd "$(dirname "$0")"
 

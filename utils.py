@@ -3,6 +3,16 @@ import random
 import numpy as np
 from classes import CLASS_NAMES, CLASS_MAPPING
 
+FIXED_SPLITS = ("train", "validation", "test")
+
+
+def _subject_sort_key(subject):
+    basename = os.path.basename(subject)
+    try:
+        return (0, int(basename.rsplit("_", 1)[1]))
+    except (IndexError, ValueError):
+        return (1, basename)
+
 
 def _sort_subject_dirs(cat_path, category):
     prefix = f"{category}_"
@@ -41,9 +51,9 @@ def _sort_frame_dirs(subject_path):
         return sorted(subdirs)
 
 
-def _split_kfold_subjects(subdirs, k_folds, fold_idx, seed, category):
+def _group_subject_dirs(subdirs, category):
     # subdirs는 이미 정렬되어 있는 상태입니다. (_sort_subject_dirs의 리턴값)
-    # 1. subdirs를 동일 인물(Group)로 묶습니다.
+    # subdirs를 동일 인물(Group)로 묶습니다.
     groups = {}
     if category == "live":
         # live의 경우: high/live_1, medium/live_1 등이 있으므로 basename에서 숫자를 추출하여 그룹화
@@ -59,16 +69,21 @@ def _split_kfold_subjects(subdirs, k_folds, fold_idx, seed, category):
         for i, sd in enumerate(subdirs):
             group_key = i // 2
             groups.setdefault(group_key, []).append(sd)
-    
-    # 2. 그룹 키 정렬 리스트 생성 (일관성 보장)
+    return groups
+
+
+def _split_kfold_subjects(subdirs, k_folds, fold_idx, seed, category):
+    groups = _group_subject_dirs(subdirs, category)
+
+    # 그룹 키 정렬 리스트 생성 (일관성 보장)
     group_keys = sorted(list(groups.keys()))
-    # 3. 그룹 키들을 셔플합니다.
+    # 그룹 키들을 셔플합니다.
     random.Random(seed).shuffle(group_keys)
-    
-    # 4. 그룹 키들을 k_folds로 나눕니다.
+
+    # 그룹 키들을 k_folds로 나눕니다.
     folds_keys = [group_keys[i::k_folds] for i in range(k_folds)]
-    
-    # 5. 각 fold의 실제 subdir 목록을 만듭니다.
+
+    # 각 fold의 실제 subdir 목록을 만듭니다.
     folds = []
     for f_keys in folds_keys:
         fold_subdirs = []
@@ -79,6 +94,107 @@ def _split_kfold_subjects(subdirs, k_folds, fold_idx, seed, category):
     val_subdirs = folds[fold_idx]
     train_subdirs = [sd for i, fold in enumerate(folds) if i != fold_idx for sd in fold]
     return train_subdirs, val_subdirs, folds
+
+
+def collect_split_items(data_dir="dataset/raw", split="train"):
+    """고정 split 하나에서 (cropRGB, cropIR, label) 항목을 수집한다."""
+    if split not in FIXED_SPLITS:
+        raise ValueError(f"split은 {FIXED_SPLITS} 중 하나여야 합니다: {split}")
+
+    split_dir = os.path.join(data_dir, split)
+    if not os.path.isdir(split_dir):
+        raise FileNotFoundError(f"고정 split 디렉터리가 없습니다: {split_dir}")
+
+    items = []
+    for category, label in CLASS_MAPPING.items():
+        cat_path = os.path.join(split_dir, category)
+        if not os.path.isdir(cat_path):
+            raise FileNotFoundError(f"클래스 디렉터리가 없습니다: {cat_path}")
+
+        subdirs = _sort_subject_dirs(cat_path, category)
+        if not subdirs:
+            raise ValueError(f"subject 폴더가 비어 있습니다: {cat_path}")
+
+        category_items = gather_frame_items(cat_path, subdirs, label)
+        if not category_items:
+            raise ValueError(f"프레임이 비어 있습니다: {cat_path}")
+        items.extend(category_items)
+
+    return items
+
+
+def validate_fixed_split_coverage(data_dir="dataset/raw"):
+    """고정 split의 완전성과 subject/frame 누수를 검사한다.
+
+    live는 high/medium의 동일 번호를 같은 인물로 본다. spoof 클래스는 기존
+    Group K-Fold 계약과 동일하게 전체 subject 정렬 순서에서 연속 두 폴더를
+    같은 물리 인물로 본다.
+    """
+    split_subjects = {split: {} for split in FIXED_SPLITS}
+    split_items = {}
+
+    for split in FIXED_SPLITS:
+        split_dir = os.path.join(data_dir, split)
+        if not os.path.isdir(split_dir):
+            raise FileNotFoundError(f"고정 split 디렉터리가 없습니다: {split_dir}")
+
+        for category in CLASS_MAPPING:
+            cat_path = os.path.join(split_dir, category)
+            if not os.path.isdir(cat_path):
+                raise FileNotFoundError(f"클래스 디렉터리가 없습니다: {cat_path}")
+            subdirs = _sort_subject_dirs(cat_path, category)
+            if not subdirs:
+                raise ValueError(f"subject 폴더가 비어 있습니다: {cat_path}")
+            split_subjects[split][category] = subdirs
+
+        split_items[split] = collect_split_items(data_dir, split)
+
+    for category in CLASS_MAPPING:
+        all_subdirs = sorted({
+            subject
+            for split in FIXED_SPLITS
+            for subject in split_subjects[split][category]
+        }, key=_subject_sort_key)
+        groups = _group_subject_dirs(all_subdirs, category)
+        subject_to_group = {
+            subject: group_key
+            for group_key, subjects in groups.items()
+            for subject in subjects
+        }
+
+        group_splits = {}
+        for split in FIXED_SPLITS:
+            for subject in split_subjects[split][category]:
+                group_key = subject_to_group[subject]
+                group_splits.setdefault(group_key, set()).add(split)
+
+        overlaps = {
+            group_key: sorted(splits)
+            for group_key, splits in group_splits.items()
+            if len(splits) > 1
+        }
+        if overlaps:
+            raise ValueError(
+                f"{category} 클래스의 동일 물리 subject가 여러 split에 있습니다: {overlaps}"
+            )
+
+    resolved_paths = {}
+    for split, items in split_items.items():
+        paths = {
+            os.path.realpath(path)
+            for rgb_path, ir_path, _ in items
+            for path in (rgb_path, ir_path)
+        }
+        for other_split, other_paths in resolved_paths.items():
+            overlap = paths & other_paths
+            if overlap:
+                example = sorted(overlap)[0]
+                raise ValueError(
+                    f"{other_split}/{split} split에 동일 프레임 실경로가 있습니다: {example}"
+                )
+        resolved_paths[split] = paths
+
+    return {split: len(items) for split, items in split_items.items()}
 
 
 def validate_kfold_coverage(data_dir="dataset/raw", k_folds=5, seed=42):

@@ -263,6 +263,15 @@ def calculate_validation_metrics(labels, preds):
     labels = np.asarray(labels, dtype=np.int64)
     preds = np.asarray(preds, dtype=np.int64)
 
+    if labels.ndim != 1 or preds.ndim != 1:
+        raise ValueError("labels와 preds는 1차원이어야 합니다.")
+    if len(labels) != len(preds):
+        raise ValueError("labels와 preds의 길이가 같아야 합니다.")
+    if np.any((labels < 0) | (labels >= num_classes)):
+        raise ValueError(f"labels는 0 이상 {num_classes - 1} 이하여야 합니다.")
+    if np.any((preds < 0) | (preds >= num_classes)):
+        raise ValueError(f"preds는 0 이상 {num_classes - 1} 이하여야 합니다.")
+
     confusion_matrix = np.zeros((num_classes, num_classes), dtype=np.int64)
     for label, pred in zip(labels, preds):
         confusion_matrix[int(label), int(pred)] += 1

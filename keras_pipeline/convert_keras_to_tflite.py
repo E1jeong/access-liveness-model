@@ -13,8 +13,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import concurrent.futures
 
-from classes import CLASS_NAMES
 from utils import collect_split_items, validate_fixed_split_coverage
+from keras_pipeline.model_signature import (
+    validate_keras_model_signature,
+    validate_tflite_model_signature,
+)
 from keras_pipeline.tf_dataset import (
     RGB_MEAN,
     RGB_STD,
@@ -30,9 +33,18 @@ def _makedirs(path):
         os.makedirs(dirpath, exist_ok=True)
 
 
-def convert_float(model, output_path):
+def _validate_tflite_bytes(tflite_model, model_type):
+    interpreter = tf.lite.Interpreter(model_content=tflite_model)
+    interpreter.allocate_tensors()
+    validate_tflite_model_signature(
+        interpreter.get_input_details(), interpreter.get_output_details(), model_type
+    )
+
+
+def convert_float(model, output_path, model_type):
     converter = tf.lite.TFLiteConverter.from_keras_model(model)
     tflite_model = converter.convert()
+    _validate_tflite_bytes(tflite_model, model_type)
     _makedirs(output_path)
     with open(output_path, "wb") as f:
         f.write(tflite_model)
@@ -84,6 +96,7 @@ def _convert_int8_core(keras_model, output_path, preloaded_samples, model_type, 
     converter.inference_output_type = tf.int8
 
     tflite_model = converter.convert()
+    _validate_tflite_bytes(tflite_model, model_type)
     _makedirs(output_path)
     with open(output_path, "wb") as f:
         f.write(tflite_model)
@@ -188,16 +201,19 @@ def convert_int8_npu(trained_model, output_path, preloaded_samples, model_type):
     _convert_int8_core(export_model, output_path, preloaded_samples, model_type, remap_rgb=True, log_label="npu int8")
 
 
-def inspect_tflite(path):
+def inspect_tflite(path, model_type):
     interpreter = tf.lite.Interpreter(model_path=path)
     interpreter.allocate_tensors()
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    validate_tflite_model_signature(input_details, output_details, model_type)
     print("[tflite tensors]")
-    for idx, detail in enumerate(interpreter.get_input_details()):
+    for idx, detail in enumerate(input_details):
         print(
             f" input {idx}: name={detail['name']} shape={detail['shape'].tolist()} "
             f"dtype={detail['dtype']} quant={detail['quantization']}"
         )
-    for idx, detail in enumerate(interpreter.get_output_details()):
+    for idx, detail in enumerate(output_details):
         print(
             f" output {idx}: name={detail['name']} shape={detail['shape'].tolist()} "
             f"dtype={detail['dtype']} quant={detail['quantization']}"
@@ -271,12 +287,7 @@ def main():
             "_rgb_current_norm_to_mobilenet_range": _rgb_current_norm_to_mobilenet_range,
         },
     )
-    output_size = int(model.output_shape[-1])
-    if output_size != len(CLASS_NAMES):
-        raise ValueError(
-            f"Model output size is {output_size}, expected {len(CLASS_NAMES)} "
-            f"for classes: {CLASS_NAMES}"
-        )
+    validate_keras_model_signature(model, args.model_type)
 
     preloaded_samples = None
     if args.int8 or args.npu_int8:
@@ -291,16 +302,16 @@ def main():
     base_name = Path(args.model_path).stem
     if args.float:
         float_path = os.path.join(args.output_dir, f"{base_name}_float.tflite")
-        convert_float(model, float_path)
-        inspect_tflite(float_path)
+        convert_float(model, float_path, args.model_type)
+        inspect_tflite(float_path, args.model_type)
     if args.int8:
         int8_path = os.path.join(args.output_dir, f"{base_name}_int8.tflite")
         convert_int8(model, int8_path, preloaded_samples, args.model_type)
-        inspect_tflite(int8_path)
+        inspect_tflite(int8_path, args.model_type)
     if args.npu_int8:
         npu_int8_path = os.path.join(args.output_dir, f"{base_name}_npu_int8.tflite")
         convert_int8_npu(model, npu_int8_path, preloaded_samples, args.model_type)
-        inspect_tflite(npu_int8_path)
+        inspect_tflite(npu_int8_path, args.model_type)
 
 
 if __name__ == "__main__":

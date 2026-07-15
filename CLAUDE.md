@@ -42,7 +42,7 @@ git status --short
 - `[구현 완료]` 신규 Keras 학습은 K-Fold 대신 `dataset/raw/train`, `dataset/raw/validation`, `dataset/raw/test` 고정 분할을 사용한다.
 - `train`은 가중치 학습과 INT8 calibration, `validation`은 best checkpoint 선택, `test`는 설정 확정 후 최종 평가에만 사용한다.
 - `validate_fixed_splits.py`가 클래스/파일 완전성과 subject/frame split 누수를 검사한다. `run_fixed_split.sh`는 validation까지만 자동 평가하며 test는 `evaluate_tflite.py --split test`로 명시해야 한다.
-- 실제 데이터의 고정 split 배치는 별도 작업이다. `dataset/raw/{train,validation,test}` 검증이 통과하기 전에는 신규 학습을 실행하지 않는다.
+- 실제 6클래스 고정 split은 GPU 서브노트북에서 검증을 통과했다(train 12,000 / validation 1,200 / test 1,198). 신규 학습 전에는 항상 `validate_fixed_splits.py`를 다시 실행한다.
 
 ## 6. 사용자에게 보고
 

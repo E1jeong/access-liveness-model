@@ -27,6 +27,7 @@ from keras_pipeline.tf_dataset import (
 from keras_pipeline.tf_model import (
     build_dual_mobilenetv2, build_multimodal_mobilenetv2, build_single_mobilenetv2
 )
+from keras_pipeline.run_metadata import make_run_id, write_run_metadata
 
 
 def _run_apcer_self_check():
@@ -139,6 +140,7 @@ def parse_args():
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--classifier-units", type=int, default=1024)
     parser.add_argument("--no-gray-imagenet-init", action="store_true")
+    parser.add_argument("--run-id", help="실행 metadata에 기록할 ID (기본: UTC timestamp + model type)")
     return parser.parse_args()
 
 
@@ -237,6 +239,21 @@ def main():
         print("[best]")
         for key, value in checkpoint.best_metrics.items():
             print(f" - {key}: {value:.4f}")
+        run_id = args.run_id or make_run_id(args.model_type)
+        metadata_path = os.path.join(args.output_dir, f"{run_id}_metadata.json")
+        config = {
+            key: value for key, value in vars(args).items()
+            if key not in {"run_id"}
+        }
+        write_run_metadata(
+            metadata_path,
+            run_id,
+            config,
+            args.data_dir,
+            output_path,
+            checkpoint.best_metrics,
+        )
+        print(f"[run metadata saved] {metadata_path}")
     else:
         print("[-] No checkpoint was saved.")
 

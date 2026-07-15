@@ -6,6 +6,7 @@ INT8 양자화 후에도 보안 지표(APCER/BPCER/ACER)가 유지되는지 확�
 """
 
 import argparse
+import csv
 import json
 import os
 import sys
@@ -100,6 +101,19 @@ def write_regression_report(results, output_path, split="validation"):
         f.write("\n")
     print(f"[artifact regression report] {output_path}")
     return report
+
+
+def write_metrics_csv(results, output_path, split):
+    fields = ["split", "name", "model", "accuracy", "apcer", "bpcer", "acer", "mean_latency_ms", "file_size_bytes"]
+    parent = os.path.dirname(output_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fields)
+        writer.writeheader()
+        for result in results:
+            writer.writerow({key: result.get(key) for key in fields if key != "split"} | {"split": split})
+    print(f"[metrics csv] {output_path}")
 
 
 def evaluate(model_path, data_dir, split, model_type, max_samples=None):
@@ -303,6 +317,7 @@ def main():
     parser.add_argument("--keras-model", help="원본 Keras checkpoint 경로")
     parser.add_argument("--npu-export", action="store_true", help="Keras checkpoint에서 동적 NPU export Keras도 비교")
     parser.add_argument("--report-json", help="artifact regression JSON 출력 경로")
+    parser.add_argument("--report-csv", help="평가 metric CSV 출력 경로 (test는 명시적으로만 실행)")
     parser.add_argument("--data-dir", default="dataset/raw")
     parser.add_argument(
         "--split",
@@ -349,6 +364,8 @@ def main():
             print(f"{os.path.basename(r['model']):40s} {r['accuracy']:8.4f} {r['apcer']:8.4f} {r['bpcer']:8.4f} {r['acer']:8.4f}")
     if args.report_json:
         write_regression_report(results, args.report_json, args.split)
+    if args.report_csv:
+        write_metrics_csv(results, args.report_csv, args.split)
 
 
 if __name__ == "__main__":

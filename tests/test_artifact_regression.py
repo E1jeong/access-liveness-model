@@ -3,7 +3,7 @@ import json
 import numpy as np
 import pytest
 
-from evaluate_tflite import write_regression_report
+from evaluate_tflite import write_metrics_csv, write_regression_report
 
 
 def _result(name, logits, acer, latency):
@@ -53,3 +53,11 @@ def test_regression_report_rejects_misaligned_labels(tmp_path):
 
     with pytest.raises(ValueError, match="label 순서"):
         write_regression_report([baseline, artifact], tmp_path / "regression.json")
+
+
+def test_metrics_csv_records_an_explicit_test_split(tmp_path):
+    path = tmp_path / "test.csv"
+    write_metrics_csv([_result("keras", [[3, 0], [0, 3]], acer=0.1, latency=1.0)], path, "test")
+
+    assert path.read_text().splitlines()[0].startswith("split,name,model")
+    assert path.read_text().splitlines()[1].startswith("test,keras,")

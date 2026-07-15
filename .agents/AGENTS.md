@@ -2,7 +2,7 @@
 
 Behavioral and technical constraints specific to the `access-liveness-model` project.
 
-> This repo no longer has a `docs/` folder. Fixed standards, current state, and open questions live in the Obsidian vault (GitHub `E1jeong/obsidian-vault`, clone locally if not present) under `Project/Company/access-liveness-model/`: `개요.md` (goals, fixed scope), `운영.md` (per-machine setup state, verification commands), `로드맵/개발 단계.md` (development gates), `테스트/평가지표와 결과.md` (current metrics), `이슈/확인 필요.md` (open items — read this first), `log.md` (append-only change history). The paired Android evaluation app has its own wiki at `Project/Company/android-anti-spoofing-lab/` — check it whenever the model contract or NPU status changes, since the two repos must move together.
+> Fixed standards, current state, and open questions live in the Obsidian vault (GitHub `E1jeong/obsidian-vault`, clone locally if not present) under `Project/Company/access-liveness-model/`: `개요.md` (goals, fixed scope), `운영.md` (per-machine setup state, verification commands), `로드맵/개발 단계.md` (development gates), `로드맵/전면 개편 작업 백로그.md` (cross-session priorities, status, and completion criteria), `테스트/평가지표와 결과.md` (current metrics), `이슈/확인 필요.md` (open items — read this first), `log.md` (append-only change history). The paired Android evaluation app has its own wiki at `Project/Company/android-anti-spoofing-lab/` — check it whenever the model contract or NPU status changes, since the two repos must move together.
 
 ## 0. Machine Topology (important)
 Work spans two machines — do not assume one box. This section is a fixed technical fact, not a status log; if it goes stale, fix it here directly (do not let the Obsidian wiki become the only source of truth for this repo's own machine names/paths).
@@ -30,7 +30,7 @@ Several model variants co-exist in this codebase, selected via `--model-type` (`
 - Future Keras training uses fixed `dataset/raw/{train,validation,test}` directories instead of K-Fold.
 - Use `train` for model fitting and INT8 calibration, `validation` for checkpoint selection, and `test` only for final evaluation after all settings are frozen.
 - `validate_fixed_splits.py` checks class/file completeness plus subject/frame leakage. `run_fixed_split.sh` trains once, converts, and evaluates validation only; test requires explicit `evaluate_tflite.py --split test`.
-- Code and mock-data verification are complete, but the real dataset still needs to be arranged under the three split directories and pass validation before any new training starts.
+- The real six-class dataset was arranged under the three split directories on the GPU sub-laptop and passed `validate_fixed_splits.py` on 2026-07-14 (train 12,000 / validation 1,200 / test 1,198 frames). Re-run validation before each new training; do not infer the company-PC legacy dataset has the same layout.
 
 - **`dual` (2-input, legacy default)**: matches Android's `model_spec.json` (standard, CPU-only). Exactly two NHWC inputs:
   - **Index 0 (RGB):** Shape `[1, 224, 224, 3]`, type `FLOAT32` or `INT8`.

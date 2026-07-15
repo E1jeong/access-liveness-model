@@ -20,6 +20,7 @@ nvidia-smi 2>/dev/null | grep -q "GTX 1660 Ti" && echo "서브노트북" || echo
 - `Project/Company/access-liveness-model/로드맵/개발 단계.md` — 고정 개발 게이트, 다음 작업 순서
 - `Project/Company/access-liveness-model/테스트/평가지표와 결과.md` — 현재 성능 수치
 - `Project/Company/access-liveness-model/이슈/확인 필요.md` — 미해결·확인 필요 항목 (가장 먼저 확인)
+- `Project/Company/access-liveness-model/로드맵/전면 개편 작업 백로그.md` — 세션 간 전면 개편 작업의 우선순위·상태·완료 기준
 - `Project/Company/access-liveness-model/log.md` — 변경 이력(append-only, 영어)
 - `Project/Company/android-anti-spoofing-lab/` — 이 프로젝트와 세트로 움직이는 Android 평가 앱(`android-anti-spoofing-lab`) 위키. 모델 계약(입출력 텐서 구성)이나 NPU 상태를 바꿀 때는 반드시 같이 확인한다.
 

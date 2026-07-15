@@ -6,8 +6,10 @@ INT8 양자화 후에도 보안 지표(APCER/BPCER/ACER)가 유지되는지 확�
 """
 
 import argparse
+import json
 import os
 import sys
+import time
 
 import numpy as np
 from tqdm import tqdm
@@ -33,6 +35,71 @@ def _make_interpreter(model_path):
         interp.allocate_tensors()
         print(f"[interpreter] reference 커널 경로 (XNNPACK 미사용, num_threads={n})")
         return interp
+
+
+def _summarize_result(name, model_path, labels, preds, logits, latencies_ms, file_size_bytes=None):
+    from utils import calculate_validation_metrics
+
+    labels = np.asarray(labels, dtype=np.int64)
+    preds = np.asarray(preds, dtype=np.int64)
+    logits = np.asarray(logits, dtype=np.float32)
+    _, recalls, apcer, bpcer, acer = calculate_validation_metrics(labels, preds)
+    return {
+        "name": name,
+        "model": model_path,
+        "accuracy": float(np.mean(labels == preds)),
+        "apcer": float(apcer),
+        "bpcer": float(bpcer),
+        "acer": float(acer),
+        "recalls": [float(value) for value in recalls],
+        "mean_latency_ms": float(np.mean(latencies_ms)),
+        "file_size_bytes": file_size_bytes,
+        "_labels": labels,
+        "_preds": preds,
+        "_logits": logits,
+    }
+
+
+def write_regression_report(results, output_path, split="validation"):
+    if len(results) < 2:
+        raise ValueError("artifact regression report에는 비교할 결과가 두 개 이상 필요합니다")
+
+    baseline = results[0]
+    comparisons = []
+    for result in results[1:]:
+        if not np.array_equal(baseline["_labels"], result["_labels"]):
+            raise ValueError(f"비교 결과의 label 순서가 다릅니다: {result['name']}")
+        error = np.abs(baseline["_logits"] - result["_logits"])
+        comparisons.append({
+            "artifact": result["name"],
+            "logits_max_abs_error": float(error.max()),
+            "logits_mean_abs_error": float(error.mean()),
+            "argmax_agreement": float(np.mean(
+                baseline["_preds"] == result["_preds"]
+            )),
+            "acer_delta": float(result["acer"] - baseline["acer"]),
+            "mean_latency_ms_delta": float(
+                result["mean_latency_ms"] - baseline["mean_latency_ms"]
+            ),
+        })
+
+    report = {
+        "split": split,
+        "baseline": baseline["name"],
+        "artifacts": [{
+            key: value for key, value in result.items() if not key.startswith("_")
+        } for result in results],
+        "comparisons": comparisons,
+        "acer_policy": "report_only",
+    }
+    parent = os.path.dirname(output_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(report, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    print(f"[artifact regression report] {output_path}")
+    return report
 
 
 def evaluate(model_path, data_dir, split, model_type, max_samples=None):
@@ -113,7 +180,7 @@ def evaluate(model_path, data_dir, split, model_type, max_samples=None):
         f"test={split_counts['test']})"
     )
 
-    all_labels, all_preds = [], []
+    all_labels, all_preds, all_logits, latencies_ms = [], [], [], []
     total = len(eval_items)
     if max_samples is not None:
         total = min(total, max_samples)
@@ -143,15 +210,25 @@ def evaluate(model_path, data_dir, split, model_type, max_samples=None):
         elif model_type == "crop_ir":
             interp.set_tensor(ir_d['index'], quantize_for_tflite(build(ir_hwc, ir_layout), ir_d))
 
+        start = time.perf_counter()
         interp.invoke()
+        latencies_ms.append((time.perf_counter() - start) * 1000)
         logits = dequantize_from_tflite(interp.get_tensor(out_detail['index']), out_detail)[0]
         all_labels.append(int(label))
         all_preds.append(int(np.argmax(logits)))
+        all_logits.append(logits)
         pbar.update(1)
     pbar.close()
 
-    cm, recalls, apcer, bpcer, acer = calculate_validation_metrics(all_labels, all_preds)
-    acc = sum(int(l == p) for l, p in zip(all_labels, all_preds)) / len(all_labels)
+    result = _summarize_result(
+        os.path.basename(model_path),
+        model_path,
+        all_labels,
+        all_preds,
+        all_logits,
+        latencies_ms,
+        os.path.getsize(model_path),
+    )
 
     if multimodal_metas is not None:
         active_d = multimodal_metas["a_crop_rgb"][0]
@@ -159,22 +236,73 @@ def evaluate(model_path, data_dir, split, model_type, max_samples=None):
         active_d = rgb_d if rgb_d is not None else ir_d
     in_dtype = active_d['dtype'].__name__
     print(f"\n===== 평가: {model_path} (split={split}, 입력 dtype={in_dtype}, {len(all_labels)}장) =====")
-    print(f" accuracy: {acc:.4f}")
-    print(f" APCER: {apcer:.4f} | BPCER: {bpcer:.4f} | ACER: {acer:.4f}")
+    print(f" accuracy: {result['accuracy']:.4f}")
+    print(f" APCER: {result['apcer']:.4f} | BPCER: {result['bpcer']:.4f} | ACER: {result['acer']:.4f}")
+    print(f" mean latency: {result['mean_latency_ms']:.3f} ms")
     print(" 클래스별 Recall:")
-    for name, r in zip(CLASS_NAMES, recalls):
+    for name, r in zip(CLASS_NAMES, result["recalls"]):
         print(f"   {name}: {r:.4f}")
-    return {"model": model_path, "accuracy": acc, "apcer": apcer, "bpcer": bpcer, "acer": acer}
+    return result
+
+
+def evaluate_keras_model(model_path, data_dir, split, model_type, max_samples=None, npu_export=False):
+    import tensorflow as tf
+    from keras_pipeline.convert_keras_to_tflite import build_npu_export_model
+    from keras_pipeline.model_signature import validate_keras_model_signature
+    from keras_pipeline.tf_dataset import load_multimodal_sample, load_sample, RGB_MEAN, RGB_STD
+    from keras_pipeline.tf_model import _rgb_current_norm_to_mobilenet_range
+    from utils import collect_split_items, validate_fixed_split_coverage
+
+    model = tf.keras.models.load_model(
+        model_path,
+        compile=False,
+        custom_objects={"_rgb_current_norm_to_mobilenet_range": _rgb_current_norm_to_mobilenet_range},
+    )
+    validate_keras_model_signature(model, model_type)
+    name = "npu_export_keras" if npu_export else "keras"
+    if npu_export:
+        model = build_npu_export_model(model, model_type)
+
+    validate_fixed_split_coverage(data_dir)
+    items = collect_split_items(data_dir, split)
+    if max_samples is not None:
+        items = items[:max_samples]
+
+    labels, preds, logits_list, latencies_ms = [], [], [], []
+    for rgb_path, ir_path, label in tqdm(items, desc=f"평가 {name}"):
+        if model_type == "multimodal":
+            sample = list(load_multimodal_sample(rgb_path, ir_path, augment=False))
+            if npu_export:
+                for index in (0, 2):
+                    sample[index] = (sample[index] * RGB_STD + RGB_MEAN) * 2.0 - 1.0
+            inputs = [np.expand_dims(value, axis=0) for value in sample]
+        else:
+            rgb, ir = load_sample(rgb_path, ir_path, augment=False)
+            if npu_export:
+                rgb = (rgb * RGB_STD + RGB_MEAN) * 2.0 - 1.0
+            if model_type == "dual":
+                inputs = [np.expand_dims(rgb, axis=0), np.expand_dims(ir, axis=0)]
+            elif model_type == "crop_rgb":
+                inputs = np.expand_dims(rgb, axis=0)
+            else:
+                inputs = np.expand_dims(ir, axis=0)
+
+        start = time.perf_counter()
+        logits = model(inputs, training=False).numpy()[0]
+        latencies_ms.append((time.perf_counter() - start) * 1000)
+        labels.append(int(label))
+        preds.append(int(np.argmax(logits)))
+        logits_list.append(logits)
+
+    return _summarize_result(name, model_path, labels, preds, logits_list, latencies_ms)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate float/int8 TFLite on a fixed split")
-    parser.add_argument(
-        "--models",
-        nargs="+",
-        default=["model/anti_spoofing.tflite", "model/anti_spoofing_float.tflite"],
-        help="평가할 tflite 경로들. 기본값은 int8과 float 중간 산출물 비교",
-    )
+    parser.add_argument("--models", nargs="+", default=[], help="평가할 TFLite 경로들")
+    parser.add_argument("--keras-model", help="원본 Keras checkpoint 경로")
+    parser.add_argument("--npu-export", action="store_true", help="Keras checkpoint에서 동적 NPU export Keras도 비교")
+    parser.add_argument("--report-json", help="artifact regression JSON 출력 경로")
     parser.add_argument("--data-dir", default="dataset/raw")
     parser.add_argument(
         "--split",
@@ -191,7 +319,23 @@ def main():
     parser.add_argument("--max-samples", type=int, default=None)
     args = parser.parse_args()
 
+    if args.npu_export and not args.keras_model:
+        raise SystemExit("--npu-export에는 --keras-model이 필요합니다")
+
     results = []
+    if args.keras_model:
+        results.append(evaluate_keras_model(
+            args.keras_model, args.data_dir, args.split, args.model_type, args.max_samples
+        ))
+        if args.npu_export:
+            results.append(evaluate_keras_model(
+                args.keras_model,
+                args.data_dir,
+                args.split,
+                args.model_type,
+                args.max_samples,
+                npu_export=True,
+            ))
     for path in args.models:
         if not os.path.exists(path):
             print(f"[건너뜀] {path} 없음")
@@ -203,6 +347,8 @@ def main():
         print(f"{'model':40s} {'accuracy':>8s} {'APCER':>8s} {'BPCER':>8s} {'ACER':>8s}")
         for r in results:
             print(f"{os.path.basename(r['model']):40s} {r['accuracy']:8.4f} {r['apcer']:8.4f} {r['bpcer']:8.4f} {r['acer']:8.4f}")
+    if args.report_json:
+        write_regression_report(results, args.report_json, args.split)
 
 
 if __name__ == "__main__":

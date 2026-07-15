@@ -110,14 +110,92 @@ def convert_int8(model, output_path, preloaded_samples, model_type):
 def _copy_nested_weights(source_model, target_model, layer_name):
     source_layer = source_model.get_layer(layer_name)
     target_layer = target_model.get_layer(layer_name)
+
+    source_sub_layers = {layer.name: layer for layer in source_layer.layers}
+    target_weighted_layers = [layer for layer in target_layer.layers if layer.get_weights()]
+    source_weighted_names = {
+        layer.name for layer in source_layer.layers if layer.get_weights()
+    }
+    target_weighted_names = {layer.name for layer in target_weighted_layers}
+    missing_in_target = source_weighted_names - target_weighted_names
+    if missing_in_target:
+        raise ValueError(
+            f"{layer_name}: export backbone에 없는 source weighted layer: "
+            f"{sorted(missing_in_target)}"
+        )
+
+    copied = []
     for target_sub_layer in target_layer.layers:
-        try:
-            source_sub_layer = source_layer.get_layer(target_sub_layer.name)
-        except ValueError:
+        target_weights = target_sub_layer.get_weights()
+        if not target_weights:
             continue
+
+        source_sub_layer = source_sub_layers.get(target_sub_layer.name)
+        if source_sub_layer is None:
+            raise ValueError(
+                f"{layer_name}: source backbone에 없는 export weighted layer: "
+                f"{target_sub_layer.name}"
+            )
         source_weights = source_sub_layer.get_weights()
-        if source_weights:
-            target_sub_layer.set_weights(source_weights)
+        source_shapes = [tuple(weight.shape) for weight in source_weights]
+        target_shapes = [tuple(weight.shape) for weight in target_weights]
+        if source_shapes != target_shapes:
+            raise ValueError(
+                f"{layer_name}/{target_sub_layer.name}: weight tensor shape mismatch "
+                f"(source={source_shapes}, target={target_shapes})"
+            )
+        target_sub_layer.set_weights(source_weights)
+        copied.append((target_sub_layer.name, source_shapes))
+
+    print(f"[weight copy] {layer_name}: {copied}")
+
+
+def _npu_parity_inputs(sample, model_type):
+    def batch(value):
+        return np.expand_dims(value, axis=0).astype(np.float32)
+
+    if model_type == "dual":
+        return [batch(sample[0]), batch(sample[1])], [
+            batch(_rgb_imagenet_norm_to_mobilenet_range(sample[0])),
+            batch(sample[1]),
+        ]
+    if model_type == "crop_rgb":
+        return [batch(sample[0])], [batch(_rgb_imagenet_norm_to_mobilenet_range(sample[0]))]
+    if model_type == "crop_ir":
+        return [batch(sample[1])], [batch(sample[1])]
+
+    source_inputs = [batch(value) for value in sample]
+    export_inputs = [
+        batch(_rgb_imagenet_norm_to_mobilenet_range(sample[0])),
+        batch(sample[1]),
+        batch(_rgb_imagenet_norm_to_mobilenet_range(sample[2])),
+        batch(sample[3]),
+        batch(sample[4]),
+    ]
+    return source_inputs, export_inputs
+
+
+def validate_npu_export_parity(trained_model, export_model, sample, model_type):
+    """Fail when the NPU export graph no longer preserves Keras logits."""
+    source_inputs, export_inputs = _npu_parity_inputs(sample, model_type)
+    source_call_inputs = source_inputs[0] if len(source_inputs) == 1 else source_inputs
+    export_call_inputs = export_inputs[0] if len(export_inputs) == 1 else export_inputs
+    trained_logits = trained_model(source_call_inputs, training=False).numpy()
+    export_logits = export_model(export_call_inputs, training=False).numpy()
+    error = np.abs(trained_logits - export_logits)
+    result = {
+        "max_error": float(error.max()),
+        "mean_error": float(error.mean()),
+        "argmax_agreement": bool(np.array_equal(
+            np.argmax(trained_logits, axis=-1), np.argmax(export_logits, axis=-1)
+        )),
+    }
+    if not result["argmax_agreement"] or not np.allclose(
+        trained_logits, export_logits, rtol=1e-5, atol=1e-5
+    ):
+        raise ValueError(f"NPU export Keras logits parity failed: {result}")
+    print(f"[NPU export Keras logits parity] {result}")
+    return result
 
 
 def build_npu_export_model(trained_model, model_type):
@@ -198,6 +276,11 @@ def build_npu_export_model(trained_model, model_type):
 
 def convert_int8_npu(trained_model, output_path, preloaded_samples, model_type):
     export_model = build_npu_export_model(trained_model, model_type)
+    if not preloaded_samples:
+        raise ValueError("NPU export Keras logits parity requires at least one calibration sample")
+    validate_npu_export_parity(
+        trained_model, export_model, preloaded_samples[0], model_type
+    )
     _convert_int8_core(export_model, output_path, preloaded_samples, model_type, remap_rgb=True, log_label="npu int8")
 
 

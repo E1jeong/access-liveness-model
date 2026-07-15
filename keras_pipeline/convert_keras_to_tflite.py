@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import random
 import sys
@@ -11,9 +12,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import concurrent.futures
-
 from utils import collect_split_items, validate_fixed_split_coverage
+from classes import CLASS_NAMES
 from keras_pipeline.model_signature import (
     validate_keras_model_signature,
     validate_tflite_model_signature,
@@ -56,7 +56,14 @@ def _rgb_imagenet_norm_to_mobilenet_range(rgb):
     return raw_0_1 * 2.0 - 1.0
 
 
-def _make_representative_dataset_gen(preloaded_samples, model_type, remap_rgb=False):
+def _load_calibration_sample(item, model_type):
+    rgb_path, ir_path, _ = item
+    if model_type == "multimodal":
+        return load_multimodal_sample(rgb_path, ir_path, augment=False)
+    return load_sample(rgb_path, ir_path, augment=False)
+
+
+def _make_representative_dataset_gen(calibration_items, model_type, remap_rgb=False):
     """remap_rgb=True applies _rgb_imagenet_norm_to_mobilenet_range to the RGB
     channel(s) — used only for the NPU export graph, which has no in-graph
     Lambda to do this itself."""
@@ -65,7 +72,8 @@ def _make_representative_dataset_gen(preloaded_samples, model_type, remap_rgb=Fa
         return np.expand_dims(arr, axis=0).astype(np.float32)
 
     def gen():
-        for sample in preloaded_samples:
+        for item in calibration_items:
+            sample = _load_calibration_sample(item, model_type)
             if model_type == "dual":
                 yield [
                     _rgb(sample[0]),
@@ -87,10 +95,10 @@ def _make_representative_dataset_gen(preloaded_samples, model_type, remap_rgb=Fa
     return gen
 
 
-def _convert_int8_core(keras_model, output_path, preloaded_samples, model_type, remap_rgb, log_label):
+def _convert_int8_core(keras_model, output_path, calibration_items, model_type, remap_rgb, log_label):
     converter = tf.lite.TFLiteConverter.from_keras_model(keras_model)
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
-    converter.representative_dataset = _make_representative_dataset_gen(preloaded_samples, model_type, remap_rgb)
+    converter.representative_dataset = _make_representative_dataset_gen(calibration_items, model_type, remap_rgb)
     converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
     converter.inference_input_type = tf.int8
     converter.inference_output_type = tf.int8
@@ -103,8 +111,8 @@ def _convert_int8_core(keras_model, output_path, preloaded_samples, model_type, 
     print(f"[{log_label} tflite saved] {output_path}")
 
 
-def convert_int8(model, output_path, preloaded_samples, model_type):
-    _convert_int8_core(model, output_path, preloaded_samples, model_type, remap_rgb=False, log_label="int8")
+def convert_int8(model, output_path, calibration_items, model_type):
+    _convert_int8_core(model, output_path, calibration_items, model_type, remap_rgb=False, log_label="int8")
 
 
 def _copy_nested_weights(source_model, target_model, layer_name):
@@ -274,14 +282,17 @@ def build_npu_export_model(trained_model, model_type):
     return export_model
 
 
-def convert_int8_npu(trained_model, output_path, preloaded_samples, model_type):
+def convert_int8_npu(trained_model, output_path, calibration_items, model_type):
     export_model = build_npu_export_model(trained_model, model_type)
-    if not preloaded_samples:
+    if not calibration_items:
         raise ValueError("NPU export Keras logits parity requires at least one calibration sample")
     validate_npu_export_parity(
-        trained_model, export_model, preloaded_samples[0], model_type
+        trained_model,
+        export_model,
+        _load_calibration_sample(calibration_items[0], model_type),
+        model_type,
     )
-    _convert_int8_core(export_model, output_path, preloaded_samples, model_type, remap_rgb=True, log_label="npu int8")
+    _convert_int8_core(export_model, output_path, calibration_items, model_type, remap_rgb=True, log_label="npu int8")
 
 
 def inspect_tflite(path, model_type):
@@ -327,21 +338,94 @@ def parse_args():
     return parser.parse_args()
 
 
-def preload_calibration_samples(items, max_samples, model_type):
-    count = min(len(items), max_samples)
-    print(f"Preloading {count} calibration samples in parallel (mode: {model_type})...")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-        if model_type in ("dual", "crop_rgb", "crop_ir"):
-            def worker(item):
-                rgb_path, ir_path, _ = item
-                return load_sample(rgb_path, ir_path, augment=False)
-        else:
-            def worker(item):
-                crop_rgb_path, crop_ir_path, _ = item
-                return load_multimodal_sample(crop_rgb_path, crop_ir_path, augment=False)
-        futures = executor.map(worker, items[:max_samples])
-        loaded = list(futures)
-    return loaded
+def select_stratified_calibration_items(items, max_samples, seed):
+    if max_samples < len(CLASS_NAMES):
+        raise ValueError(
+            f"calibration samples는 모든 {len(CLASS_NAMES)} 클래스를 포함해야 합니다: {max_samples}"
+        )
+
+    by_label = {label: [] for label in range(len(CLASS_NAMES))}
+    for item in items:
+        label = item[2]
+        if label not in by_label:
+            raise ValueError(f"알 수 없는 calibration label: {label}")
+        by_label[label].append(item)
+
+    missing_labels = [CLASS_NAMES[label] for label, values in by_label.items() if not values]
+    if missing_labels:
+        raise ValueError(f"train calibration에 없는 클래스: {missing_labels}")
+
+    rng = random.Random(seed)
+    labels = list(by_label)
+    rng.shuffle(labels)
+    for values in by_label.values():
+        rng.shuffle(values)
+
+    selected = []
+    positions = {label: 0 for label in labels}
+    while len(selected) < max_samples:
+        added = False
+        for label in labels:
+            if positions[label] >= len(by_label[label]):
+                continue
+            selected.append(by_label[label][positions[label]])
+            positions[label] += 1
+            added = True
+            if len(selected) == max_samples:
+                break
+        if not added:
+            break
+
+    selected_by_label = {label: 0 for label in by_label}
+    for _, _, label in selected:
+        selected_by_label[label] += 1
+    if any(count == 0 for count in selected_by_label.values()):
+        raise ValueError("stratified calibration이 모든 클래스를 포함하지 못했습니다")
+
+    return selected, {
+        "available_by_class": {
+            CLASS_NAMES[label]: len(by_label[label]) for label in by_label
+        },
+        "selected_by_class": {
+            CLASS_NAMES[label]: selected_by_label[label] for label in selected_by_label
+        },
+    }
+
+
+def collect_calibration_items(data_dir, max_samples, seed):
+    """Collect calibration inputs exclusively from the fixed train split."""
+    return select_stratified_calibration_items(
+        collect_split_items(data_dir, "train"), max_samples, seed
+    )
+
+
+def _estimated_calibration_sample_bytes(model_type):
+    channels = {"dual": 4, "crop_rgb": 3, "crop_ir": 1, "multimodal": 9}[model_type]
+    return 224 * 224 * channels * np.dtype(np.float32).itemsize
+
+
+def write_calibration_manifest(path, items, report, model_type, seed, requested_samples):
+    payload = {
+        "split": "train",
+        "model_type": model_type,
+        "seed": seed,
+        "requested_samples": requested_samples,
+        "selected_samples": len(items),
+        **report,
+        "missing_required_samples": 0,
+        "estimated_peak_sample_bytes": _estimated_calibration_sample_bytes(model_type),
+        "preloaded_sample_bytes": 0,
+        "items": [
+            {"crop_rgb_path": rgb_path, "crop_ir_path": ir_path, "label": label}
+            for rgb_path, ir_path, label in items
+        ],
+    }
+    _makedirs(path)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    print(f"[calibration manifest] {path}: {payload['selected_by_class']}, "
+          f"peak~{payload['estimated_peak_sample_bytes']} bytes, preload=0 bytes")
 
 
 def main():
@@ -372,15 +456,24 @@ def main():
     )
     validate_keras_model_signature(model, args.model_type)
 
-    preloaded_samples = None
+    calibration_items = None
     if args.int8 or args.npu_int8:
         validate_fixed_split_coverage(args.data_dir)
-        train_items = collect_split_items(args.data_dir, "train")
-        # collect_split_items는 클래스 순서(live부터)로 쌓이므로 앞에서 자르면
-        # 캘리브레이션이 live에 편향된다 — 전 클래스가 섞이도록 셔플 후 샘플링.
-        random.Random(args.seed).shuffle(train_items)
         print("[calibration split] train only")
-        preloaded_samples = preload_calibration_samples(train_items, args.calibration_samples, args.model_type)
+        calibration_items, calibration_report = collect_calibration_items(
+            args.data_dir, args.calibration_samples, args.seed
+        )
+        manifest_path = os.path.join(
+            args.output_dir, f"{Path(args.model_path).stem}_calibration_manifest.json"
+        )
+        write_calibration_manifest(
+            manifest_path,
+            calibration_items,
+            calibration_report,
+            args.model_type,
+            args.seed,
+            args.calibration_samples,
+        )
 
     base_name = Path(args.model_path).stem
     if args.float:
@@ -389,11 +482,11 @@ def main():
         inspect_tflite(float_path, args.model_type)
     if args.int8:
         int8_path = os.path.join(args.output_dir, f"{base_name}_int8.tflite")
-        convert_int8(model, int8_path, preloaded_samples, args.model_type)
+        convert_int8(model, int8_path, calibration_items, args.model_type)
         inspect_tflite(int8_path, args.model_type)
     if args.npu_int8:
         npu_int8_path = os.path.join(args.output_dir, f"{base_name}_npu_int8.tflite")
-        convert_int8_npu(model, npu_int8_path, preloaded_samples, args.model_type)
+        convert_int8_npu(model, npu_int8_path, calibration_items, args.model_type)
         inspect_tflite(npu_int8_path, args.model_type)
 
 

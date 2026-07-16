@@ -22,7 +22,7 @@ Several model variants co-exist in this codebase, selected via `--model-type` (`
 
 ### Current Team Selection Direction (2026-07-14)
 - The active comparison candidates are the `dual` 2-input model and the Android `paired_1_input` slot using separate RGB/IR 1-input models.
-- The `multimodal` 5-input model performed substantially worse than the 2-input model in prior team testing. No quantitative comparison record remains, so do not invent metrics or call it permanently abandoned. It is provisionally not selected; do not prioritize 5-input training or deployment unless the user explicitly reopens it.
+- The `multimodal` 5-input model was completely removed from the codebase and pipeline on 2026-07-16 due to poor performance under actual team testing.
 - Six-class `dual` training did not complete and stopped mid-run. It is paused, not rejected. Do not report it as completed or discarded, and do not automatically resume the long-running training without user direction.
 - The currently verified on-device baseline is the six-class paired RGB fold3 + IR fold4 NPU-friendly INT8 configuration. The Android manifest now selects RGB fold4 + IR fold4; do not call that exact pairing verified until target-device model loading, backend labels, six-class output, and latency/FPS are checked. Keep both paired results separate from any future `dual` comparison.
 
@@ -35,8 +35,8 @@ Several model variants co-exist in this codebase, selected via `--model-type` (`
 - **`dual` (2-input, legacy default)**: matches Android's `model_spec.json` (standard, CPU-only). Exactly two NHWC inputs:
   - **Index 0 (RGB):** Shape `[1, 224, 224, 3]`, type `FLOAT32` or `INT8`.
   - **Index 1 (IR):** Shape `[1, 224, 224, 1]`, type `FLOAT32` or `INT8`.
-- **`multimodal` (5-input)**: matches Android's `model_spec_npu.json` (NPU delegate). Five NHWC inputs matched by substring against `model_spec_npu.json`'s `inputs.*` targets (not exact name equality) — see the Obsidian wiki for the exact tensor names Keras exports (`a_crop_rgb`, `b_crop_ir`, `c_rgb`, `d_ir`, `e_heatmap`).
-- **Output (both variants):** Exactly one tensor, shape `[1, 6]`, type `FLOAT32` or `INT8` (raw logits, `outputIsLogits: true` in `model_spec*.json`).
+
+- **Output:** Exactly one tensor, shape `[1, 6]`, type `FLOAT32` or `INT8` (raw logits, `outputIsLogits: true` in `model_spec*.json`).
 - **Output Class Mapping (Fixed Indices):** Single source of truth is `classes.py` (`CLASS_NAMES`).
   - `[0]`: live
   - `[1]`: print
@@ -49,7 +49,7 @@ Several model variants co-exist in this codebase, selected via `--model-type` (`
   - NPU-friendly Keras INT8 export (`*_npu_int8.tflite`): RGB and IR both use mean `[0.5]` / std `[0.5]`, so the model sees `[-1,1]` style inputs. This export removes the RGB Lambda preprocessing from the TFLite graph. (Ensure `evaluate_tflite.py` maps inputs back to `[-1, 1]` for `npu_int8` variants to prevent BPCER degradation.)
 
 ## 3. LiteRT-Torch & Layout Permutations
-- **Channels-Last (NHWC) Conversion:** To achieve NHWC layout required by the Android NPU, always use `litert_torch.to_channel_last_io(model, args=[0, 1])` to wrap the PyTorch model before conversion. (This applies to the `pytorch_pipeline`/`dual` path only — it has no `multimodal` equivalent.)
+- **Channels-Last (NHWC) Conversion:** To achieve NHWC layout required by the Android NPU, always use `litert_torch.to_channel_last_io(model, args=[0, 1])` to wrap the PyTorch model before conversion. (This applies to the `pytorch_pipeline`/`dual` path only.)
 - **Sample Inputs:** The tracing dummy inputs passed to `litert_torch.convert` must match the wrapped NHWC shapes (`[1, 224, 224, 3]` and `[1, 224, 224, 1]`) to prevent FX tracing dimension errors.
 
 ## 4. Output Directories and Deployment Handoff
@@ -64,7 +64,7 @@ Several model variants co-exist in this codebase, selected via `--model-type` (`
 - **Keras/MobileNetV2 full INT8 conversion works and evaluates well locally.** See the Obsidian wiki's `테스트/평가지표와 결과.md` for current numbers — do not hardcode them here, they change. (As of 2026-07-13, 6-class single RGB and IR models have been successfully verified and synced to company PC.)
 - **NPU-friendly Keras INT8 export status may differ from what this file used to say.** The paired `Project/Company/android-anti-spoofing-lab` wiki has reported the NPU-friendly export compiling on-device NNAPI successfully (as of a date later than this repo's own history) — verify against both wikis' `이슈/확인 필요.md` before reporting NPU status either way.
 - Next NPU debugging should isolate unsupported ops from the remaining graph (`AVERAGE_POOL_2D`, `RESHAPE`, `CONCATENATION`, `FULLY_CONNECTED`, or quantized conv/depthwise constraints) instead of redoing training.
-- **Data handoff:** Training images are collected on-device and delivered as files placed under `dataset/raw/<class>/<class>_<subjectId>/<frame>/` (`cropRGB.bmp`, `cropIR.bmp`, `RGB.bmp`, `IR.bmp`). This matches the Android collector output (`/sdcard/Pictures/raw/...`). There is no longer any webcam capture in this project. Note: the `multimodal` variant's 5th input (`heatmap`) reads an additional `face_heatmap.bmp` per frame if present, otherwise it is silently zero-filled — confirm this file actually exists in the current dataset before trusting any `multimodal` training result.
+- **Data handoff:** Training images are collected on-device and delivered as files placed under `dataset/raw/<class>/<class>_<subjectId>/<frame>/` (`cropRGB.bmp`, `cropIR.bmp`, `RGB.bmp`, `IR.bmp`). This matches the Android collector output (`/sdcard/Pictures/raw/...`). There is no longer any webcam capture in this project.
 
 ## 6. AI Agent Behavioral Guidelines (Anti-Mistakes)
 - **도구 호출 시 TargetFile 경로 오류 방지:** 에이전트의 임시 스크립트 작성 시 `write_to_file` 도구의 `TargetFile` 인자에는 반드시 에이전트 아티팩트 디렉터리 하위의 스크래치 경로(예: `C:\Users\Unionbiometrics\.gemini\antigravity\brain\<conversation-id>\scratch\check_int8.py`)만 사용해야 합니다. Obsidian 위키 절대 경로 나 외부 로컬 폴더를 기입하면 `invalid_args (not a valid artifact path)` 에러가 발생하여 도구 기동이 실패하므로 절대 주의해야 합니다.

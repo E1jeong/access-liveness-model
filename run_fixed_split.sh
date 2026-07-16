@@ -26,8 +26,8 @@ done
 
 case "$MODEL_TYPE" in
   dual) PREFIX="best_model_fixed" ;;
-  multimodal|crop_rgb|crop_ir) PREFIX="best_${MODEL_TYPE}_fixed" ;;
-  *) echo "사용법: $0 --model-type [dual|multimodal|crop_rgb|crop_ir] [--epochs N] [--batch-size B] [--learning-rate L] [--data-dir PATH]"; exit 1 ;;
+  crop_rgb|crop_ir) PREFIX="best_${MODEL_TYPE}_fixed" ;;
+  *) echo "사용법: $0 --model-type [dual|crop_rgb|crop_ir] [--epochs N] [--batch-size B] [--learning-rate L] [--data-dir PATH]"; exit 1 ;;
 esac
 
 echo "========================================="

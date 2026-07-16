@@ -1,6 +1,8 @@
 import os
 import random
 import numpy as np
+import hashlib
+import json
 from classes import CLASS_NAMES, CLASS_MAPPING
 
 FIXED_SPLITS = ("train", "validation", "test")
@@ -124,7 +126,7 @@ def collect_split_items(data_dir="dataset/raw", split="train"):
 
 
 def validate_fixed_split_coverage(data_dir="dataset/raw"):
-    """고정 split의 완전성과 subject/frame 누수를 검사한다.
+    """고정 split의 완전성과 subject/frame/content/metadata 누수를 검사한다.
 
     live는 high/medium의 동일 번호를 같은 인물로 본다. spoof 클래스는 기존
     Group K-Fold 계약과 동일하게 전체 subject 정렬 순서에서 연속 두 폴더를
@@ -149,6 +151,7 @@ def validate_fixed_split_coverage(data_dir="dataset/raw"):
 
         split_items[split] = collect_split_items(data_dir, split)
 
+    # 1. Subject leakage 검사
     for category in CLASS_MAPPING:
         all_subdirs = sorted({
             subject
@@ -178,6 +181,7 @@ def validate_fixed_split_coverage(data_dir="dataset/raw"):
                 f"{category} 클래스의 동일 물리 subject가 여러 split에 있습니다: {overlaps}"
             )
 
+    # 2. Realpath leakage 검사
     resolved_paths = {}
     for split, items in split_items.items():
         paths = {
@@ -193,6 +197,103 @@ def validate_fixed_split_coverage(data_dir="dataset/raw"):
                     f"{other_split}/{split} split에 동일 프레임 실경로가 있습니다: {example}"
                 )
         resolved_paths[split] = paths
+
+    # 3. Content MD5 Hash Leakage 검사
+    hash_to_split_paths = {}
+    for split, items in split_items.items():
+        for rgb_path, ir_path, _ in items:
+            for file_path in (rgb_path, ir_path):
+                real_p = os.path.realpath(file_path)
+                if not os.path.exists(real_p):
+                    continue
+                # MD5 해시 계산
+                hasher = hashlib.md5()
+                with open(real_p, 'rb') as f:
+                    for chunk in iter(lambda: f.read(65536), b''):
+                        hasher.update(chunk)
+                file_hash = hasher.hexdigest()
+
+                if file_hash in hash_to_split_paths:
+                    existing_split, existing_path = hash_to_split_paths[file_hash]
+                    if existing_split != split:
+                        raise ValueError(
+                            f"Content hash leakage detected! "
+                            f"File in split '{split}' ({file_path}) has identical content to "
+                            f"file in split '{existing_split}' ({existing_path})."
+                        )
+                else:
+                    hash_to_split_paths[file_hash] = (split, file_path)
+
+    # 4. Explicit Manifest / Metadata Leakage 검사 (meta.json)
+    session_to_splits = {}
+    video_to_splits = {}
+    device_to_splits = {}
+    attack_medium_to_splits = {}
+
+    for split, items in split_items.items():
+        for rgb_path, _, _ in items:
+            frame_dir = os.path.dirname(rgb_path)
+            meta_path = os.path.join(frame_dir, "meta.json")
+            if os.path.exists(meta_path):
+                try:
+                    with open(meta_path, 'r', encoding='utf-8') as f:
+                        meta_data = json.load(f)
+                except Exception:
+                    continue
+
+                session_val = None
+                video_val = None
+                device_val = None
+                attack_val = None
+
+                for k, v in meta_data.items():
+                    k_lower = k.lower()
+                    if k_lower in ("session", "session_id", "sessionid"):
+                        session_val = v
+                    elif k_lower in ("video", "video_id", "videoid"):
+                        video_val = v
+                    elif k_lower in ("device", "device_id", "deviceid"):
+                        device_val = v
+                    elif k_lower in ("attack_medium", "attackmedium", "attack_type", "attacktype"):
+                        attack_val = v
+
+                # Session leakage 검사
+                if session_val is not None:
+                    session_to_splits.setdefault(session_val, {}).setdefault(split, []).append(meta_path)
+                # Video leakage 검사
+                if video_val is not None:
+                    video_to_splits.setdefault(video_val, {}).setdefault(split, []).append(meta_path)
+                # Device 정보 수집 (로깅)
+                if device_val is not None:
+                    device_to_splits.setdefault(device_val, {}).setdefault(split, []).append(meta_path)
+                # Attack Medium 정보 수집 (로깅)
+                if attack_val is not None:
+                    attack_medium_to_splits.setdefault(attack_val, {}).setdefault(split, []).append(meta_path)
+
+    # Session, Video Leakage 에러 처리
+    for session_val, splits_dict in session_to_splits.items():
+        if len(splits_dict) > 1:
+            example_paths = {s: paths[0] for s, paths in splits_dict.items()}
+            raise ValueError(
+                f"Session leakage detected! Session '{session_val}' found in multiple splits: "
+                f"{sorted(splits_dict.keys())}. Example paths: {example_paths}"
+            )
+
+    for video_val, splits_dict in video_to_splits.items():
+        if len(splits_dict) > 1:
+            example_paths = {s: paths[0] for s, paths in splits_dict.items()}
+            raise ValueError(
+                f"Video leakage detected! Video '{video_val}' found in multiple splits: "
+                f"{sorted(splits_dict.keys())}. Example paths: {example_paths}"
+            )
+
+    # 로깅 출력 (Device, Attack Medium)
+    for device_val, splits_dict in device_to_splits.items():
+        if len(splits_dict) > 1:
+            print(f"[Metadata Info] Device '{device_val}' is shared across splits: {sorted(splits_dict.keys())}")
+    for attack_val, splits_dict in attack_medium_to_splits.items():
+        if len(splits_dict) > 1:
+            print(f"[Metadata Info] Attack Medium '{attack_val}' is shared across splits: {sorted(splits_dict.keys())}")
 
     return {split: len(items) for split, items in split_items.items()}
 

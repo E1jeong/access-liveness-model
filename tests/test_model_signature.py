@@ -45,9 +45,9 @@ def _tflite_details(model_type):
 
 
 def test_valid_tflite_signature_accepts_serving_default_names():
-    inputs, outputs = _tflite_details("multimodal")
+    inputs, outputs = _tflite_details("dual")
 
-    validate_tflite_model_signature(inputs, outputs, "multimodal")
+    validate_tflite_model_signature(inputs, outputs, "dual")
 
 
 def test_tflite_signature_rejects_wrong_logical_input_name():

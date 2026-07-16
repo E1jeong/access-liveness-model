@@ -7,13 +7,12 @@ from pathlib import Path
 from keras_pipeline.tf_dataset import (
     make_dataset,
     make_single_dataset,
-    make_multimodal_dataset,
 )
 
 
 @pytest.fixture
 def fake_images(tmp_path):
-    # Create valid dummy images to satisfy cv2.imread and required multimodal paths
+    # Create valid dummy images to satisfy cv2.imread and required image paths
     img_rgb = np.zeros((224, 224, 3), dtype=np.uint8)
     img_gray = np.zeros((224, 224), dtype=np.uint8)
 
@@ -21,13 +20,11 @@ def fake_images(tmp_path):
     ir_path = tmp_path / "cropIR.bmp"
     raw_rgb_path = tmp_path / "RGB.bmp"
     raw_ir_path = tmp_path / "IR.bmp"
-    heatmap_path = tmp_path / "face_heatmap.bmp"
 
     cv2.imwrite(str(rgb_path), img_rgb)
     cv2.imwrite(str(ir_path), img_gray)
     cv2.imwrite(str(raw_rgb_path), img_rgb)
     cv2.imwrite(str(raw_ir_path), img_gray)
-    cv2.imwrite(str(heatmap_path), img_gray)
 
     return str(rgb_path), str(ir_path)
 
@@ -40,8 +37,7 @@ def test_dataset_builders_reject_empty_items():
     with pytest.raises(ValueError, match="cannot be empty"):
         make_single_dataset(items=[], input_type="crop_rgb", batch_size=8)
 
-    with pytest.raises(ValueError, match="cannot be empty"):
-        make_multimodal_dataset(items=[], batch_size=8)
+
 
 
 def test_dataset_cardinality_and_steps(fake_images):
@@ -90,9 +86,6 @@ def test_prefetch_applied_to_pipelines(fake_images):
     
     ds_dual = make_dataset(items, batch_size=2)
     ds_single = make_single_dataset(items, input_type="crop_rgb", batch_size=2)
-    ds_multi = make_multimodal_dataset(items, batch_size=2)
-    
     # Check if prefetch is correctly injected (usually wrapped in PrefetchDataset)
     assert "Prefetch" in type(ds_dual).__name__
     assert "Prefetch" in type(ds_single).__name__
-    assert "Prefetch" in type(ds_multi).__name__

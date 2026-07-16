@@ -18,7 +18,8 @@ def _write_frame(subject_dir: Path):
     frame_dir = subject_dir / "1"
     frame_dir.mkdir(parents=True, exist_ok=True)
     for filename in REQUIRED_FILES:
-        (frame_dir / filename).touch()
+        file_path = frame_dir / filename
+        file_path.write_text(str(file_path), encoding="utf-8")
 
 
 def _make_dataset(root: Path):
@@ -64,3 +65,47 @@ def test_missing_required_file_is_rejected(tmp_path):
 
     with pytest.raises(FileNotFoundError, match="필수 BMP 파일"):
         validate_fixed_split_coverage(tmp_path)
+
+
+import json
+
+def test_content_hash_leakage_is_rejected(tmp_path):
+    _make_dataset(tmp_path)
+    
+    src = tmp_path / "train" / "live" / "high" / "live_1" / "1" / "cropRGB.bmp"
+    dst = tmp_path / "validation" / "live" / "high" / "live_3" / "1" / "cropRGB.bmp"
+    
+    dst.write_bytes(src.read_bytes())
+    
+    with pytest.raises(ValueError, match="Content hash leakage detected"):
+        validate_fixed_split_coverage(tmp_path)
+
+
+def test_meta_json_session_or_video_leakage_is_rejected(tmp_path):
+    _make_dataset(tmp_path)
+    
+    meta1 = tmp_path / "train" / "live" / "high" / "live_1" / "1" / "meta.json"
+    meta2 = tmp_path / "validation" / "live" / "high" / "live_3" / "1" / "meta.json"
+    
+    with open(meta1, "w") as f:
+        json.dump({"session_id": "test_session_123"}, f)
+    with open(meta2, "w") as f:
+        json.dump({"session_id": "test_session_123"}, f)
+        
+    with pytest.raises(ValueError, match="Session leakage detected"):
+        validate_fixed_split_coverage(tmp_path)
+
+
+def test_meta_json_device_or_attack_medium_sharing_does_not_fail(tmp_path):
+    _make_dataset(tmp_path)
+    
+    meta1 = tmp_path / "train" / "live" / "high" / "live_1" / "1" / "meta.json"
+    meta2 = tmp_path / "validation" / "live" / "high" / "live_3" / "1" / "meta.json"
+    
+    with open(meta1, "w") as f:
+        json.dump({"device_id": "shared_device_A", "attack_medium": "print"}, f)
+    with open(meta2, "w") as f:
+        json.dump({"device_id": "shared_device_A", "attack_medium": "print"}, f)
+        
+    counts = validate_fixed_split_coverage(tmp_path)
+    assert counts == {"train": 12, "validation": 12, "test": 12}

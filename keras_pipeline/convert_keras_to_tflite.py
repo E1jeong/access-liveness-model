@@ -22,7 +22,6 @@ from keras_pipeline.tf_dataset import (
     RGB_MEAN,
     RGB_STD,
     load_sample,
-    load_multimodal_sample,
 )
 from keras_pipeline.tf_model import _rgb_current_norm_to_mobilenet_range
 
@@ -58,8 +57,6 @@ def _rgb_imagenet_norm_to_mobilenet_range(rgb):
 
 def _load_calibration_sample(item, model_type):
     rgb_path, ir_path, _ = item
-    if model_type == "multimodal":
-        return load_multimodal_sample(rgb_path, ir_path, augment=False)
     return load_sample(rgb_path, ir_path, augment=False)
 
 
@@ -81,16 +78,8 @@ def _make_representative_dataset_gen(calibration_items, model_type, remap_rgb=Fa
                 ]
             elif model_type == "crop_rgb":
                 yield [_rgb(sample[0])]
-            elif model_type == "crop_ir":
-                yield [np.expand_dims(sample[1], axis=0).astype(np.float32)]
             else:
-                yield {
-                    "a_crop_rgb": _rgb(sample[0]),
-                    "b_crop_ir": np.expand_dims(sample[1], axis=0).astype(np.float32),
-                    "c_rgb": _rgb(sample[2]),
-                    "d_ir": np.expand_dims(sample[3], axis=0).astype(np.float32),
-                    "e_heatmap": np.expand_dims(sample[4], axis=0).astype(np.float32),
-                }
+                yield [np.expand_dims(sample[1], axis=0).astype(np.float32)]
 
     return gen
 
@@ -228,7 +217,7 @@ def build_npu_export_model(trained_model, model_type):
             classifier_as_conv=True,
         )
         backbones = ["rgb_mobilenetv2", "ir_mobilenetv2"]
-    elif model_type in ("crop_rgb", "crop_ir"):
+    else:
         from keras_pipeline.tf_model import build_single_mobilenetv2
         export_model = build_single_mobilenetv2(
             input_type=model_type,
@@ -242,25 +231,6 @@ def build_npu_export_model(trained_model, model_type):
             classifier_as_conv=True,
         )
         backbones = [f"{model_type}_mobilenetv2"]
-    else:
-        from keras_pipeline.tf_model import build_multimodal_mobilenetv2
-        export_model = build_multimodal_mobilenetv2(
-            rgb_weights=None,
-            dropout=0.0,
-            classifier_units=classifier_units,
-            gray_imagenet_init=False,
-            rgb_input_mobilenet_range=True,
-            average_pool_op=True,
-            fixed_batch_size=1,
-            classifier_as_conv=True,
-        )
-        backbones = [
-            "crop_rgb_mobilenetv2",
-            "crop_ir_mobilenetv2",
-            "rgb_mobilenetv2",
-            "ir_mobilenetv2",
-            "heatmap_mobilenetv2",
-        ]
 
     for layer_name in backbones:
         _copy_nested_weights(trained_model, export_model, layer_name)
@@ -337,14 +307,6 @@ def write_tflite_sidecar_manifest(tflite_path, model_type):
             input_kind = "ir"
         elif model_type == "dual":
             input_kind = "rgb" if channels == 3 else "ir"
-        elif model_type == "multimodal":
-            name_lower = name.lower()
-            if "heatmap" in name_lower:
-                input_kind = "heatmap"
-            elif "ir" in name_lower:
-                input_kind = "ir"
-            else:
-                input_kind = "rgb"
 
         # Quantization 파라미터
         scale, zero_point = detail['quantization']
@@ -439,9 +401,9 @@ def parse_args():
     parser.add_argument("--data-dir", default="dataset/raw")
     parser.add_argument(
         "--model-type",
-        choices=["dual", "multimodal", "crop_rgb", "crop_ir"],
+        choices=["dual", "crop_rgb", "crop_ir"],
         default="dual",
-        help="변환할 모델 종류 (dual: 2입력, multimodal: 5입력, crop_rgb: 단일 RGB, crop_ir: 단일 IR)"
+        help="변환할 모델 종류 (dual: 2입력, crop_rgb: 단일 RGB, crop_ir: 단일 IR)"
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--calibration-samples", type=int, default=500)
@@ -513,7 +475,7 @@ def collect_calibration_items(data_dir, max_samples, seed):
 
 
 def _estimated_calibration_sample_bytes(model_type):
-    channels = {"dual": 4, "crop_rgb": 3, "crop_ir": 1, "multimodal": 9}[model_type]
+    channels = {"dual": 4, "crop_rgb": 3, "crop_ir": 1}[model_type]
     return 224 * 224 * channels * np.dtype(np.float32).itemsize
 
 
@@ -548,10 +510,8 @@ def main():
     if args.model_path is None:
         if args.model_type == "dual":
             filename = "best_model_fixed.keras"
-        elif args.model_type in ("crop_rgb", "crop_ir"):
-            filename = f"best_{args.model_type}_fixed.keras"
         else:
-            filename = "best_multimodal_fixed.keras"
+            filename = f"best_{args.model_type}_fixed.keras"
         args.model_path = os.path.join(
             args.output_dir,
             filename,

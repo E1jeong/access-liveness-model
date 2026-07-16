@@ -22,10 +22,10 @@ from utils import (
     validate_fixed_split_coverage,
 )
 from keras_pipeline.tf_dataset import (
-    make_dataset, make_multimodal_dataset, make_single_dataset
+    make_dataset, make_single_dataset
 )
 from keras_pipeline.tf_model import (
-    build_dual_mobilenetv2, build_multimodal_mobilenetv2, build_single_mobilenetv2
+    build_dual_mobilenetv2, build_single_mobilenetv2
 )
 from keras_pipeline.run_metadata import make_run_id, write_run_metadata
 
@@ -123,9 +123,9 @@ def parse_args():
     parser.add_argument("--output-dir", default="model/keras")
     parser.add_argument(
         "--model-type",
-        choices=["dual", "multimodal", "crop_rgb", "crop_ir"],
+        choices=["dual", "crop_rgb", "crop_ir"],
         default="dual",
-        help="학습할 모델 종류 (dual: 2입력, multimodal: 5입력, crop_rgb: 단일 RGB, crop_ir: 단일 IR)"
+        help="학습할 모델 종류 (dual: 2입력, crop_rgb: 단일 RGB, crop_ir: 단일 IR)"
     )
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=8)
@@ -159,16 +159,11 @@ def main():
             train_items, batch_size=args.batch_size, shuffle=True, seed=args.seed, augment=True
         ).repeat()
         val_ds = make_dataset(val_items, batch_size=args.batch_size, shuffle=False, seed=args.seed).cache()
-    elif args.model_type in ("crop_rgb", "crop_ir"):
+    else:
         train_ds = make_single_dataset(
             train_items, input_type=args.model_type, batch_size=args.batch_size, shuffle=True, seed=args.seed, augment=True
         ).repeat()
         val_ds = make_single_dataset(val_items, input_type=args.model_type, batch_size=args.batch_size, shuffle=False, seed=args.seed).cache()
-    else:
-        train_ds = make_multimodal_dataset(
-            train_items, batch_size=args.batch_size, shuffle=True, seed=args.seed, augment=True
-        ).repeat()
-        val_ds = make_multimodal_dataset(val_items, batch_size=args.batch_size, shuffle=False, seed=args.seed).cache()
 
     steps_per_epoch = math.ceil(len(train_items) / args.batch_size)
 
@@ -189,7 +184,7 @@ def main():
             gray_imagenet_init=not args.no_gray_imagenet_init,
         )
         output_filename = "best_model_fixed.keras"
-    elif args.model_type in ("crop_rgb", "crop_ir"):
+    else:
         model = build_single_mobilenetv2(
             input_type=args.model_type,
             rgb_weights=rgb_weights,
@@ -198,14 +193,6 @@ def main():
             gray_imagenet_init=not args.no_gray_imagenet_init,
         )
         output_filename = f"best_{args.model_type}_fixed.keras"
-    else:
-        model = build_multimodal_mobilenetv2(
-            rgb_weights=rgb_weights,
-            dropout=args.dropout,
-            classifier_units=args.classifier_units,
-            gray_imagenet_init=not args.no_gray_imagenet_init,
-        )
-        output_filename = "best_multimodal_fixed.keras"
 
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=lr_schedule),

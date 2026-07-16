@@ -118,7 +118,6 @@ def write_metrics_csv(results, output_path, split):
 
 def evaluate(model_path, data_dir, split, model_type, max_samples=None):
     from keras_pipeline.tf_dataset import (
-        load_multimodal_sample,
         load_sample,
         RGB_MEAN,
         RGB_STD,
@@ -154,26 +153,12 @@ def evaluate(model_path, data_dir, split, model_type, max_samples=None):
 
     rgb_d, rgb_layout = None, None
     ir_d, ir_layout = None, None
-    multimodal_metas = None
 
     if model_type == "dual":
         rgb_d, rgb_layout, _ = next(m for m in metas if m[2] == 3)
         ir_d, ir_layout, _ = next(m for m in metas if m[2] == 1)
         print(f" 입력 레이아웃: rgb={rgb_layout}, ir={ir_layout}")
-    elif model_type == "multimodal":
-        targets = ("a_crop_rgb", "b_crop_ir", "c_rgb", "d_ir", "e_heatmap")
-        multimodal_metas = {}
-        for target in targets:
-            matches = [m for m in metas if target in m[0]["name"].lower()]
-            if len(matches) != 1:
-                raise ValueError(
-                    f"multimodal 입력 '{target}' 매칭 결과가 1개가 아닙니다: "
-                    f"{[m[0]['name'] for m in matches]}"
-                )
-            multimodal_metas[target] = matches[0]
-        print(" 입력 레이아웃: " + ", ".join(
-            f"{name}={meta[1]}" for name, meta in multimodal_metas.items()
-        ))
+
     elif model_type == "crop_rgb":
         rgb_d, rgb_layout, _ = next(m for m in metas if m[2] == 3)
         print(f" 입력 레이아웃: rgb={rgb_layout}")
@@ -200,21 +185,9 @@ def evaluate(model_path, data_dir, split, model_type, max_samples=None):
         total = min(total, max_samples)
     pbar = tqdm(total=total, desc=f"평가 {os.path.basename(model_path)}")
     for rgb_path, ir_path, label in eval_items[:total]:
-        if model_type == "multimodal":
-            samples = list(load_multimodal_sample(rgb_path, ir_path, augment=False))
-            if is_npu_int8:
-                for idx in (0, 2):
-                    samples[idx] = (samples[idx] * RGB_STD + RGB_MEAN) * 2.0 - 1.0
-            for target, sample in zip(multimodal_metas, samples):
-                detail, layout, _ = multimodal_metas[target]
-                interp.set_tensor(
-                    detail["index"],
-                    quantize_for_tflite(build(sample, layout), detail),
-                )
-        else:
-            rgb_hwc, ir_hwc = load_sample(rgb_path, ir_path, augment=False)
-            if is_npu_int8:
-                rgb_hwc = (rgb_hwc * RGB_STD + RGB_MEAN) * 2.0 - 1.0
+        rgb_hwc, ir_hwc = load_sample(rgb_path, ir_path, augment=False)
+        if is_npu_int8:
+            rgb_hwc = (rgb_hwc * RGB_STD + RGB_MEAN) * 2.0 - 1.0
 
         if model_type == "dual":
             interp.set_tensor(rgb_d['index'], quantize_for_tflite(build(rgb_hwc, rgb_layout), rgb_d))
@@ -244,10 +217,7 @@ def evaluate(model_path, data_dir, split, model_type, max_samples=None):
         os.path.getsize(model_path),
     )
 
-    if multimodal_metas is not None:
-        active_d = multimodal_metas["a_crop_rgb"][0]
-    else:
-        active_d = rgb_d if rgb_d is not None else ir_d
+    active_d = rgb_d if rgb_d is not None else ir_d
     in_dtype = active_d['dtype'].__name__
     print(f"\n===== 평가: {model_path} (split={split}, 입력 dtype={in_dtype}, {len(all_labels)}장) =====")
     print(f" accuracy: {result['accuracy']:.4f}")
@@ -263,7 +233,7 @@ def evaluate_keras_model(model_path, data_dir, split, model_type, max_samples=No
     import tensorflow as tf
     from keras_pipeline.convert_keras_to_tflite import build_npu_export_model
     from keras_pipeline.model_signature import validate_keras_model_signature
-    from keras_pipeline.tf_dataset import load_multimodal_sample, load_sample, RGB_MEAN, RGB_STD
+    from keras_pipeline.tf_dataset import load_sample, RGB_MEAN, RGB_STD
     from keras_pipeline.tf_model import _rgb_current_norm_to_mobilenet_range
     from utils import collect_split_items, validate_fixed_split_coverage
 
@@ -284,22 +254,15 @@ def evaluate_keras_model(model_path, data_dir, split, model_type, max_samples=No
 
     labels, preds, logits_list, latencies_ms = [], [], [], []
     for rgb_path, ir_path, label in tqdm(items, desc=f"평가 {name}"):
-        if model_type == "multimodal":
-            sample = list(load_multimodal_sample(rgb_path, ir_path, augment=False))
-            if npu_export:
-                for index in (0, 2):
-                    sample[index] = (sample[index] * RGB_STD + RGB_MEAN) * 2.0 - 1.0
-            inputs = [np.expand_dims(value, axis=0) for value in sample]
+        rgb, ir = load_sample(rgb_path, ir_path, augment=False)
+        if npu_export:
+            rgb = (rgb * RGB_STD + RGB_MEAN) * 2.0 - 1.0
+        if model_type == "dual":
+            inputs = [np.expand_dims(rgb, axis=0), np.expand_dims(ir, axis=0)]
+        elif model_type == "crop_rgb":
+            inputs = np.expand_dims(rgb, axis=0)
         else:
-            rgb, ir = load_sample(rgb_path, ir_path, augment=False)
-            if npu_export:
-                rgb = (rgb * RGB_STD + RGB_MEAN) * 2.0 - 1.0
-            if model_type == "dual":
-                inputs = [np.expand_dims(rgb, axis=0), np.expand_dims(ir, axis=0)]
-            elif model_type == "crop_rgb":
-                inputs = np.expand_dims(rgb, axis=0)
-            else:
-                inputs = np.expand_dims(ir, axis=0)
+            inputs = np.expand_dims(ir, axis=0)
 
         start = time.perf_counter()
         logits = model(inputs, training=False).numpy()[0]
@@ -327,7 +290,7 @@ def main():
     )
     parser.add_argument(
         "--model-type",
-        choices=["dual", "multimodal", "crop_rgb", "crop_ir"],
+        choices=["dual", "crop_rgb", "crop_ir"],
         default="dual",
         help="평가할 모델 종류"
     )

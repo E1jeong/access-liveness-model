@@ -5,13 +5,6 @@ MODEL_INPUT_SIGNATURES = {
     "dual": (("a_rgb", (224, 224, 3)), ("b_ir", (224, 224, 1))),
     "crop_rgb": (("a_crop_rgb", (224, 224, 3)),),
     "crop_ir": (("b_crop_ir", (224, 224, 1)),),
-    "multimodal": (
-        ("a_crop_rgb", (224, 224, 3)),
-        ("b_crop_ir", (224, 224, 1)),
-        ("c_rgb", (224, 224, 3)),
-        ("d_ir", (224, 224, 1)),
-        ("e_heatmap", (224, 224, 1)),
-    ),
 }
 
 

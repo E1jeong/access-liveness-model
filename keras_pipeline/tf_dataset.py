@@ -67,6 +67,61 @@ def load_sample(rgb_path, ir_path, augment=False):
     return rgb.astype(np.float32), ir.astype(np.float32)
 
 
+def load_single_sample(path, input_type="crop_rgb", augment=False):
+    """단일 이미지(RGB 혹은 IR)를 불러와 정규화하고 필요시 증강한다."""
+    if input_type == "crop_rgb":
+        rgb = cv2.imread(path)
+        if rgb is None:
+            raise ValueError(f"Failed to read RGB image: {path}")
+        rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
+
+        if augment:
+            if random.random() < 0.5:
+                rgb = cv2.flip(rgb, 1)
+            angle = random.uniform(-10, 10)
+            h, w = rgb.shape[:2]
+            M = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
+            rgb = cv2.warpAffine(rgb, M, (w, h), flags=cv2.INTER_LINEAR)
+
+        rgb = cv2.resize(rgb, IMAGE_SIZE, interpolation=cv2.INTER_AREA)
+
+        if augment:
+            # ColorJitter (RGB only)
+            rgb_f = rgb.astype(np.float32)
+            brightness_f = random.uniform(0.7, 1.3)
+            rgb_f = np.clip(rgb_f * brightness_f, 0, 255)
+            contrast_f = random.uniform(0.7, 1.3)
+            mean_val = rgb_f.mean()
+            rgb_f = np.clip((rgb_f - mean_val) * contrast_f + mean_val, 0, 255)
+            sat_f = random.uniform(0.8, 1.2)
+            gray = (0.299 * rgb_f[:, :, 0] + 0.587 * rgb_f[:, :, 1] + 0.114 * rgb_f[:, :, 2])[:, :, np.newaxis]
+            rgb_f = np.clip(gray + sat_f * (rgb_f - gray), 0, 255)
+            rgb = rgb_f.astype(np.uint8)
+
+        rgb = rgb.astype(np.float32) / 255.0
+        rgb = (rgb - RGB_MEAN) / RGB_STD
+        return rgb.astype(np.float32)
+    else: # crop_ir
+        ir = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+        if ir is None:
+            raise ValueError(f"Failed to read IR image: {path}")
+
+        if augment:
+            if random.random() < 0.5:
+                ir = cv2.flip(ir, 1)
+            angle = random.uniform(-10, 10)
+            h, w = ir.shape[:2]
+            M = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
+            ir = cv2.warpAffine(ir, M, (w, h), flags=cv2.INTER_LINEAR)
+
+        ir = cv2.resize(ir, IMAGE_SIZE, interpolation=cv2.INTER_AREA)
+
+        ir = ir.astype(np.float32) / 255.0
+        ir = np.expand_dims(ir, axis=-1)
+        ir = (ir - IR_MEAN) / IR_STD
+        return ir.astype(np.float32)
+
+
 def _normalize_rgb(rgb):
     rgb = rgb.astype(np.float32) / 255.0
     rgb = (rgb - RGB_MEAN) / RGB_STD
@@ -250,37 +305,37 @@ def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=Fals
     if shuffle:
         random.Random(seed).shuffle(items)
 
-    rgb_paths = [item[0] for item in items]
-    ir_paths = [item[1] for item in items]
+    if input_type == "crop_rgb":
+        paths = [item[0] for item in items]
+    else:
+        paths = [item[1] for item in items]
     labels = [item[2] for item in items]
 
-    ds = tf.data.Dataset.from_tensor_slices((rgb_paths, ir_paths, labels))
+    ds = tf.data.Dataset.from_tensor_slices((paths, labels))
 
     if shuffle:
         ds = ds.shuffle(buffer_size=len(items), seed=seed, reshuffle_each_iteration=True)
 
-    def map_fn(rgb_path, ir_path, label):
-        def _py_fn(r_path, i_path, lbl):
-            r_path_str = r_path.numpy().decode('utf-8')
-            i_path_str = i_path.numpy().decode('utf-8')
+    def map_fn(path, label):
+        def _py_fn(p, lbl):
+            p_str = p.numpy().decode('utf-8')
             lbl_val = int(lbl.numpy())
-            rgb, ir = load_sample(r_path_str, i_path_str, augment=augment)
-            return rgb, ir, np.int32(lbl_val)
+            img = load_single_sample(p_str, input_type=input_type, augment=augment)
+            return img, np.int32(lbl_val)
 
         outputs = tf.py_function(
             _py_fn,
-            inp=[rgb_path, ir_path, label],
-            Tout=[tf.float32, tf.float32, tf.int32]
+            inp=[path, label],
+            Tout=[tf.float32, tf.int32]
         )
         
-        outputs[0].set_shape((224, 224, 3))
-        outputs[1].set_shape((224, 224, 1))
-        outputs[2].set_shape(())
-        
         if input_type == "crop_rgb":
-            return outputs[0], outputs[2]
+            outputs[0].set_shape((224, 224, 3))
         else:
-            return outputs[1], outputs[2]
+            outputs[0].set_shape((224, 224, 1))
+        outputs[1].set_shape(())
+        
+        return outputs[0], outputs[1]
 
     ds = ds.map(map_fn, num_parallel_calls=tf.data.AUTOTUNE)
     return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
@@ -297,11 +352,11 @@ def representative_dataset(items, max_samples=200):
 
 def representative_single_dataset(items, input_type="crop_rgb", max_samples=200):
     for rgb_path, ir_path, _ in items[:max_samples]:
-        rgb, ir = load_sample(rgb_path, ir_path, augment=False)
         if input_type == "crop_rgb":
-            yield [np.expand_dims(rgb, axis=0).astype(np.float32)]
+            img = load_single_sample(rgb_path, input_type="crop_rgb", augment=False)
         else:
-            yield [np.expand_dims(ir, axis=0).astype(np.float32)]
+            img = load_single_sample(ir_path, input_type="crop_ir", augment=False)
+        yield [np.expand_dims(img, axis=0).astype(np.float32)]
 
 
 def representative_multimodal_dataset(items, max_samples=200):

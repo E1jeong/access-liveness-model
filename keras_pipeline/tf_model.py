@@ -43,49 +43,7 @@ def _transfer_imagenet_weights_to_gray_backbone(source_backbone, gray_backbone, 
     print(f"[{label} backbone] copied ImageNet weights into {copied} MobileNetV2 layers")
 
 
-def _load_custom_numpy_weights(model, npz_path):
-    import numpy as np
-    print(f"Loading custom numpy weights from {npz_path}...")
-    weights_data = np.load(npz_path, allow_pickle=True)
-    copied = 0
-    for layer in model.layers:
-        w_list = []
-        idx = 0
-        while True:
-            key = f"{layer.name}/{idx}"
-            if key in weights_data:
-                w_list.append(weights_data[key])
-                idx += 1
-            else:
-                break
-        if w_list:
-            layer.set_weights(w_list)
-            copied += 1
-    print(f"Successfully injected custom weights into {copied} layers.")
-
-
-def _resolve_rgb_weights_init(rgb_weights):
-    """Returns (rgb_weights_init, is_custom_weights, is_npz_weights) for the
-    `weights=` kwarg passed to keras.applications.MobileNetV2."""
-    is_custom_weights = False
-    is_npz_weights = False
-    rgb_weights_init = rgb_weights
-    if isinstance(rgb_weights, str):
-        if rgb_weights.endswith(".weights.h5") or rgb_weights.endswith(".h5"):
-            is_custom_weights = True
-            rgb_weights_init = None
-        elif rgb_weights.endswith(".npz"):
-            is_npz_weights = True
-            rgb_weights_init = None
-    return rgb_weights_init, is_custom_weights, is_npz_weights
-
-
-def _load_rgb_backbone_weights(backbone, rgb_weights, is_custom_weights, is_npz_weights, label="rgb_backbone"):
-    if is_custom_weights:
-        print(f"Loading custom weights into {label} from: {rgb_weights}")
-        backbone.load_weights(rgb_weights)
-    elif is_npz_weights:
-        _load_custom_numpy_weights(backbone, rgb_weights)
+# Unused face weight loader helper functions were removed during hardening refactor.
 
 
 def _build_classifier_head(x, classifier_units, dropout, num_classes, classifier_as_conv, dtype=None):
@@ -137,12 +95,10 @@ def build_dual_mobilenetv2(
             name="rgb_to_mobilenet_range",
         )(rgb_input)
 
-    rgb_weights_init, is_custom_weights, is_npz_weights = _resolve_rgb_weights_init(rgb_weights)
-
     rgb_backbone = keras.applications.MobileNetV2(
         input_shape=(224, 224, 3),
         include_top=False,
-        weights=rgb_weights_init,
+        weights=rgb_weights,
         pooling=None if average_pool_op else "avg",
         name="rgb_mobilenetv2",
     )
@@ -153,8 +109,6 @@ def build_dual_mobilenetv2(
         pooling=None if average_pool_op else "avg",
         name="ir_mobilenetv2",
     )
-
-    _load_rgb_backbone_weights(rgb_backbone, rgb_weights, is_custom_weights, is_npz_weights, label="rgb_backbone")
 
     if rgb_weights is not None and gray_imagenet_init:
         _transfer_imagenet_weights_to_gray_backbone(rgb_backbone, ir_backbone, "IR")
@@ -195,16 +149,13 @@ def build_single_mobilenetv2(
                 name="rgb_to_mobilenet_range",
             )(rgb_input)
 
-        rgb_weights_init, is_custom_weights, is_npz_weights = _resolve_rgb_weights_init(rgb_weights)
-
         rgb_backbone = keras.applications.MobileNetV2(
             input_shape=(224, 224, 3),
             include_top=False,
-            weights=rgb_weights_init,
+            weights=rgb_weights,
             pooling=None if average_pool_op else "avg",
             name="crop_rgb_mobilenetv2",
         )
-        _load_rgb_backbone_weights(rgb_backbone, rgb_weights, is_custom_weights, is_npz_weights, label="crop_rgb_backbone")
 
         features = rgb_backbone(rgb_preprocessed)
         if average_pool_op:
@@ -224,17 +175,13 @@ def build_single_mobilenetv2(
         )
 
         if rgb_weights is not None and gray_imagenet_init:
-            rgb_weights_init, is_custom_weights, is_npz_weights = _resolve_rgb_weights_init(rgb_weights)
-
             temp_rgb_backbone = keras.applications.MobileNetV2(
                 input_shape=(224, 224, 3),
                 include_top=False,
-                weights=rgb_weights_init,
+                weights=rgb_weights,
                 pooling=None,
                 name="temp_rgb_mobilenetv2",
             )
-            _load_rgb_backbone_weights(temp_rgb_backbone, rgb_weights, is_custom_weights, is_npz_weights, label="temp_rgb_backbone")
-
             _transfer_imagenet_weights_to_gray_backbone(temp_rgb_backbone, ir_backbone, "IR")
 
         features = ir_backbone(ir_input)
@@ -294,16 +241,14 @@ def build_multimodal_mobilenetv2(
         )(raw_rgb_input)
 
     pooling = None if average_pool_op else "avg"
-    rgb_weights_init, is_custom_weights, is_npz_weights = _resolve_rgb_weights_init(rgb_weights)
-
     crop_rgb_backbone = _make_backbone(
-        (224, 224, 3), rgb_weights_init, pooling, "crop_rgb_mobilenetv2"
+        (224, 224, 3), rgb_weights, pooling, "crop_rgb_mobilenetv2"
     )
     crop_ir_backbone = _make_backbone(
         (224, 224, 1), None, pooling, "crop_ir_mobilenetv2"
     )
     raw_rgb_backbone = _make_backbone(
-        (224, 224, 3), rgb_weights_init, pooling, "rgb_mobilenetv2"
+        (224, 224, 3), rgb_weights, pooling, "rgb_mobilenetv2"
     )
     raw_ir_backbone = _make_backbone(
         (224, 224, 1), None, pooling, "ir_mobilenetv2"
@@ -311,14 +256,6 @@ def build_multimodal_mobilenetv2(
     heatmap_backbone = _make_backbone(
         (224, 224, 1), None, pooling, "heatmap_mobilenetv2"
     )
-
-    if is_custom_weights:
-        print(f"Loading custom weights into crop_rgb_backbone & raw_rgb_backbone from: {rgb_weights}")
-        crop_rgb_backbone.load_weights(rgb_weights)
-        raw_rgb_backbone.load_weights(rgb_weights)
-    elif is_npz_weights:
-        _load_custom_numpy_weights(crop_rgb_backbone, rgb_weights)
-        _load_custom_numpy_weights(raw_rgb_backbone, rgb_weights)
 
     if rgb_weights is not None and gray_imagenet_init:
         _transfer_imagenet_weights_to_gray_backbone(crop_rgb_backbone, crop_ir_backbone, "cropIR")

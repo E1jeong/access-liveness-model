@@ -91,4 +91,3 @@ Useful training switches:
 - `--classifier-units 1024` is the default and mirrors the PyTorch classifier capacity more closely than a linear head.
 - `--classifier-units 0` reverts to the old linear-head style for ablation.
 - `--no-gray-imagenet-init` disables RGB-to-gray (IR/heatmap) ImageNet weight transfer.
-- `--face-weights-path` loads a face-recognition-pretrained RGB backbone (`.weights.h5`/`.h5` via `Model.load_weights`, or `.npz` via the custom numpy loader in `tf_model.py`). These files (e.g. `model/mobilenetv2_mcp.pth`, `model/face_mobilenetv2_mcp.npz`, `model/pth_keys.txt`) are produced outside this repo and are gitignored under `model/` — see the Obsidian vault for provenance.

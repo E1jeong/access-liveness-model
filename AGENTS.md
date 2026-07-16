@@ -70,3 +70,26 @@ Several model variants co-exist in this codebase, selected via `--model-type` (`
 ## 6. AI Agent Behavioral Guidelines (Anti-Mistakes)
 - **도구 호출 시 TargetFile 경로 오류 방지:** 에이전트의 임시 스크립트 작성 시 `write_to_file` 도구의 `TargetFile` 인자에는 반드시 에이전트 아티팩트 디렉터리 하위의 스크래치 경로(예: `C:\Users\Unionbiometrics\.gemini\antigravity\brain\<conversation-id>\scratch\check_int8.py`)만 사용해야 합니다. Obsidian 위키 절대 경로 나 외부 로컬 폴더를 기입하면 `invalid_args (not a valid artifact path)` 에러가 발생하여 도구 기동이 실패하므로 절대 주의해야 합니다.
 - **프로젝트 대전제와 명확한 스코프 준수:** 디버깅 시 예상치 못한 성능적 블로커(예: PyTorch MobileNetV3의 PTQ 수치 붕괴 팩트)를 확인하면, 독단적으로 Keras 파이프라인 등으로 작업을 전환하여 임의 변환을 실행하지 마십시오. 즉각 작업을 일시 중단(Stop)하고 사용자에게 현재 팩트를 요약 보고한 뒤, 다음 배포 단계(Float32 전환 등)에 대한 명시적 피드백을 우선적으로 득해야 합니다.
+
+## 7. Session Start Procedure
+매 세션(대화) 시작 시 아래 순서를 자동으로 수행한다.
+
+1. **머신 판별:**
+   ```bash
+   nvidia-smi 2>/dev/null | grep -q "GTX 1660 Ti" && echo "서브노트북" || echo "회사 PC"
+   ```
+   - **서브노트북**: GPU 학습·변환 가능. `run_keras_*.sh` / `run_fixed_split.sh` 사용.
+   - **회사 PC**: CPU 전용. 코드·문서 편집 및 git push/pull만 수행. 학습 명령은 실행하지 않는다.
+
+2. **저장소 상태 확인:**
+   ```bash
+   git status --short
+   ```
+
+3. **위키 참조:** 옵시디언 vault의 `이슈/확인 필요.md` → `log.md` → `로드맵/` 순으로 읽고 현재 상태를 파악한다.
+
+4. **한국어 상태 보고:** 위 확인 결과를 바탕으로 다음을 한국어로 간단히 보고한다.
+   - 현재 머신
+   - 마지막으로 완료된 작업 (옵시디언 `log.md` 기준)
+   - 다음으로 할 작업 (옵시디언 `이슈/확인 필요.md` 기준)
+   - 현재 Android/NPU 상태 (`Backend CPU`이면 NNAPI 실패 후 CPU/XNNPACK fallback — NPU 가속 성공으로 보고하지 않는다)

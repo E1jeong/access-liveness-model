@@ -1,11 +1,5 @@
 from classes import CLASS_NAMES
-
-
-MODEL_INPUT_SIGNATURES = {
-    "dual": (("a_rgb", (224, 224, 3)), ("b_ir", (224, 224, 1))),
-    "crop_rgb": (("a_crop_rgb", (224, 224, 3)),),
-    "crop_ir": (("b_crop_ir", (224, 224, 1)),),
-}
+from keras_pipeline.spec import MODEL_INPUT_SIGNATURES
 
 
 def _expected_inputs(model_type):

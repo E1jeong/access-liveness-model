@@ -11,11 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-IMAGE_SIZE = (224, 224)
-RGB_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-RGB_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-IR_MEAN = np.array([0.5], dtype=np.float32)
-IR_STD = np.array([0.5], dtype=np.float32)
+from keras_pipeline.spec import IMAGE_SIZE, RGB_MEAN, RGB_STD, IR_MEAN, IR_STD
 
 
 

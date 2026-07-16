@@ -11,6 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from classes import CLASS_NAMES
+from keras_pipeline.spec import MODEL_INPUT_SIGNATURES, RGB_MEAN, RGB_STD
 
 
 def _transfer_imagenet_weights_to_gray_backbone(source_backbone, gray_backbone, label):
@@ -67,8 +68,8 @@ def _build_classifier_head(x, classifier_units, dropout, num_classes, classifier
 def _rgb_current_norm_to_mobilenet_range(x):
     # Input follows the existing Android/PyTorch contract:
     # rgb = (raw_0_1 - ImageNet_mean) / ImageNet_std.
-    mean = tf.constant([0.485, 0.456, 0.406], dtype=tf.float32)
-    std = tf.constant([0.229, 0.224, 0.225], dtype=tf.float32)
+    mean = tf.constant(RGB_MEAN, dtype=tf.float32)
+    std = tf.constant(RGB_STD, dtype=tf.float32)
     raw_0_1 = x * std + mean
     return raw_0_1 * 2.0 - 1.0
 
@@ -84,8 +85,10 @@ def build_dual_mobilenetv2(
     classifier_as_conv=False,
 ):
     # Prefix names keep the TFLite signature/input list ordered as RGB first, IR second.
-    rgb_input = keras.Input(batch_size=fixed_batch_size, shape=(224, 224, 3), name="a_rgb")
-    ir_input = keras.Input(batch_size=fixed_batch_size, shape=(224, 224, 1), name="b_ir")
+    rgb_name, rgb_shape = MODEL_INPUT_SIGNATURES["dual"][0]
+    ir_name, ir_shape = MODEL_INPUT_SIGNATURES["dual"][1]
+    rgb_input = keras.Input(batch_size=fixed_batch_size, shape=rgb_shape, name=rgb_name)
+    ir_input = keras.Input(batch_size=fixed_batch_size, shape=ir_shape, name=ir_name)
 
     if rgb_input_mobilenet_range:
         rgb_preprocessed = rgb_input
@@ -96,14 +99,14 @@ def build_dual_mobilenetv2(
         )(rgb_input)
 
     rgb_backbone = keras.applications.MobileNetV2(
-        input_shape=(224, 224, 3),
+        input_shape=rgb_shape,
         include_top=False,
         weights=rgb_weights,
         pooling=None if average_pool_op else "avg",
         name="rgb_mobilenetv2",
     )
     ir_backbone = keras.applications.MobileNetV2(
-        input_shape=(224, 224, 1),
+        input_shape=ir_shape,
         include_top=False,
         weights=None,
         pooling=None if average_pool_op else "avg",
@@ -139,8 +142,10 @@ def build_single_mobilenetv2(
     if input_type not in ("crop_rgb", "crop_ir"):
         raise ValueError(f"Unknown input_type: {input_type}")
 
+    input_name, input_shape = MODEL_INPUT_SIGNATURES[input_type][0]
+
     if input_type == "crop_rgb":
-        rgb_input = keras.Input(batch_size=fixed_batch_size, shape=(224, 224, 3), name="a_crop_rgb")
+        rgb_input = keras.Input(batch_size=fixed_batch_size, shape=input_shape, name=input_name)
         if rgb_input_mobilenet_range:
             rgb_preprocessed = rgb_input
         else:
@@ -150,7 +155,7 @@ def build_single_mobilenetv2(
             )(rgb_input)
 
         rgb_backbone = keras.applications.MobileNetV2(
-            input_shape=(224, 224, 3),
+            input_shape=input_shape,
             include_top=False,
             weights=rgb_weights,
             pooling=None if average_pool_op else "avg",
@@ -165,9 +170,9 @@ def build_single_mobilenetv2(
         inputs = rgb_input
 
     else: # crop_ir
-        ir_input = keras.Input(batch_size=fixed_batch_size, shape=(224, 224, 1), name="b_crop_ir")
+        ir_input = keras.Input(batch_size=fixed_batch_size, shape=input_shape, name=input_name)
         ir_backbone = keras.applications.MobileNetV2(
-            input_shape=(224, 224, 1),
+            input_shape=input_shape,
             include_top=False,
             weights=None,
             pooling=None if average_pool_op else "avg",
@@ -176,7 +181,7 @@ def build_single_mobilenetv2(
 
         if rgb_weights is not None and gray_imagenet_init:
             temp_rgb_backbone = keras.applications.MobileNetV2(
-                input_shape=(224, 224, 3),
+                input_shape=(input_shape[0], input_shape[1], 3),
                 include_top=False,
                 weights=rgb_weights,
                 pooling=None,

@@ -37,14 +37,24 @@ git status --short
 - 6클래스 `dual` 2-input 학습은 완료되지 않았고 실행 도중 멈춘 상태에서 보류 중이다. 후보에서 제외된 것은 아니므로 폐기된 것으로 기록하지 말고, 사용자 지시 없이 자동으로 재개하지 않는다.
 - 현재 실기기 검증 기준선은 RGB fold3 + IR fold4의 6클래스 `paired_1_input` NPU-friendly INT8 조합이다. Android manifest는 RGB를 fold4로 바꾸는 변경이 있으므로, fold4/fold4 조합은 실기기 검증 전까지 기준선으로 보고하지 않는다.
 
-## 5. 고정 데이터 분할
+## 5. 고정 데이터 분할 및 정밀 누수 검사
 
 - `[검증 완료]` 신규 Keras 학습은 K-Fold 대신 `dataset/raw/train`, `dataset/raw/validation`, `dataset/raw/test` 고정 분할을 사용한다.
 - `train`은 가중치 학습과 INT8 calibration, `validation`은 best checkpoint 선택, `test`는 설정 확정 후 최종 평가에만 사용한다.
-- `validate_fixed_splits.py`가 클래스/파일 완전성과 subject/frame split 누수를 검사한다. `run_fixed_split.sh`는 validation까지만 자동 평가하며 test는 `evaluate_tflite.py --split test`로 명시해야 한다.
-- 실제 6클래스 고정 split은 GPU 서브노트북에서 검증을 통과했다(train 12,000 / validation 1,200 / test 1,198). 신규 학습 전에는 항상 `validate_fixed_splits.py`를 다시 실행한다.
+- `validate_fixed_splits.py`가 클래스/파일 완전성과 `subject`/`frame` split 누수를 검사한다. 2026-07-16부터 **파일 MD5 콘텐츠 해시 대조** 및 `meta.json` 기반 **`session`/`video` ID 오버랩 검출** 장치가 강화되었습니다.
+- 실제 6클래스 고정 split은 GPU 서브노트북에서 누수 검사를 통과했다(train 12,000 / validation 1,200 / test 1,198). 신규 학습 전에는 항상 `validate_fixed_splits.py`를 다시 실행하여 데이터셋 오염을 차단한다.
 
-## 6. 사용자에게 보고
+## 6. 환경 락(Lock) 및 Git 동기화
+
+- **의존성 환경 재현**: 각 머신/목적에 적합한 락(lock) 파일이 `requirements/` 디렉터리에 제공됩니다.
+  - WSL CPU 개발 환경: `uv pip install -r requirements/wsl-cpu.lock`
+  - 원격 PyTorch GPU 환경: `uv pip install -r requirements/sub-gpu-pytorch.lock`
+  - 원격 TensorFlow GPU 환경: `uv pip install -r requirements/sub-gpu-keras.lock`
+- **Git 꼬임 방지**: 여러 머신(Mac, WSL 등) 간의 깃 충돌을 피하기 위해 다음 글로벌 깃 설정이 권장됩니다.
+  - `git config --global pull.rebase true && git config --global rebase.autoStash true && git config --global core.autocrlf input`
+  - 서브노트북 및 개인 개발 장비에서 안전하게 원격과 소스코드를 동기화할 수 있도록 `./scripts/git_pull_clean.sh` (강제 초기화 시 `-f`) 헬퍼 스크립트가 제공됩니다.
+
+## 7. 사용자에게 보고
 
 위 확인 결과를 바탕으로 다음을 한국어로 간단히 보고한다.
 

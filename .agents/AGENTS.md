@@ -30,7 +30,8 @@ Several model variants co-exist in this codebase, selected via `--model-type` (`
 - Future Keras training uses fixed `dataset/raw/{train,validation,test}` directories instead of K-Fold.
 - Use `train` for model fitting and INT8 calibration, `validation` for checkpoint selection, and `test` only for final evaluation after all settings are frozen.
 - `validate_fixed_splits.py` checks class/file completeness plus subject/frame leakage. `run_fixed_split.sh` trains once, converts, and evaluates validation only; test requires explicit `evaluate_tflite.py --split test`.
-- The real six-class dataset was arranged under the three split directories on the GPU sub-laptop and passed `validate_fixed_splits.py` on 2026-07-14 (train 12,000 / validation 1,200 / test 1,198 frames). Re-run validation before each new training; do not infer the company-PC legacy dataset has the same layout.
+- The real six-class dataset was arranged under the three split directories on the GPU sub-laptop and passed `validate_fixed_splits.py` on 2026-07-14 (train 12,000 / validation 1,200 / test 1,198 frames). On 2026-07-16, file MD5 content hashing and meta.json session/video overlap checks were added to prevent cross-split leakage. Re-run validation before each new training; do not infer the company-PC legacy dataset has the same layout.
+- Version-locked environment configurations are provided under `requirements/` directory (`wsl-cpu.lock`, `sub-gpu-pytorch.lock`, `sub-gpu-keras.lock`) to ensure reproducibility. Global git settings (`pull.rebase=true`, `rebase.autoStash=true`, `core.autocrlf=input`) should be set, and `./scripts/git_pull_clean.sh` (or `-f`) is used to sync files safely across machines.
 
 - **`dual` (2-input, legacy default)**: matches Android's `model_spec.json` (standard, CPU-only). Exactly two NHWC inputs:
   - **Index 0 (RGB):** Shape `[1, 224, 224, 3]`, type `FLOAT32` or `INT8`.

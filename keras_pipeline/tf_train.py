@@ -28,6 +28,12 @@ from keras_pipeline.tf_model import (
     build_dual_mobilenetv2, build_single_mobilenetv2
 )
 from keras_pipeline.run_metadata import make_run_id, write_run_metadata
+from keras_pipeline.artifact_paths import (
+    keras_checkpoint_path,
+    learning_curves_path,
+    metadata_path as artifact_metadata_path,
+    check_no_overwrite,
+)
 
 
 def _run_apcer_self_check():
@@ -60,8 +66,7 @@ def _save_learning_curves(history, val_acers, output_dir, model_type):
 
     plt.tight_layout()
     os.makedirs(output_dir, exist_ok=True)
-    suffix = f"_{model_type}" if model_type != "dual" else ""
-    out_path = os.path.join(output_dir, f"learning_curves{suffix}_fixed.png")
+    out_path = learning_curves_path(output_dir, model_type)
     plt.savefig(out_path)
     plt.close()
     print(f"[learning curves saved] {out_path}")
@@ -136,6 +141,7 @@ def parse_args():
     parser.add_argument("--classifier-units", type=int, default=1024)
     parser.add_argument("--no-gray-imagenet-init", action="store_true")
     parser.add_argument("--run-id", help="실행 metadata에 기록할 ID (기본: UTC timestamp + model type)")
+    parser.add_argument("--force", action="store_true", help="기존 산출물을 덮어쓰기 허용")
     return parser.parse_args()
 
 
@@ -183,7 +189,6 @@ def main():
             classifier_units=args.classifier_units,
             gray_imagenet_init=not args.no_gray_imagenet_init,
         )
-        output_filename = "best_model_fixed.keras"
     else:
         model = build_single_mobilenetv2(
             input_type=args.model_type,
@@ -192,7 +197,6 @@ def main():
             classifier_units=args.classifier_units,
             gray_imagenet_init=not args.no_gray_imagenet_init,
         )
-        output_filename = f"best_{args.model_type}_fixed.keras"
 
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=lr_schedule),
@@ -201,7 +205,8 @@ def main():
     )
     model.summary()
 
-    output_path = os.path.join(args.output_dir, output_filename)
+    output_path = keras_checkpoint_path(args.output_dir, args.model_type)
+    check_no_overwrite(output_path, force=args.force)
     checkpoint = AcerCheckpoint(val_ds=val_ds, output_path=output_path)
 
     history = model.fit(
@@ -218,20 +223,20 @@ def main():
         for key, value in checkpoint.best_metrics.items():
             print(f" - {key}: {value:.4f}")
         run_id = args.run_id or make_run_id(args.model_type)
-        metadata_path = os.path.join(args.output_dir, f"{run_id}_metadata.json")
+        meta_path = artifact_metadata_path(args.output_dir, run_id)
         config = {
             key: value for key, value in vars(args).items()
             if key not in {"run_id"}
         }
         write_run_metadata(
-            metadata_path,
+            meta_path,
             run_id,
             config,
             args.data_dir,
             output_path,
             checkpoint.best_metrics,
         )
-        print(f"[run metadata saved] {metadata_path}")
+        print(f"[run metadata saved] {meta_path}")
     else:
         print("[-] No checkpoint was saved.")
 

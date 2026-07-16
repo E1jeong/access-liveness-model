@@ -24,6 +24,13 @@ from keras_pipeline.tf_dataset import (
     load_sample,
 )
 from keras_pipeline.tf_model import _rgb_current_norm_to_mobilenet_range
+from keras_pipeline.artifact_paths import (
+    keras_checkpoint_path,
+    tflite_path as artifact_tflite_path,
+    sidecar_manifest_path,
+    calibration_manifest_path,
+    check_no_overwrite,
+)
 
 
 def _makedirs(path):
@@ -410,6 +417,7 @@ def parse_args():
     parser.add_argument("--float", action="store_true", help="Write a float TFLite model.")
     parser.add_argument("--int8", action="store_true", help="Write a full INT8 TFLite model.")
     parser.add_argument("--npu-int8", action="store_true", help="Write an NNAPI/NPU-friendly full INT8 TFLite model.")
+    parser.add_argument("--force", action="store_true", help="기존 산출물을 덮어쓰기 허용")
     return parser.parse_args()
 
 
@@ -508,14 +516,7 @@ def main():
     if not args.float and not args.int8 and not args.npu_int8:
         raise SystemExit("Choose at least one conversion mode: --float, --int8, and/or --npu-int8")
     if args.model_path is None:
-        if args.model_type == "dual":
-            filename = "best_model_fixed.keras"
-        else:
-            filename = f"best_{args.model_type}_fixed.keras"
-        args.model_path = os.path.join(
-            args.output_dir,
-            filename,
-        )
+        args.model_path = keras_checkpoint_path(args.output_dir, args.model_type)
     if not os.path.exists(args.model_path):
         raise FileNotFoundError(args.model_path)
 
@@ -550,17 +551,20 @@ def main():
 
     base_name = Path(args.model_path).stem
     if args.float:
-        float_path = os.path.join(args.output_dir, f"{base_name}_float.tflite")
+        float_path = artifact_tflite_path(args.output_dir, base_name, "float")
+        check_no_overwrite(float_path, force=args.force)
         convert_float(model, float_path, args.model_type)
         inspect_tflite(float_path, args.model_type)
         write_tflite_sidecar_manifest(float_path, args.model_type)
     if args.int8:
-        int8_path = os.path.join(args.output_dir, f"{base_name}_int8.tflite")
+        int8_path = artifact_tflite_path(args.output_dir, base_name, "int8")
+        check_no_overwrite(int8_path, force=args.force)
         convert_int8(model, int8_path, calibration_items, args.model_type)
         inspect_tflite(int8_path, args.model_type)
         write_tflite_sidecar_manifest(int8_path, args.model_type)
     if args.npu_int8:
-        npu_int8_path = os.path.join(args.output_dir, f"{base_name}_npu_int8.tflite")
+        npu_int8_path = artifact_tflite_path(args.output_dir, base_name, "npu_int8")
+        check_no_overwrite(npu_int8_path, force=args.force)
         convert_int8_npu(model, npu_int8_path, calibration_items, args.model_type)
         inspect_tflite(npu_int8_path, args.model_type)
         write_tflite_sidecar_manifest(npu_int8_path, args.model_type)

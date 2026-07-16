@@ -314,6 +314,119 @@ def inspect_tflite(path, model_type):
         )
 
 
+def write_tflite_sidecar_manifest(tflite_path, model_type):
+    interpreter = tf.lite.Interpreter(model_path=tflite_path)
+    interpreter.allocate_tensors()
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+
+    is_npu_int8 = "npu_int8" in os.path.basename(tflite_path)
+
+    inputs_info = []
+    for idx, detail in enumerate(input_details):
+        name = detail['name']
+        shape = detail['shape'].tolist()
+        dtype = detail['dtype'].__name__
+        channels = shape[-1]
+
+        # input_kind 결정
+        input_kind = "unknown"
+        if model_type == "crop_rgb":
+            input_kind = "rgb"
+        elif model_type == "crop_ir":
+            input_kind = "ir"
+        elif model_type == "dual":
+            input_kind = "rgb" if channels == 3 else "ir"
+        elif model_type == "multimodal":
+            name_lower = name.lower()
+            if "heatmap" in name_lower:
+                input_kind = "heatmap"
+            elif "ir" in name_lower:
+                input_kind = "ir"
+            else:
+                input_kind = "rgb"
+
+        # Quantization 파라미터
+        scale, zero_point = detail['quantization']
+        quant = None
+        if scale != 0.0 or zero_point != 0:
+            quant = {
+                "scale": float(scale),
+                "zero_point": int(zero_point)
+            }
+
+        # Normalization 결정
+        if channels == 3:
+            if is_npu_int8:
+                norm = {
+                    "mean": [0.5, 0.5, 0.5],
+                    "std": [0.5, 0.5, 0.5],
+                    "range": "[-1, 1]"
+                }
+            else:
+                norm = {
+                    "mean": [0.485, 0.456, 0.406],
+                    "std": [0.229, 0.224, 0.225],
+                    "range": "imagenet"
+                }
+        else:  # channels == 1
+            norm = {
+                "mean": [0.5],
+                "std": [0.5],
+                "range": "[-1, 1]"
+            }
+
+        inputs_info.append({
+            "name": name,
+            "index": idx,
+            "shape": shape,
+            "dtype": dtype,
+            "input_kind": input_kind,
+            "quantization": quant,
+            "normalization": norm
+        })
+
+    outputs_info = []
+    for idx, detail in enumerate(output_details):
+        name = detail['name']
+        shape = detail['shape'].tolist()
+        dtype = detail['dtype'].__name__
+
+        scale, zero_point = detail['quantization']
+        quant = None
+        if scale != 0.0 or zero_point != 0:
+            quant = {
+                "scale": float(scale),
+                "zero_point": int(zero_point)
+            }
+
+        outputs_info.append({
+            "name": name,
+            "index": idx,
+            "shape": shape,
+            "dtype": dtype,
+            "quantization": quant,
+            "output_is_logits": True
+        })
+
+    from classes import CLASS_NAMES
+    manifest = {
+        "model_type": model_type,
+        "file_name": os.path.basename(tflite_path),
+        "delegate": "nnapi" if is_npu_int8 else "cpu",
+        "inputs": inputs_info,
+        "outputs": outputs_info,
+        "class_order": CLASS_NAMES,
+        "crop_margin_ratio": 0.10
+    }
+
+    manifest_path = tflite_path.replace(".tflite", "_manifest.json")
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    print(f"[tflite sidecar manifest saved] {manifest_path}")
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Convert a saved Keras model to TFLite.")
     parser.add_argument(
@@ -480,14 +593,17 @@ def main():
         float_path = os.path.join(args.output_dir, f"{base_name}_float.tflite")
         convert_float(model, float_path, args.model_type)
         inspect_tflite(float_path, args.model_type)
+        write_tflite_sidecar_manifest(float_path, args.model_type)
     if args.int8:
         int8_path = os.path.join(args.output_dir, f"{base_name}_int8.tflite")
         convert_int8(model, int8_path, calibration_items, args.model_type)
         inspect_tflite(int8_path, args.model_type)
+        write_tflite_sidecar_manifest(int8_path, args.model_type)
     if args.npu_int8:
         npu_int8_path = os.path.join(args.output_dir, f"{base_name}_npu_int8.tflite")
         convert_int8_npu(model, npu_int8_path, calibration_items, args.model_type)
         inspect_tflite(npu_int8_path, args.model_type)
+        write_tflite_sidecar_manifest(npu_int8_path, args.model_type)
 
 
 if __name__ == "__main__":

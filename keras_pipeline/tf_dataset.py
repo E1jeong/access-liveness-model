@@ -223,6 +223,8 @@ def load_multimodal_sample(crop_rgb_path, crop_ir_path, augment=False):
 
 def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False):
     items = list(items)
+    if not items:
+        raise ValueError("Dataset items list cannot be empty.")
     if shuffle:
         random.Random(seed).shuffle(items)
 
@@ -261,6 +263,8 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False):
 
 def make_multimodal_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False):
     items = list(items)
+    if not items:
+        raise ValueError("Dataset items list cannot be empty.")
     if shuffle:
         random.Random(seed).shuffle(items)
 
@@ -302,6 +306,8 @@ def make_multimodal_dataset(items, batch_size=8, shuffle=False, seed=42, augment
 
 def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=False, seed=42, augment=False):
     items = list(items)
+    if not items:
+        raise ValueError("Dataset items list cannot be empty.")
     if shuffle:
         random.Random(seed).shuffle(items)
 

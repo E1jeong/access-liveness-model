@@ -1,13 +1,19 @@
-# ── 데이터/학습 공통 의존성 ──────────────────────────────
+# ── 재현 가능한 환경 락 파일 안내 ──────────────────────────────────
+# 본 레포지토리는 세 가지 실행 머신/환경에 따른 전용 lock 파일을 보유하고 있습니다:
+# - wsl-cpu: 회사 PC WSL CPU 환경 (uv pip install -r requirements/wsl-cpu.lock)
+# - sub-gpu-pytorch: 서브노트북 GPU PyTorch 환경 (uv pip install -r requirements/sub-gpu-pytorch.lock)
+# - sub-gpu-keras: 서브노트북 GPU Keras 환경 (uv pip install -r requirements/sub-gpu-keras.lock)
+
+# ── 데이터/학습 공통 의존성 (추가/수정 시에만 사용) ──────────────────
 # torch / torchvision 은 GPU(CUDA) 빌드를 따로 설치해야 하므로
-# 여기 넣지 않음. 아래 "GPU 설치 순서" 참고.
+# 여기 넣지 않음. 
 numpy==2.4.4
 opencv-python==4.13.0.92
 matplotlib==3.11.0
-tqdm
+tqdm==4.66.5
 
 # evaluate_tflite.py가 keras_pipeline.tf_dataset(데이터 로딩)을 직접 사용하므로 필요.
-tensorflow
+tensorflow==2.21.0
 
 # ── tflite 변환용 (convert_to_tflite.py 쓸 때만 필요) ─────
 ai_edge_litert==2.1.5

@@ -10,6 +10,7 @@ BATCH_SIZE=8
 LEARNING_RATE="1e-4"
 DATA_DIR="dataset/raw"
 CALIBRATION_SAMPLES=500
+FORCE=""
 
 while [[ "$#" -gt 0 ]]; do
   case $1 in
@@ -19,6 +20,7 @@ while [[ "$#" -gt 0 ]]; do
     --learning-rate) LEARNING_RATE="$2"; shift ;;
     --data-dir) DATA_DIR="$2"; shift ;;
     --calibration-samples) CALIBRATION_SAMPLES="$2"; shift ;;
+    --force) FORCE="--force" ;;
     *) echo "알 수 없는 인자: $1"; exit 1 ;;
   esac
   shift
@@ -27,7 +29,7 @@ done
 case "$MODEL_TYPE" in
   dual) PREFIX="best_model_fixed" ;;
   crop_rgb|crop_ir) PREFIX="best_${MODEL_TYPE}_fixed" ;;
-  *) echo "사용법: $0 --model-type [dual|crop_rgb|crop_ir] [--epochs N] [--batch-size B] [--learning-rate L] [--data-dir PATH]"; exit 1 ;;
+  *) echo "사용법: $0 --model-type [dual|crop_rgb|crop_ir] [--epochs N] [--batch-size B] [--learning-rate L] [--data-dir PATH] [--force]"; exit 1 ;;
 esac
 
 echo "========================================="
@@ -37,6 +39,7 @@ echo "  Data Dir      : $DATA_DIR"
 echo "  Epochs        : $EPOCHS"
 echo "  Batch Size    : $BATCH_SIZE"
 echo "  Learning Rate : $LEARNING_RATE"
+echo "  Force Overwrite: ${FORCE:-False}"
 echo "========================================="
 
 .venv-tf/bin/python validate_fixed_splits.py --data-dir "$DATA_DIR"
@@ -45,12 +48,14 @@ echo "========================================="
   --model-type "$MODEL_TYPE" \
   --epochs "$EPOCHS" \
   --batch-size "$BATCH_SIZE" \
-  --learning-rate "$LEARNING_RATE"
+  --learning-rate "$LEARNING_RATE" \
+  $FORCE
 ./run_keras_convert.sh \
   --data-dir "$DATA_DIR" \
   --model-type "$MODEL_TYPE" \
   --calibration-samples "$CALIBRATION_SAMPLES" \
-  --float --int8 --npu-int8
+  --float --int8 --npu-int8 \
+  $FORCE
 
 .venv-tf/bin/python evaluate_tflite.py \
   --data-dir "$DATA_DIR" \

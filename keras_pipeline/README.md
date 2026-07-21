@@ -72,11 +72,7 @@ The generated files go under `model/keras/` by default.
 
 Android `model_spec.json` must match this export: RGB and IR both use `mean=[0.5]`, `std=[0.5]`. The standard float/int8 exports use RGB ImageNet mean/std instead.
 
-Current target-board status is model-specific. The paired six-class RGB fold3
-and IR fold4 NPU-friendly INT8 models have run with `Backend RGB NNAPI / IR
-NNAPI`. New fixed-split exports, including `dual`, still require their own
-on-device backend and latency verification. Treat `Backend CPU` as fallback,
-not NPU acceleration.
+Current target-board status is model-specific. The fixed-split `crop_ir` NPU-friendly INT8 model (`single_1_input` slot) has been fully verified on the target device with `Backend IR NNAPI`. Older paired six-class RGB fold3 and IR fold4 NPU-friendly INT8 models also remain verified. Six-class `dual` retraining is currently on hold per user decision. Treat `Backend CPU` as fallback, not NPU acceleration.
 
 For the first MobileNetV2 ImageNet-weighted run, TensorFlow may need internet
 access to download RGB backbone weights. If that is not available, run training

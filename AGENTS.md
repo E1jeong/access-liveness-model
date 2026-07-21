@@ -24,7 +24,7 @@ Several model variants co-exist in this codebase, selected via `--model-type` (`
 - The active comparison candidates are the `dual` 2-input model and the Android `paired_1_input` slot using separate RGB/IR 1-input models.
 - The `multimodal` 5-input model was completely removed from the codebase and pipeline on 2026-07-16 due to poor performance under actual team testing.
 - Six-class `dual` training did not complete and stopped mid-run. It is paused, not rejected. Do not report it as completed or discarded, and do not automatically resume the long-running training without user direction.
-- The currently verified on-device baseline is the six-class paired RGB fold3 + IR fold4 NPU-friendly INT8 configuration. The Android manifest now selects RGB fold4 + IR fold4; do not call that exact pairing verified until target-device model loading, backend labels, six-class output, and latency/FPS are checked. Keep both paired results separate from any future `dual` comparison.
+- The currently verified on-device baseline is the six-class fixed-split `crop_ir` NPU-friendly INT8 model (`single_1_input` slot, verified on target hardware with `Backend IR NNAPI`). The older six-class paired RGB fold3 + IR fold4 configuration also remains verified. Keep both single/paired results separate from any future `dual` comparison.
 
 ### Fixed Split Migration (implemented 2026-07-14)
 - Future Keras training uses fixed `dataset/raw/{train,validation,test}` directories instead of K-Fold.

@@ -109,54 +109,22 @@ def load_single_sample(path, input_type="crop_rgb", augment=False, flip=0, angle
         return ir.astype(np.float32)
 
 
-def _normalize_rgb(rgb):
-    rgb = rgb.astype(np.float32) / 255.0
-    rgb = (rgb - RGB_MEAN) / RGB_STD
-    return rgb.astype(np.float32)
-
-
-def _normalize_ir(ir):
-    ir = ir.astype(np.float32) / 255.0
-    ir = np.expand_dims(ir, axis=-1)
-    ir = (ir - IR_MEAN) / IR_STD
-    return ir.astype(np.float32)
-
-
-def _load_rgb(path, name):
-    image = cv2.imread(path)
-    if image is None:
-        raise ValueError(f"Failed to read {name} image: {path}")
-    return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-
-def _load_gray(path, name):
-    image = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-    if image is None:
-        raise ValueError(f"Failed to read {name} image: {path}")
-    return image
-
-
-
-
-
-def _apply_spatial_augment(image, flip, angle, interpolation):
-    if flip:
-        image = cv2.flip(image, 1)
-    h, w = image.shape[:2]
-    matrix = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
-    return cv2.warpAffine(image, matrix, (w, h), flags=interpolation)
-
-
-def _apply_rgb_jitter(image, brightness_f, contrast_f, sat_f):
-    rgb_f = image.astype(np.float32)
-    rgb_f = np.clip(rgb_f * brightness_f, 0, 255)
-    mean_val = rgb_f.mean()
-    rgb_f = np.clip((rgb_f - mean_val) * contrast_f + mean_val, 0, 255)
-    gray = (0.299 * rgb_f[:, :, 0] + 0.587 * rgb_f[:, :, 1] + 0.114 * rgb_f[:, :, 2])[:, :, np.newaxis]
-    return np.clip(gray + sat_f * (rgb_f - gray), 0, 255).astype(np.uint8)
-
-
-
+def _sample_augmentation_params(index, seed, augment):
+    """tf.data map 함수 내에서 index와 seed 기반의 결정론적 증강 파라미터를 추출한다."""
+    if augment:
+        seed_tensor = tf.stack([index, tf.cast(seed, tf.int64)])
+        flip_val = tf.random.stateless_uniform([], seed=seed_tensor, minval=0, maxval=2, dtype=tf.int32)
+        angle_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 1], minval=-10.0, maxval=10.0, dtype=tf.float32)
+        brightness_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 2], minval=0.7, maxval=1.3, dtype=tf.float32)
+        contrast_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 3], minval=0.7, maxval=1.3, dtype=tf.float32)
+        sat_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 4], minval=0.8, maxval=1.2, dtype=tf.float32)
+    else:
+        flip_val = tf.constant(0, dtype=tf.int32)
+        angle_val = tf.constant(0.0, dtype=tf.float32)
+        brightness_val = tf.constant(1.0, dtype=tf.float32)
+        contrast_val = tf.constant(1.0, dtype=tf.float32)
+        sat_val = tf.constant(1.0, dtype=tf.float32)
+    return flip_val, angle_val, brightness_val, contrast_val, sat_val
 
 
 def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False):
@@ -177,19 +145,7 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False):
         ds = ds.shuffle(buffer_size=len(items), seed=seed, reshuffle_each_iteration=True)
 
     def map_fn(rgb_path, ir_path, label, index):
-        if augment:
-            seed_tensor = tf.stack([index, tf.cast(seed, tf.int64)])
-            flip_val = tf.random.stateless_uniform([], seed=seed_tensor, minval=0, maxval=2, dtype=tf.int32)
-            angle_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 1], minval=-10.0, maxval=10.0, dtype=tf.float32)
-            brightness_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 2], minval=0.7, maxval=1.3, dtype=tf.float32)
-            contrast_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 3], minval=0.7, maxval=1.3, dtype=tf.float32)
-            sat_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 4], minval=0.8, maxval=1.2, dtype=tf.float32)
-        else:
-            flip_val = tf.constant(0, dtype=tf.int32)
-            angle_val = tf.constant(0.0, dtype=tf.float32)
-            brightness_val = tf.constant(1.0, dtype=tf.float32)
-            contrast_val = tf.constant(1.0, dtype=tf.float32)
-            sat_val = tf.constant(1.0, dtype=tf.float32)
+        flip_val, angle_val, brightness_val, contrast_val, sat_val = _sample_augmentation_params(index, seed, augment)
 
         def _py_fn(r_path, i_path, lbl, flp, ang, brt, cnt, sat):
             r_path_str = r_path.numpy().decode('utf-8')
@@ -218,9 +174,6 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False):
     return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 
-
-
-
 def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=False, seed=42, augment=False):
     items = list(items)
     if not items:
@@ -241,19 +194,7 @@ def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=Fals
         ds = ds.shuffle(buffer_size=len(items), seed=seed, reshuffle_each_iteration=True)
 
     def map_fn(path, label, index):
-        if augment:
-            seed_tensor = tf.stack([index, tf.cast(seed, tf.int64)])
-            flip_val = tf.random.stateless_uniform([], seed=seed_tensor, minval=0, maxval=2, dtype=tf.int32)
-            angle_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 1], minval=-10.0, maxval=10.0, dtype=tf.float32)
-            brightness_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 2], minval=0.7, maxval=1.3, dtype=tf.float32)
-            contrast_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 3], minval=0.7, maxval=1.3, dtype=tf.float32)
-            sat_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 4], minval=0.8, maxval=1.2, dtype=tf.float32)
-        else:
-            flip_val = tf.constant(0, dtype=tf.int32)
-            angle_val = tf.constant(0.0, dtype=tf.float32)
-            brightness_val = tf.constant(1.0, dtype=tf.float32)
-            contrast_val = tf.constant(1.0, dtype=tf.float32)
-            sat_val = tf.constant(1.0, dtype=tf.float32)
+        flip_val, angle_val, brightness_val, contrast_val, sat_val = _sample_augmentation_params(index, seed, augment)
 
         def _py_fn(p, lbl, flp, ang, brt, cnt, sat):
             p_str = p.numpy().decode('utf-8')

@@ -140,6 +140,12 @@ def parse_args():
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--classifier-units", type=int, default=1024)
     parser.add_argument("--no-gray-imagenet-init", action="store_true")
+    parser.add_argument(
+        "--conv1-reduction",
+        choices=["mean", "sum"],
+        default="mean",
+        help="1채널 Conv1 가중치 이식 시 축소 방식 (mean: 평균, sum: 합산)"
+    )
     parser.add_argument("--run-id", help="실행 metadata에 기록할 ID (기본: UTC timestamp + model type)")
     parser.add_argument("--force", action="store_true", help="기존 산출물을 덮어쓰기 허용")
     return parser.parse_args()
@@ -188,6 +194,7 @@ def main():
             dropout=args.dropout,
             classifier_units=args.classifier_units,
             gray_imagenet_init=not args.no_gray_imagenet_init,
+            conv1_reduction=args.conv1_reduction,
         )
     else:
         model = build_single_mobilenetv2(
@@ -196,6 +203,7 @@ def main():
             dropout=args.dropout,
             classifier_units=args.classifier_units,
             gray_imagenet_init=not args.no_gray_imagenet_init,
+            conv1_reduction=args.conv1_reduction,
         )
 
     model.compile(

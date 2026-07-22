@@ -11,6 +11,7 @@ LEARNING_RATE="1e-4"
 DATA_DIR="dataset/raw"
 CALIBRATION_SAMPLES=500
 FORCE=""
+REDUCTION="mean"
 
 while [[ "$#" -gt 0 ]]; do
   case $1 in
@@ -21,6 +22,7 @@ while [[ "$#" -gt 0 ]]; do
     --data-dir) DATA_DIR="$2"; shift ;;
     --calibration-samples) CALIBRATION_SAMPLES="$2"; shift ;;
     --force) FORCE="--force" ;;
+    --conv1-reduction) REDUCTION="$2"; shift ;;
     *) echo "알 수 없는 인자: $1"; exit 1 ;;
   esac
   shift
@@ -49,6 +51,7 @@ echo "========================================="
   --epochs "$EPOCHS" \
   --batch-size "$BATCH_SIZE" \
   --learning-rate "$LEARNING_RATE" \
+  --conv1-reduction "$REDUCTION" \
   $FORCE
 ./run_keras_convert.sh \
   --data-dir "$DATA_DIR" \

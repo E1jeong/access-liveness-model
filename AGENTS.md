@@ -86,7 +86,7 @@ Several model variants co-exist in this codebase, selected via `--model-type` (`
    git status --short
    ```
 
-3. **위키 참조:** 옵시디언 vault의 `이슈/확인 필요.md` → `log.md` → `로드맵/` 순으로 읽고 현재 상태를 파악한다.
+3. **위키 참조:** 옵시디언 vault의 `이슈/확인 필요.md` → `log.md` → `핸드오프.md` 순으로 읽고 현재 상태를 파악한다. (단, 유저가 진행 상황을 묻거나, 보류된 P2 태스크를 재개 또는 새로 설계하는 경우에만 `로드맵/` 폴더의 백로그를 읽는다.)
 
 4. **한국어 상태 보고:** 위 확인 결과를 바탕으로 다음을 한국어로 간단히 보고한다.
    - 현재 머신

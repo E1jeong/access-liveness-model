@@ -1,95 +1,25 @@
-# Project Rules and Guidelines
+# access-liveness-model Instructions
 
-Behavioral and technical constraints specific to the `access-liveness-model` project.
+`AGENTS.md` is the repository's project-rule source of truth; `CLAUDE.md` points here. Project state, history, metrics, commands, and detailed contracts belong in the Obsidian wiki, not here.
 
-> Fixed standards, current state, and open questions live in the Obsidian vault (GitHub `E1jeong/obsidian-vault`, clone locally if not present) under `Project/Company/access-liveness-model/`: `개요.md` (goals, fixed scope), `운영.md` (per-machine setup state, verification commands), `로드맵/개발 단계.md` (development gates), `로드맵/전면 개편 작업 백로그.md` (cross-session priorities, status, and completion criteria), `테스트/평가지표와 결과.md` (current metrics), `이슈/확인 필요.md` (open items — read this first), `log.md` (append-only change history). The paired Android evaluation app has its own wiki at `Project/Company/android-anti-spoofing-lab/` — check it whenever the model contract or NPU status changes, since the two repos must move together.
+## Read Before Acting
 
-## 0. Machine Topology (important)
-Work spans two machines — do not assume one box. This section is a fixed technical fact, not a status log; if it goes stale, fix it here directly (do not let the Obsidian wiki become the only source of truth for this repo's own machine names/paths).
-- **Company machine** (this repo's edit host): WSL Ubuntu, `.venv` (Python 3.11, **torch CPU**), created with `uv`. Holds code/docs/git. A local `dataset/` copy is present (8.3 GiB observed on 2026-07-14), but authoritative GPU training still runs on the sub-laptop.
-- **Sub-laptop** (GPU box): native Ubuntu Server 24.04 (migrated from WSL2), GTX 1660 Ti, SSH alias `sub`. `.venv` (Python 3.12, `torch==2.11.0+cu128`) and `.venv-tf` (Python 3.11, `tensorflow[and-cuda]==2.21.0`), both created with **uv**. **All training, the dataset, and any quantization experiments run here.** Authoritative hardware/OS details: the Obsidian vault's `Server/서브노트북 (e1jeong)/` device wiki.
-Transfer: edit on company machine → `rsync -avz <file> sub:~/access-liveness-model/` → run on sub-laptop.
-- **tmux 및 백그라운드 학습 세션 연동**: 양측 머신에 모두 `tmux` 설정(`~/.tmux.conf`, 마우스 활성화, vi 키, Windows 클립보드 연동)을 적용함. 회사 PC WSL의 `~/.bashrc`에 `sub-train` alias가 등록되어 있어, 이를 사용해 원격 서버의 `train` 이라는 tmux 세션에 안전하게 연결(bind) 및 이탈(detach)할 수 있다.
-  - 실행 명령어: `sub-train` (접속 & 세션 자동 바인딩)
-  - 이탈 명령어 (세션 유지): `Ctrl + b` 후 `d`
+- Wiki root: `Project/Company/access-liveness-model/` in `E1jeong/obsidian-vault`. Clone the vault locally if unavailable.
+- Every session: read `issues/needs-verification.md` → `log.md` → `handoff.md`; identify the machine with `nvidia-smi 2>/dev/null | grep -q "GTX 1660 Ti" && echo "sub-laptop" || echo "company PC"`; then run `git status --short`. Read `roadmap/` only for progress requests or deferred-P2 resume/design.
+- Before proposing or running a command, explain the command and reason in Korean. Report the machine, latest completion, next work, and Android/NPU status in Korean.
+- Before training or data work, read `operations.md` and `technical/training-command-guide.md`. Before model-contract or NPU work or reporting either, also read paired `Project/Company/android-anti-spoofing-lab/issues/needs-verification.md`; never infer both repositories' state from one. Before INT8 work read `technical/int8-quantization-npu.md`; for current metrics read `tests/evaluation-metrics-results.md`; for the Android contract read `technical/android-deployment-agreement.md`.
 
-## 1. Environment and Execution
-- **Use the project `.venv`.** Both machines now create their venvs with `uv` — run via `uv run python <script>` or `.venv/bin/python <script>`.
-- **Pre-execution Report:** Always explain to the user in Korean what command is being executed and why, prior to proposing or running the command.
+## Immutable Project Boundaries
 
-## 2. Android Model Contract (Deployment Specifications)
-Several model variants co-exist in this codebase, selected via `--model-type` (`keras_pipeline`) — see the Obsidian wiki's `기술/Android 배포 계약.md` for the full comparison table and known open questions.
+- The company PC is code/docs/git only: never train there. Only the GTX 1660 Ti sub-laptop (`sub`) is authoritative for training, data, and quantization. Use project `uv` environments; transfer company-PC edits with `rsync` to `sub`.
+- Future Keras training uses fixed `dataset/raw/{train,validation,test}`, never K-Fold: train/calibration use `train`, selection uses `validation`, and `test` is final-only after settings freeze. Before every training run on the sub-laptop, run `validate_fixed_splits.py`; `run_fixed_split.sh` evaluates validation only, and test requires `evaluate_tflite.py --split test`.
+- Six-class `dual` is paused, not rejected or complete. Do not resume, evaluate, or export it without an explicit team decision. Compare it only with Android `paired_1_input` RGB/IR models. `multimodal` 5-input was removed; do not restore or deploy it. Keep `--conv1-reduction sum` for 1-channel IR ImageNet Conv1 transfer.
+- Model variants use `keras_pipeline --model-type`. `classes.py:CLASS_NAMES` is the only class-index source. Follow the exact tensor, layout, normalization, and conversion requirements in the Android contract; specifically, `npu_int8` evaluation must use `[-1,1]` inputs.
+- Write generated `.tflite` and `.pth` only under gitignored `model/`; do not sync artifacts with git. Android deployment copies `model/anti_spoofing.tflite` manually to its committed `app/src/main/assets/anti_spoofing.tflite`.
+- `Backend CPU` means no NNAPI acceleration. Current Android `master` rejects a model slot when NNAPI preparation or warmup fails; it must not fall back to CPU. Do not generalize one model's NNAPI success to another architecture.
+- Do not retry stopped PyTorch/MobileNetV3 INT8 paths before reading their chronology. Diagnose an NPU failure by isolating unsupported operations, not by retraining.
 
-### Current Team Selection Direction (2026-07-14)
-- The active comparison candidates are the `dual` 2-input model and the Android `paired_1_input` slot using separate RGB/IR 1-input models.
-- The `multimodal` 5-input model was completely removed from the codebase and pipeline on 2026-07-16 due to poor performance under actual team testing.
-- Six-class `dual` training did not complete and stopped mid-run. It is paused, not rejected. Do not report it as completed or discarded, and do not automatically resume the long-running training without user direction.
-- The currently verified on-device baseline is the six-class fixed-split `crop_ir` NPU-friendly INT8 model (`single_1_input` slot, verified on target hardware with `Backend IR NNAPI`). The older six-class paired RGB fold3 + IR fold4 configuration also remains verified. Keep both single/paired results separate from any future `dual` comparison.
+## Safety
 
-### Fixed Split Migration (implemented 2026-07-14)
-- Future Keras training uses fixed `dataset/raw/{train,validation,test}` directories instead of K-Fold.
-- Use `train` for model fitting and INT8 calibration, `validation` for checkpoint selection, and `test` only for final evaluation after all settings are frozen.
-- `validate_fixed_splits.py` checks class/file completeness plus subject/frame leakage. `run_fixed_split.sh` trains once, converts, and evaluates validation only; test requires explicit `evaluate_tflite.py --split test`.
-- The real six-class dataset was arranged under the three split directories on the GPU sub-laptop and passed `validate_fixed_splits.py` on 2026-07-14 (train 12,000 / validation 1,200 / test 1,198 frames). On 2026-07-16, file MD5 content hashing and meta.json session/video overlap checks were added to prevent cross-split leakage. Re-run validation before each new training; do not infer the company-PC legacy dataset has the same layout.
-- Version-locked environment configurations are provided under `requirements/` directory (`wsl-cpu.lock`, `sub-gpu-pytorch.lock`, `sub-gpu-keras.lock`) to ensure reproducibility. Global git settings (`pull.rebase=true`, `rebase.autoStash=true`, `core.autocrlf=input`) should be set, and `./scripts/git_pull_clean.sh` (or `-f`) is used to sync files safely across machines.
-
-- **`dual` (2-input, legacy default)**: matches Android's `model_spec.json` (standard, CPU-only). Exactly two NHWC inputs:
-  - **Index 0 (RGB):** Shape `[1, 224, 224, 3]`, type `FLOAT32` or `INT8`.
-  - **Index 1 (IR):** Shape `[1, 224, 224, 1]`, type `FLOAT32` or `INT8`.
-
-- **Output:** Exactly one tensor, shape `[1, 6]`, type `FLOAT32` or `INT8` (raw logits, `outputIsLogits: true` in `model_spec*.json`).
-- **Output Class Mapping (Fixed Indices):** Single source of truth is `classes.py` (`CLASS_NAMES`).
-  - `[0]`: live
-  - `[1]`: print
-  - `[2]`: picture
-  - `[3]`: mask
-  - `[4]`: display
-  - `[5]`: pmask
-- **Normalization must match the exported model and the corresponding Android `model_spec*.json`:**
-  - PyTorch/litert float and standard Keras export: RGB ImageNet mean `[0.485, 0.456, 0.406]` / std `[0.229, 0.224, 0.225]`; IR mean `[0.5]` / std `[0.5]`.
-  - NPU-friendly Keras INT8 export (`*_npu_int8.tflite`): RGB and IR both use mean `[0.5]` / std `[0.5]`, so the model sees `[-1,1]` style inputs. This export removes the RGB Lambda preprocessing from the TFLite graph. (Ensure `evaluate_tflite.py` maps inputs back to `[-1, 1]` for `npu_int8` variants to prevent BPCER degradation.)
-
-## 3. LiteRT-Torch & Layout Permutations
-- **Channels-Last (NHWC) Conversion:** To achieve NHWC layout required by the Android NPU, always use `litert_torch.to_channel_last_io(model, args=[0, 1])` to wrap the PyTorch model before conversion. (This applies to the `pytorch_pipeline`/`dual` path only.)
-- **Sample Inputs:** The tracing dummy inputs passed to `litert_torch.convert` must match the wrapped NHWC shapes (`[1, 224, 224, 3]` and `[1, 224, 224, 1]`) to prevent FX tracing dimension errors.
-
-## 4. Output Directories and Deployment Handoff
-- **Gitignored Model Folder:** Export all generated model files (`*.tflite`, `*.pth`) to the project root `model/` directory (which is gitignored). Do not keep raw model weights in the project root directory.
-- **TFLite float and INT8 are both supported by the Android test app.** `pytorch_pipeline/convert_to_tflite.py` writes the PyTorch float path. `keras_pipeline/convert_keras_to_tflite.py --int8` writes standard Keras full INT8. `--npu-int8` writes the NPU-friendly full INT8 export.
-- **Android handoff:** To deploy, manually copy `model/anti_spoofing.tflite` to the Android project's `app/src/main/assets/anti_spoofing.tflite`. The model in `assets/` is the committed deployment artifact; `model/` is gitignored.
-- **Model artifacts are not synced by git.** Move `.keras` and `.tflite` files with `rsync`/`scp`, e.g. `rsync -avzR model/keras/best_model_fold4_npu_int8.tflite sub:~/access-liveness-model/`.
-
-## 5. Quantization / Deployment Status (read before any INT8 work)
-- **Current Android app attempts NNAPI first, then falls back to CPU/XNNPACK.** The on-screen backend label is authoritative: `Backend CPU` means NPU acceleration did not happen.
-- **PyTorch/MobileNetV3 INT8 remains abandoned** (PTQ collapses on activations; PT2E QAT trains but cannot be serialized by litert_torch/eIQ; eIQ produced a broken tflite). Do NOT blindly retry the same paths — read the full chronology in the Obsidian wiki's `Project/Company/access-liveness-model/기술/INT8 양자화와 NPU.md` first.
-- **Keras/MobileNetV2 full INT8 conversion works and evaluates well locally.** See the Obsidian wiki's `테스트/평가지표와 결과.md` for current numbers — do not hardcode them here, they change. (As of 2026-07-13, 6-class single RGB and IR models have been successfully verified and synced to company PC.)
-- **NPU-friendly Keras INT8 export status may differ from what this file used to say.** The paired `Project/Company/android-anti-spoofing-lab` wiki has reported the NPU-friendly export compiling on-device NNAPI successfully (as of a date later than this repo's own history) — verify against both wikis' `이슈/확인 필요.md` before reporting NPU status either way.
-- Next NPU debugging should isolate unsupported ops from the remaining graph (`AVERAGE_POOL_2D`, `RESHAPE`, `CONCATENATION`, `FULLY_CONNECTED`, or quantized conv/depthwise constraints) instead of redoing training.
-- **Data handoff:** Training images are collected on-device and delivered as files placed under `dataset/raw/<class>/<class>_<subjectId>/<frame>/` (`cropRGB.bmp`, `cropIR.bmp`, `RGB.bmp`, `IR.bmp`). This matches the Android collector output (`/sdcard/Pictures/raw/...`). There is no longer any webcam capture in this project.
-
-## 6. AI Agent Behavioral Guidelines (Anti-Mistakes)
-- **도구 호출 시 TargetFile 경로 오류 방지:** 에이전트의 임시 스크립트 작성 시 `write_to_file` 도구의 `TargetFile` 인자에는 반드시 에이전트 아티팩트 디렉터리 하위의 스크래치 경로(예: `C:\Users\Unionbiometrics\.gemini\antigravity\brain\<conversation-id>\scratch\check_int8.py`)만 사용해야 합니다. Obsidian 위키 절대 경로 나 외부 로컬 폴더를 기입하면 `invalid_args (not a valid artifact path)` 에러가 발생하여 도구 기동이 실패하므로 절대 주의해야 합니다.
-- **프로젝트 대전제와 명확한 스코프 준수:** 디버깅 시 예상치 못한 성능적 블로커(예: PyTorch MobileNetV3의 PTQ 수치 붕괴 팩트)를 확인하면, 독단적으로 Keras 파이프라인 등으로 작업을 전환하여 임의 변환을 실행하지 마십시오. 즉각 작업을 일시 중단(Stop)하고 사용자에게 현재 팩트를 요약 보고한 뒤, 다음 배포 단계(Float32 전환 등)에 대한 명시적 피드백을 우선적으로 득해야 합니다.
-
-## 7. Session Start Procedure
-매 세션(대화) 시작 시 아래 순서를 자동으로 수행한다.
-
-1. **머신 판별:**
-   ```bash
-   nvidia-smi 2>/dev/null | grep -q "GTX 1660 Ti" && echo "서브노트북" || echo "회사 PC"
-   ```
-   - **서브노트북**: GPU 학습·변환 가능. `run_keras_*.sh` / `run_fixed_split.sh` 사용.
-   - **회사 PC**: CPU 전용. 코드·문서 편집 및 git push/pull만 수행. 학습 명령은 실행하지 않는다.
-
-2. **저장소 상태 확인:**
-   ```bash
-   git status --short
-   ```
-
-3. **위키 참조:** 옵시디언 vault의 `이슈/확인 필요.md` → `log.md` → `핸드오프.md` 순으로 읽고 현재 상태를 파악한다. (단, 유저가 진행 상황을 묻거나, 보류된 P2 태스크를 재개 또는 새로 설계하는 경우에만 `로드맵/` 폴더의 백로그를 읽는다.)
-
-4. **한국어 상태 보고:** 위 확인 결과를 바탕으로 다음을 한국어로 간단히 보고한다.
-   - 현재 머신
-   - 마지막으로 완료된 작업 (옵시디언 `log.md` 기준)
-   - 다음으로 할 작업 (옵시디언 `이슈/확인 필요.md` 기준)
-   - 현재 Android/NPU 상태 (`Backend CPU`이면 NNAPI 실패 후 CPU/XNNPACK fallback — NPU 가속 성공으로 보고하지 않는다)
+- Antigravity `write_to_file` temporary scripts must use an agent-artifact scratch `TargetFile`, never an Obsidian absolute path or other external local path; external paths cause `invalid_args`.
+- If an unexpected performance blocker appears, do not independently switch pipelines or convert through another path. Stop, summarize the fact, and obtain the user's explicit decision on the next deployment step.

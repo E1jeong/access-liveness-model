@@ -3,6 +3,7 @@ import json
 import numpy as np
 import pytest
 
+from classes import CLASS_NAMES
 from evaluate_tflite import write_metrics_csv, write_regression_report
 
 
@@ -15,7 +16,7 @@ def _result(name, logits, acer, latency):
         "apcer": acer,
         "bpcer": acer,
         "acer": acer,
-        "recalls": [1.0] * 6,
+        "recalls": [1.0] * len(CLASS_NAMES),
         "mean_latency_ms": latency,
         "file_size_bytes": 10,
         "_labels": np.array([0, 1]),

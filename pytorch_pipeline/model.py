@@ -93,5 +93,5 @@ if __name__ == "__main__":
     dummy_rgb = torch.randn(1, 3, 224, 224)
     dummy_ir = torch.randn(1, 1, 224, 224)
     output = model(dummy_rgb, dummy_ir)
-    print(f"모델 출력 텐서 크기: {output.shape}")  # [1, 6]
+    print(f"모델 출력 텐서 크기: {output.shape}")  # [1, len(CLASS_NAMES)]
     print(f"예측 출력값: {output}")

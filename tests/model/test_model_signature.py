@@ -1,10 +1,26 @@
 import pytest
 
+from classes import CLASS_NAMES
 from keras_pipeline.model_signature import (
     MODEL_INPUT_SIGNATURES,
     validate_keras_model_signature,
     validate_tflite_model_signature,
 )
+
+
+def test_class_order_matches_android_collection_names():
+    assert CLASS_NAMES == [
+        "live",
+        "print",
+        "picture",
+        "mask",
+        "display",
+        "pmask",
+        "curved_print",
+        "curved_mask",
+        "curved_picture",
+        "curved_pmask",
+    ]
 
 
 class FakeTensor:
@@ -14,7 +30,7 @@ class FakeTensor:
 
 
 class FakeModel:
-    def __init__(self, inputs, output_shape=(None, 6)):
+    def __init__(self, inputs, output_shape=(None, len(CLASS_NAMES))):
         self.inputs = [FakeTensor(name, (None, *shape)) for name, shape in inputs]
         self.outputs = [FakeTensor("logits", output_shape)]
 
@@ -41,7 +57,7 @@ def _tflite_details(model_type):
         {"name": f"serving_default_{name}:0", "shape": (1, *shape)}
         for name, shape in MODEL_INPUT_SIGNATURES[model_type]
     ]
-    return inputs, [{"name": "StatefulPartitionedCall:0", "shape": (1, 6)}]
+    return inputs, [{"name": "StatefulPartitionedCall:0", "shape": (1, len(CLASS_NAMES))}]
 
 
 def test_valid_tflite_signature_accepts_serving_default_names():

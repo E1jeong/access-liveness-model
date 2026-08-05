@@ -16,10 +16,10 @@ def _items(counts):
 
 
 def test_stratified_calibration_is_seeded_and_covers_every_class():
-    items = _items([5, 4, 3, 2, 1, 1])
+    items = _items([5, 4, 3] + [1] * (len(CLASS_NAMES) - 3))
 
-    selected_a, report_a = converter.select_stratified_calibration_items(items, 12, seed=42)
-    selected_b, report_b = converter.select_stratified_calibration_items(items, 12, seed=42)
+    selected_a, report_a = converter.select_stratified_calibration_items(items, len(CLASS_NAMES) + 2, seed=42)
+    selected_b, report_b = converter.select_stratified_calibration_items(items, len(CLASS_NAMES) + 2, seed=42)
 
     assert selected_a == selected_b
     assert report_a == report_b
@@ -32,11 +32,11 @@ def test_stratified_calibration_is_seeded_and_covers_every_class():
 
 
 def test_stratified_calibration_rejects_insufficient_or_missing_class_coverage():
-    with pytest.raises(ValueError, match="모든 6 클래스를 포함"):
-        converter.select_stratified_calibration_items(_items([1] * 6), 5, seed=42)
+    with pytest.raises(ValueError, match=f"모든 {len(CLASS_NAMES)} 클래스를 포함"):
+        converter.select_stratified_calibration_items(_items([1] * len(CLASS_NAMES)), len(CLASS_NAMES) - 1, seed=42)
 
     with pytest.raises(ValueError, match="없는 클래스"):
-        converter.select_stratified_calibration_items(_items([1, 1, 1, 1, 1, 0]), 6, seed=42)
+        converter.select_stratified_calibration_items(_items([1] * (len(CLASS_NAMES) - 1) + [0]), len(CLASS_NAMES), seed=42)
 
 
 def test_calibration_collection_uses_only_train_split(monkeypatch):
@@ -48,7 +48,7 @@ def test_calibration_collection_uses_only_train_split(monkeypatch):
 
     monkeypatch.setattr(converter, "collect_split_items", fake_collect_split_items)
 
-    converter.collect_calibration_items("dataset/raw", 6, seed=42)
+    converter.collect_calibration_items("dataset/raw", len(CLASS_NAMES), seed=42)
 
     assert requested_splits == [("dataset/raw", "train")]
 
@@ -61,7 +61,7 @@ def test_representative_generator_loads_one_item_at_a_time(monkeypatch):
         return np.zeros((2, 2, 3), dtype=np.float32), np.zeros((2, 2, 1), dtype=np.float32)
 
     monkeypatch.setattr(converter, "load_sample", fake_load_sample)
-    generator = converter._make_representative_dataset_gen(_items([2, 0, 0, 0, 0, 0]), "crop_rgb")()
+    generator = converter._make_representative_dataset_gen(_items([2] + [0] * (len(CLASS_NAMES) - 1)), "crop_rgb")()
 
     assert len(loaded) == 0
     assert next(generator)[0].shape == (1, 2, 2, 3)
@@ -72,10 +72,10 @@ def test_representative_generator_loads_one_item_at_a_time(monkeypatch):
 
 def test_calibration_manifest_records_train_coverage_and_streaming_memory(tmp_path):
     items = _items([1] * len(CLASS_NAMES))
-    _, report = converter.select_stratified_calibration_items(items, 6, seed=42)
+    _, report = converter.select_stratified_calibration_items(items, len(CLASS_NAMES), seed=42)
     path = tmp_path / "calibration_manifest.json"
 
-    converter.write_calibration_manifest(path, items, report, "dual", seed=42, requested_samples=6)
+    converter.write_calibration_manifest(path, items, report, "dual", seed=42, requested_samples=len(CLASS_NAMES))
 
     manifest = json.loads(path.read_text())
     assert manifest["split"] == "train"

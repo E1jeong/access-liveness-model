@@ -138,6 +138,7 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--rgb-weights", choices=["imagenet", "none"], default="imagenet")
     parser.add_argument("--dropout", type=float, default=0.2)
+    parser.add_argument("--label-smoothing", type=float, default=0.1, help="Label smoothing factor (default: 0.1)")
     parser.add_argument("--classifier-units", type=int, default=1024)
     parser.add_argument("--no-gray-imagenet-init", action="store_true")
     parser.add_argument(
@@ -208,7 +209,9 @@ def main():
 
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=lr_schedule),
-        loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+        loss=tf.keras.losses.SparseCategoricalCrossentropy(
+            from_logits=True, label_smoothing=args.label_smoothing
+        ),
         metrics=[tf.keras.metrics.SparseCategoricalAccuracy(name="acc")],
     )
     model.summary()

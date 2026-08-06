@@ -87,3 +87,4 @@ Useful training switches:
 - `--classifier-units 1024` is the default and mirrors the PyTorch classifier capacity more closely than a linear head.
 - `--classifier-units 0` reverts to the old linear-head style for ablation.
 - `--no-gray-imagenet-init` disables RGB-to-gray (IR) ImageNet weight transfer.
+- `--label-smoothing 0.1` sets the label smoothing factor (default: 0.1) to prevent Softmax overconfidence and improve INT8 quantization stability.

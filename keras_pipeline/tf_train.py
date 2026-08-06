@@ -207,11 +207,20 @@ def main():
             conv1_reduction=args.conv1_reduction,
         )
 
+    if args.label_smoothing > 0:
+        cce_loss = tf.keras.losses.CategoricalCrossentropy(
+            from_logits=True, label_smoothing=args.label_smoothing
+        )
+        def loss_fn(y_true, y_pred):
+            y_true_int = tf.cast(tf.reshape(y_true, [-1]), tf.int32)
+            y_true_oh = tf.one_hot(y_true_int, depth=len(CLASS_NAMES))
+            return cce_loss(y_true_oh, y_pred)
+    else:
+        loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=lr_schedule),
-        loss=tf.keras.losses.SparseCategoricalCrossentropy(
-            from_logits=True, label_smoothing=args.label_smoothing
-        ),
+        loss=loss_fn,
         metrics=[tf.keras.metrics.SparseCategoricalAccuracy(name="acc")],
     )
     model.summary()

@@ -89,7 +89,7 @@ def build_dual_mobilenetv2(
     average_pool_op=False,
     fixed_batch_size=None,
     classifier_as_conv=False,
-    conv1_reduction="mean",
+    conv1_reduction="sum",
 ):
     # Prefix names keep the TFLite signature/input list ordered as RGB first, IR second.
     rgb_name, rgb_shape = MODEL_INPUT_SIGNATURES["dual"][0]
@@ -146,7 +146,7 @@ def build_single_mobilenetv2(
     average_pool_op=False,
     fixed_batch_size=None,
     classifier_as_conv=False,
-    conv1_reduction="mean",
+    conv1_reduction="sum",
 ):
     if input_type not in ("crop_rgb", "crop_ir"):
         raise ValueError(f"Unknown input_type: {input_type}")
@@ -243,7 +243,7 @@ def parse_args():
     parser.add_argument(
         "--conv1-reduction",
         choices=["mean", "sum"],
-        default="mean",
+        default="sum",
         help="1채널 Conv1 가중치 이식 시 축소 방식 (mean: 평균, sum: 합산)"
     )
     return parser.parse_args()

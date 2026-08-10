@@ -11,7 +11,7 @@ LEARNING_RATE="1e-4"
 DATA_DIR="dataset/raw"
 CALIBRATION_SAMPLES=500
 FORCE=""
-REDUCTION="mean"
+REDUCTION="sum"
 
 while [[ "$#" -gt 0 ]]; do
   case $1 in

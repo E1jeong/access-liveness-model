@@ -36,6 +36,7 @@ from keras_pipeline.artifact_paths import (
 )
 
 
+# 모든 스푸핑을 live로 예측한 극단 입력을 넣어 APCER가 1.0이 나오는지 학습 시작 전에 확인한다(지표 방향이 뒤집힌 채 학습하는 사고 방지).
 def _run_apcer_self_check():
     labels = list(range(1, len(CLASS_NAMES)))
     preds = [0] * len(labels)
@@ -44,6 +45,7 @@ def _run_apcer_self_check():
     print("[APCER self-check passed] all-spoof-as-live gives APCER=1.0")
 
 
+# 에폭별 train loss와 train acc, 그리고 검증 (1-ACER)를 한 장의 PNG로 저장한다.
 def _save_learning_curves(history, val_acers, output_dir, model_type):
     epochs = range(1, len(history.history["loss"]) + 1)
     plt.figure(figsize=(12, 5))
@@ -72,7 +74,9 @@ def _save_learning_curves(history, val_acers, output_dir, model_type):
     print(f"[learning curves saved] {out_path}")
 
 
+# 매 에폭 끝에 검증셋을 평가해, loss나 accuracy가 아니라 ACER가 최저일 때만 체크포인트를 저장하는 콜백(제품 통과 기준이 ACER이므로).
 class AcerCheckpoint(tf.keras.callbacks.Callback):
+    # 검증 데이터셋과 저장 경로를 받고, 최저 ACER 추적 상태를 초기화한다.
     def __init__(self, val_ds, output_path):
         super().__init__()
         self.val_ds = val_ds
@@ -82,6 +86,7 @@ class AcerCheckpoint(tf.keras.callbacks.Callback):
         self.acer_history = []
         self._val_labels = None
 
+    # 검증셋 전체를 예측해 혼동행렬·클래스별 recall·APCER/BPCER/ACER를 출력하고, 최저 ACER가 갱신된 에폭에만 모델을 저장한다.
     def on_epoch_end(self, epoch, logs=None):
         if self._val_labels is None:
             # val_ds는 셔플 없는 캐시 데이터셋이라 순서가 고정 — 라벨은 1회만 추출
@@ -120,6 +125,7 @@ class AcerCheckpoint(tf.keras.callbacks.Callback):
             print(f" >>> Best ACER updated ({acer:.4f}) -> saved {self.output_path}")
 
 
+# 학습 CLI 인자 파서. 여기 default가 곧 학습 설정의 기본값이며, 그대로 run metadata에 기록된다.
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Train a Keras anti-spoofing model with fixed train/validation/test splits."
@@ -144,7 +150,7 @@ def parse_args():
     parser.add_argument(
         "--conv1-reduction",
         choices=["mean", "sum"],
-        default="mean",
+        default="sum",
         help="1채널 Conv1 가중치 이식 시 축소 방식 (mean: 평균, sum: 합산)"
     )
     parser.add_argument("--run-id", help="실행 metadata에 기록할 ID (기본: UTC timestamp + model type)")
@@ -152,6 +158,7 @@ def parse_args():
     return parser.parse_args()
 
 
+# 학습 전체 흐름: split 누수 검증 → 데이터셋 구성 → 모델 생성 → compile → fit → 학습곡선과 run metadata 저장.
 def main():
     args = parse_args()
     tf.keras.utils.set_random_seed(args.seed)
@@ -211,6 +218,7 @@ def main():
         cce_loss = tf.keras.losses.CategoricalCrossentropy(
             from_logits=True, label_smoothing=args.label_smoothing
         )
+        # 데이터셋의 정수 라벨을 one-hot으로 바꿔 넘기는 어댑터. label_smoothing은 CategoricalCrossentropy에만 있어서 필요하다.
         def loss_fn(y_true, y_pred):
             y_true_int = tf.cast(tf.reshape(y_true, [-1]), tf.int32)
             y_true_oh = tf.one_hot(y_true_int, depth=len(CLASS_NAMES))

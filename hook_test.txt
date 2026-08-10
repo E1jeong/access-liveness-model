@@ -1,2 +1,0 @@
-Git hook test 4.
-Modified once more to verify git commit and push hooks.

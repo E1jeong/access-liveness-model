@@ -2,7 +2,7 @@
 # 고정 train/validation/test 기준 학습 + 변환 + validation 평가.
 # test split은 설정 확정 후 evaluate_tflite.py --split test로 별도 실행한다.
 set -e
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/../.."
 
 MODEL_TYPE="dual"
 EPOCHS=10
@@ -45,7 +45,7 @@ echo "  Force Overwrite: ${FORCE:-False}"
 echo "========================================="
 
 .venv-tf/bin/python validate_fixed_splits.py --data-dir "$DATA_DIR"
-./run_keras_train.sh \
+./scripts/keras/run_keras_train.sh \
   --data-dir "$DATA_DIR" \
   --model-type "$MODEL_TYPE" \
   --epochs "$EPOCHS" \
@@ -53,7 +53,7 @@ echo "========================================="
   --learning-rate "$LEARNING_RATE" \
   --conv1-reduction "$REDUCTION" \
   $FORCE
-./run_keras_convert.sh \
+./scripts/keras/run_keras_convert.sh \
   --data-dir "$DATA_DIR" \
   --model-type "$MODEL_TYPE" \
   --calibration-samples "$CALIBRATION_SAMPLES" \

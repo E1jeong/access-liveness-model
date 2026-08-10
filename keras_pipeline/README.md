@@ -37,20 +37,21 @@ than the current PyTorch `.pth` to TFLite path.
 
 ## Typical commands
 
-Run on the sub-laptop GPU environment. Use the root scripts because they set the
-TensorFlow CUDA library path automatically:
+Run on the sub-laptop GPU environment from the repository root. Use the
+`scripts/keras/` wrappers because they set the TensorFlow CUDA library path
+automatically:
 
 ```bash
-./run_keras_model.sh
+./scripts/keras/run_keras_model.sh
 .venv-tf/bin/python validate_fixed_splits.py
-./run_keras_train.sh --epochs 30
-./run_keras_convert.sh --float --int8 --npu-int8 --calibration-samples 500
+./scripts/keras/run_keras_train.sh --epochs 30
+./scripts/keras/run_keras_convert.sh --float --int8 --npu-int8 --calibration-samples 500
 .venv-tf/bin/python evaluate_tflite.py --split validation --models \
   model/keras/best_model_fixed_float.tflite \
   model/keras/best_model_fixed_int8.tflite
 ```
 
-The end-to-end command is `./run_fixed_split.sh`. It trains once, converts the
+The end-to-end command is `./scripts/keras/run_fixed_split.sh`. It trains once, converts the
 checkpoint, and evaluates `validation`; it never evaluates `test`
 automatically. Final test evaluation must be requested explicitly:
 
@@ -79,7 +80,7 @@ access to download RGB backbone weights. If that is not available, run training
 with:
 
 ```bash
-./run_keras_train.sh --rgb-weights none --no-gray-imagenet-init
+./scripts/keras/run_keras_train.sh --rgb-weights none --no-gray-imagenet-init
 ```
 
 Useful training switches:

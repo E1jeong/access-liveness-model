@@ -1,5 +1,5 @@
 # run_keras_*.sh 공용 프리앰블 — source 전용, 직접 실행하지 않는다.
-# 사용: source scripts/_keras_env.sh "실행"   (또는 "실행됩니다" / "변환됩니다")
+# 사용: source scripts/keras/_keras_env.sh "실행"   (또는 "실행됩니다" / "변환됩니다")
 # 호출 스크립트가 이미 repo 루트로 cd한 뒤에 source해야 한다.
 
 export LD_LIBRARY_PATH="$(find .venv-tf/lib -path "*/nvidia/*/lib" -type d | tr '\n' ':')"

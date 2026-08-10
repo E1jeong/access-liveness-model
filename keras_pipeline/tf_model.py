@@ -14,6 +14,7 @@ from classes import CLASS_NAMES
 from keras_pipeline.spec import MODEL_INPUT_SIGNATURES, RGB_MEAN, RGB_STD
 
 
+# IR(1채널) 백본에 RGB(3채널) ImageNet 가중치를 이식한다. Conv1만 채널축을 접고 나머지는 그대로 복사.
 def _transfer_imagenet_weights_to_gray_backbone(source_backbone, gray_backbone, label, reduction="mean"):
     """Initialize a 1-channel MobileNetV2 from a 3-channel MobileNetV2."""
     if reduction not in ("mean", "sum"):
@@ -49,9 +50,7 @@ def _transfer_imagenet_weights_to_gray_backbone(source_backbone, gray_backbone, 
     print(f"[{label} backbone] copied ImageNet weights (reduction={reduction}) into {copied} MobileNetV2 layers")
 
 
-# Unused face weight loader helper functions were removed during hardening refactor.
-
-
+# 백본 특징 벡터를 클래스 logits으로 변환한다. classifier_as_conv=True면 Dense 대신 1x1 Conv2D를 쓴다(NPU 호환용).
 def _build_classifier_head(x, classifier_units, dropout, num_classes, classifier_as_conv, dtype=None):
     if classifier_as_conv:
         if len(x.shape) == 2:
@@ -70,6 +69,7 @@ def _build_classifier_head(x, classifier_units, dropout, num_classes, classifier
         return layers.Dense(num_classes, name="logits", dtype=dtype)(x)
 
 
+# ImageNet 정규화로 들어온 RGB를 MobileNetV2가 기대하는 [-1,1]로 되돌린다(앱 전처리 계약 유지용 보정 레이어).
 def _rgb_current_norm_to_mobilenet_range(x):
     # Input follows the existing Android/PyTorch contract:
     # rgb = (raw_0_1 - ImageNet_mean) / ImageNet_std.
@@ -79,6 +79,7 @@ def _rgb_current_norm_to_mobilenet_range(x):
     return raw_0_1 * 2.0 - 1.0
 
 
+# RGB/IR 2입력 모델: 백본 2개로 각각 특징을 뽑아 concat한 뒤(late fusion) 분류 헤드에 통과시킨다.
 def build_dual_mobilenetv2(
     rgb_weights="imagenet",
     dropout=0.2,
@@ -134,6 +135,7 @@ def build_dual_mobilenetv2(
     return keras.Model(inputs=[rgb_input, ir_input], outputs=logits, name="dual_mobilenetv2")
 
 
+# RGB 또는 IR 단일 입력 모델. crop_ir일 때는 가중치 이식용 RGB 백본을 임시로 만들어 쓰고 버린다.
 def build_single_mobilenetv2(
     input_type="crop_rgb",
     rgb_weights="imagenet",
@@ -208,6 +210,7 @@ def build_single_mobilenetv2(
     return keras.Model(inputs=inputs, outputs=logits, name=f"single_{input_type}_mobilenetv2")
 
 
+# MobileNetV2 백본 생성 래퍼. 현재 호출부 없음(dead code).
 def _make_backbone(input_shape, weights, pooling, name):
     return keras.applications.MobileNetV2(
         input_shape=input_shape,
@@ -218,14 +221,13 @@ def _make_backbone(input_shape, weights, pooling, name):
     )
 
 
+# 7x7 feature map을 평균 풀링해 1280차원 벡터로 만든다. 현재 호출부 없음(dead code).
 def _pool_backbone_output(features, prefix):
     features = layers.AveragePooling2D(pool_size=(7, 7), name=f"{prefix}_average_pool")(features)
     return layers.Reshape((1280,), name=f"{prefix}_reshape")(features)
 
 
-
-
-
+# 이 파일을 직접 실행해 모델 구조만 확인할 때 쓰는 CLI 인자 파서(학습 경로는 tf_train.py가 따로 정의).
 def parse_args():
     parser = argparse.ArgumentParser(description="Build and summarize the Keras MobileNetV2 models.")
     parser.add_argument("--rgb-weights", choices=["imagenet", "none"], default="imagenet")

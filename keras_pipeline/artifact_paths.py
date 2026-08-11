@@ -20,6 +20,8 @@ TFLITE_VARIANTS = ("float", "int8", "npu_int8")
 
 def keras_checkpoint_name(model_type: str) -> str:
     """Return the canonical .keras checkpoint filename for a model type."""
+    # dual만 접미사가 없다. 이 파이프라인이 dual 하나로 시작했을 때 굳은 이름이라
+    # 기존 산출물·문서·안드로이드 자산과의 호환을 위해 그대로 유지한다.
     if model_type == "dual":
         return "best_model_fixed.keras"
     return f"best_{model_type}_fixed.keras"
@@ -81,6 +83,7 @@ def calibration_manifest_path(output_dir: str, keras_stem: str) -> str:
 
 def learning_curves_name(model_type: str) -> str:
     """Return the learning curves image filename."""
+    # 체크포인트와 같은 규칙: dual만 접미사 없음.
     suffix = f"_{model_type}" if model_type != "dual" else ""
     return f"learning_curves{suffix}_fixed.png"
 
@@ -109,6 +112,9 @@ def check_no_overwrite(path: str, force: bool = False) -> None:
 
     Call this before writing any artifact to prevent accidental overwrites
     of previous training/conversion results.
+
+    tf_train.py는 fit()을 시작하기 '전에' 이 검사를 호출한다. 몇 시간 학습한 뒤
+    저장 단계에서 실패해 결과를 통째로 잃는 상황을 막기 위한 순서다.
     """
     if os.path.exists(path) and not force:
         raise FileExistsError(

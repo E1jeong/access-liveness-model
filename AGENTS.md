@@ -4,7 +4,7 @@
 
 ## Read Before Acting
 
-- Wiki root: `Dev/Project/Company/access-liveness-model/` in `E1jeong/obsidian-vault`. Clone the vault locally if unavailable. Every page is in English.
+- Wiki root: `Dev/Project/Company/access-liveness-model/` in `E1jeong/obsidian-vault`. Clone the vault locally if unavailable. Every page is in English. A copy whose pages sit at `Project/...` without the `Dev/` prefix, or carry Korean filenames, is a stale pre-2026-08 clone — do not read it as current.
 - Every session: read `README.md` → `handoff.md` → `issues/needs-verification.md`; identify the machine with `nvidia-smi 2>/dev/null | grep -q "GTX 1660 Ti" && echo "sub-laptop" || echo "company PC"`; then run `git status --short`. `log.md` is a decision index read on demand, not on entry. Read `roadmap/` only for progress requests or deferred-P2 resume/design.
 - Before proposing or running a command, explain the command and reason in Korean. Report the machine, latest completion, next work, and Android/NPU status in Korean.
 - Before training or data work, read `operations/working-environment.md` and `technical/training-command-guide.md`. Before model-contract or NPU work or reporting either, also read paired `Dev/Project/Company/android-anti-spoofing-lab/issues/needs-verification.md`; never infer both repositories' state from one. Before INT8 work read `technical/int8-quantization-npu.md`; for current metrics read `tests/evaluation-metrics-results.md`; for the Android contract read `technical/android-deployment-agreement.md`.

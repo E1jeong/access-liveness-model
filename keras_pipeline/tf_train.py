@@ -257,23 +257,25 @@ def main():
     print(f" - model type: {args.model_type}")
 
     # (4) tf.data 파이프라인 구성.
-    #  - train: 셔플 O, 증강 O, .repeat()로 무한 반복 (fit이 steps_per_epoch로 끊는다)
+    #  - train: 셔플 O, 증강 O, repeat=True로 무한 반복 (fit이 steps_per_epoch로 끊는다)
+    #    → repeat을 make_dataset 안에서 처리해야 증강 시드 카운터가 에폭을 넘어 누적된다.
     #  - val  : 셔플 X, 증강 X, .cache()로 첫 에폭 이후 디코딩 결과를 메모리에 재사용
     #    → val은 순서가 매 에폭 동일해야 AcerCheckpoint의 라벨 캐시와 예측이 일치한다.
     if args.model_type == "dual":
         train_ds = make_dataset(
-            train_items, batch_size=args.batch_size, shuffle=True, seed=args.seed, augment=True
-        ).repeat()
+            train_items, batch_size=args.batch_size, shuffle=True, seed=args.seed, augment=True, repeat=True
+        )
         val_ds = make_dataset(val_items, batch_size=args.batch_size, shuffle=False, seed=args.seed).cache()
     else:
         # crop_rgb / crop_ir는 items 튜플에서 해당 모달리티 경로 하나만 뽑아 쓴다.
         train_ds = make_single_dataset(
-            train_items, input_type=args.model_type, batch_size=args.batch_size, shuffle=True, seed=args.seed, augment=True
-        ).repeat()
+            train_items, input_type=args.model_type, batch_size=args.batch_size, shuffle=True, seed=args.seed, augment=True, repeat=True
+        )
         val_ds = make_single_dataset(val_items, input_type=args.model_type, batch_size=args.batch_size, shuffle=False, seed=args.seed).cache()
 
     # 무한 반복 데이터셋이므로 "1 에폭"의 길이를 직접 정해줘야 한다.
-    # ceil을 써서 마지막 자투리 배치까지 한 에폭에 포함시킨다(= 전 샘플 1회 통과 분량).
+    # repeat이 batch보다 앞이라 배치는 항상 꽉 차고 에폭 경계를 넘나든다. ceil로 잡아
+    # 한 에폭이 전 샘플 1회 통과 '이상'이 되게 한다(자투리를 버리지 않으려는 의도).
     steps_per_epoch = math.ceil(len(train_items) / args.batch_size)
 
     # 학습률 스케줄: 코사인 곡선을 따라 initial_learning_rate → initial×alpha 로 부드럽게 감소.
@@ -348,7 +350,7 @@ def main():
     #     직접(혼동행렬·APCER/BPCER 포함) 수행하기 때문 — 중복 평가를 피한다.
     history = model.fit(
         train_ds,
-        steps_per_epoch=steps_per_epoch,  # .repeat() 데이터셋이라 필수
+        steps_per_epoch=steps_per_epoch,  # 무한 반복 데이터셋이라 필수
         epochs=args.epochs,
         callbacks=[checkpoint],
     )

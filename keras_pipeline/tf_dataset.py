@@ -150,13 +150,15 @@ def _sample_augmentation_params(index, seed, augment):
 
     핵심: tf.random.stateless_* 는 전역 난수 상태가 아니라 넘겨준 seed 텐서만으로 값이
     정해진다. seed를 (샘플 index, 학습 시드)로 만들었기 때문에
-      - 같은 시드 + 같은 샘플 → 항상 같은 증강 (재현 가능, tests/dataset/test_deterministic_augmentation.py가 검증)
-      - 샘플마다 index가 달라 → 서로 다른 증강
+      - 같은 시드 + 같은 index → 항상 같은 증강 (재현 가능, tests/dataset/test_deterministic_augmentation.py가 검증)
+      - index가 다르면 → 서로 다른 증강
     이 두 가지가 동시에 성립한다. 일반 tf.random을 쓰면 tf.data가 map을 병렬 실행하는 순간
     호출 순서가 비결정적이 되어 재현이 깨진다.
 
-    주의: index는 에폭에 따라 변하지 않으므로, 같은 샘플은 매 에폭 '같은' 증강을 받는다
-    (에폭마다 다른 증강을 원한다면 seed에 에폭 번호를 섞어야 한다).
+    index는 파일 목록 내 위치가 아니라 repeat 뒤에 붙인 enumerate가 매기는 '스트림 전역
+    카운터'다(make_dataset 참고). 따라서 e번째 에폭의 j번째 샘플은 index = e*N + j 를 받고,
+    같은 이미지라도 에폭이 바뀌면 다른 증강이 걸린다. 그러면서도 그 수열 자체는 seed로
+    고정되므로 실행 간 재현성은 유지된다.
     """
     if augment:
         # 2원소 int64 텐서가 stateless 계열이 요구하는 seed 형식이다.
@@ -178,11 +180,12 @@ def _sample_augmentation_params(index, seed, augment):
     return flip_val, angle_val, brightness_val, contrast_val, sat_val
 
 
-def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False):
+def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, repeat=False):
     """dual(RGB+IR) 모델용 tf.data 데이터셋을 만든다.
 
     items: [(rgb_path, ir_path, label), ...]
     반환 원소 형태: ((rgb, ir), label) — 모델 입력이 2개이므로 x가 튜플이다.
+    repeat=True면 무한 반복 데이터셋이 된다(학습용, fit이 steps_per_epoch로 끊는다).
     """
     items = list(items)  # 제너레이터로 들어와도 두 번 순회할 수 있게 실체화
     if not items:
@@ -196,18 +199,25 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False):
     rgb_paths = [item[0] for item in items]
     ir_paths = [item[1] for item in items]
     labels = [item[2] for item in items]
-    # 증강 시드로 쓸 고유 번호. 셔플 이후의 위치이므로 실행 간 고정된다.
-    indices = tf.range(len(items), dtype=tf.int64)
 
     # 이미지가 아니라 '경로 문자열'만 텐서로 올린다 → 메모리에 데이터셋 전체를 올리지 않는다.
-    ds = tf.data.Dataset.from_tensor_slices((rgb_paths, ir_paths, labels, indices))
+    ds = tf.data.Dataset.from_tensor_slices((rgb_paths, ir_paths, labels))
 
     if shuffle:
         # 2차 셔플: 버퍼가 전체 크기라 완전 셔플이 되고,
         # reshuffle_each_iteration=True로 에폭마다 배치 구성이 달라진다.
         ds = ds.shuffle(buffer_size=len(items), seed=seed, reshuffle_each_iteration=True)
 
-    def map_fn(rgb_path, ir_path, label, index):
+    if repeat:
+        ds = ds.repeat()
+
+    # enumerate가 붙이는 번호를 증강 시드로 쓴다. repeat '뒤'에 놓아야 카운터가 에폭
+    # 경계에서 0으로 되돌아가지 않고 계속 증가한다 → 같은 이미지도 에폭마다 다른 증강.
+    # (repeat 앞에 두면 매 에폭 같은 번호가 다시 나와 증강이 통째로 반복된다.)
+    ds = ds.enumerate()
+
+    def map_fn(index, element):
+        rgb_path, ir_path, label = element
         # 증강 파라미터는 그래프 모드에서 결정론적으로 뽑고, 실제 픽셀 작업만 파이썬으로 넘긴다.
         flip_val, angle_val, brightness_val, contrast_val, sat_val = _sample_augmentation_params(index, seed, augment)
 
@@ -245,10 +255,11 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False):
     return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 
-def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=False, seed=42, augment=False):
+def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=False, seed=42, augment=False, repeat=False):
     """crop_rgb / crop_ir 단일 입력 모델용 데이터셋. 구조는 make_dataset과 동일하다.
 
     반환 원소 형태: (image, label) — 입력이 하나이므로 x가 튜플이 아니다.
+    repeat=True면 무한 반복 데이터셋이 된다.
     """
     items = list(items)
     if not items:
@@ -263,14 +274,19 @@ def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=Fals
     else:
         paths = [item[1] for item in items]
     labels = [item[2] for item in items]
-    indices = tf.range(len(items), dtype=tf.int64)
 
-    ds = tf.data.Dataset.from_tensor_slices((paths, labels, indices))
+    ds = tf.data.Dataset.from_tensor_slices((paths, labels))
 
     if shuffle:
         ds = ds.shuffle(buffer_size=len(items), seed=seed, reshuffle_each_iteration=True)
 
-    def map_fn(path, label, index):
+    if repeat:
+        ds = ds.repeat()
+
+    ds = ds.enumerate()  # make_dataset과 동일 — repeat 뒤여야 카운터가 누적된다.
+
+    def map_fn(index, element):
+        path, label = element
         flip_val, angle_val, brightness_val, contrast_val, sat_val = _sample_augmentation_params(index, seed, augment)
 
         def _py_fn(p, lbl, flp, ang, brt, cnt, sat):

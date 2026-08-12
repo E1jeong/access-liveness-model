@@ -28,11 +28,11 @@ from keras_pipeline.spec import MODEL_INPUT_SIGNATURES, RGB_MEAN, RGB_STD
 # IR(1채널) 백본에 RGB(3채널) ImageNet 가중치를 이식한다. Conv1만 채널축을 접고 나머지는 그대로 복사.
 #
 # 왜 필요한가: keras.applications.MobileNetV2는 1채널 입력에 대한 사전학습 가중치를
-# 제공하지 않는다(weights="imagenet"은 3채널 전용). 그렇다고 IR 백본을 랜덤으로 두면
-# 엣지·질감 필터를 처음부터 배워야 해 수렴이 훨씬 느리다. Conv1(첫 층)만 3채널을
+# 제공하지 않는다(weights="imagenet"은 3채널 전용). IR 백본을 랜덤으로 두면
+# 엣지·질감 필터도 처음부터 학습해야 한다. Conv1(첫 층)만 3채널을
 # 1채널로 접어 넣으면 나머지 층은 shape이 완전히 동일하므로 그대로 복사할 수 있다.
 def _transfer_imagenet_weights_to_gray_backbone(source_backbone, gray_backbone, label, reduction="mean"):
-    """Initialize a 1-channel MobileNetV2 from a 3-channel MobileNetV2."""
+    """3채널 MobileNetV2의 가중치로 1채널 MobileNetV2를 초기화한다."""
     if reduction not in ("mean", "sum"):
         raise ValueError(f"Unknown reduction: {reduction}")
     copied = 0
@@ -53,10 +53,10 @@ def _transfer_imagenet_weights_to_gray_backbone(source_backbone, gray_backbone, 
             # Conv1 커널 shape: (3, 3, in_ch, 32). 여기서만 in_ch가 3 vs 1로 다르다.
             kernel = source_weights[0]
             if reduction == "mean":
-                # 평균: 출력 크기가 원본과 비슷하게 유지되지만, 3채널 합산으로 얻던
-                # 응답 크기의 1/3이 되어 엣지 반응이 약해진다.
+                # 평균: RGB 세 채널에 같은 회색 값을 넣은 원본 응답의 1/3이 되어
+                # 첫 층의 출력 크기가 작아진다.
                 transferred_kernel = kernel.mean(axis=2, keepdims=True)
-            else:  # sum
+            else:  # 합산 방식(sum)
                 # 합산: RGB 세 채널에 같은 회색 값이 들어왔을 때의 응답과 정확히 같아진다.
                 #   원본: k_R·g + k_G·g + k_B·g = (k_R+k_G+k_B)·g
                 # 즉 그레이스케일 입력에 대해 사전학습 필터의 응답 크기를 그대로 보존하므로
@@ -119,8 +119,8 @@ def _build_classifier_head(x, classifier_units, dropout, num_classes, classifier
 # 가중치는 [-1,1] 입력을 전제로 학습됐다. 앱 전처리를 바꿀 수 없으므로,
 # 모델 안에서 되돌린 뒤 다시 [-1,1]로 보내 양쪽 계약을 모두 지킨다.
 def _rgb_current_norm_to_mobilenet_range(x):
-    # Input follows the existing Android/PyTorch contract:
-    # rgb = (raw_0_1 - ImageNet_mean) / ImageNet_std.
+    # 입력은 기존 Android/PyTorch 계약을 따른다.
+    # rgb = (raw_0_1 - ImageNet 평균) / ImageNet 표준편차
     mean = tf.constant(RGB_MEAN, dtype=tf.float32)
     std = tf.constant(RGB_STD, dtype=tf.float32)
     raw_0_1 = x * std + mean   # 표준화를 역산해 원래 0~1 값 복원
@@ -139,7 +139,7 @@ def build_dual_mobilenetv2(
     classifier_as_conv=False,         # True면 헤드를 1x1 Conv로 구성(NPU 호환용)
     conv1_reduction="sum",
 ):
-    # Prefix names keep the TFLite signature/input list ordered as RGB first, IR second.
+    # 접두사 이름으로 TFLite 서명과 입력 목록의 순서를 RGB, IR 순으로 고정한다.
     # (TFLite는 입력 순서를 이름 사전순으로 정렬하므로 a_/b_ 접두사로 순서를 못박는다.
     #  안드로이드 앱이 인덱스 0=RGB, 1=IR로 값을 넣기 때문에 이 순서가 계약이다.)
     rgb_name, rgb_shape = MODEL_INPUT_SIGNATURES["dual"][0]
@@ -180,7 +180,7 @@ def build_dual_mobilenetv2(
     if rgb_weights is not None and gray_imagenet_init:
         _transfer_imagenet_weights_to_gray_backbone(rgb_backbone, ir_backbone, "IR", reduction=conv1_reduction)
 
-    # 두 백본은 가중치를 공유하지 않는 별개 네트워크다(RGB와 IR은 통계가 완전히 다르므로).
+    # RGB와 IR은 서로 다른 모달리티이므로 두 백본은 가중치를 공유하지 않는다.
     rgb_features = rgb_backbone(rgb_preprocessed)
     ir_features = ir_backbone(ir_input)
     if average_pool_op:
@@ -241,7 +241,7 @@ def build_single_mobilenetv2(
 
         inputs = rgb_input
 
-    else: # crop_ir
+    else:  # crop_ir 입력 경로
         ir_input = keras.Input(batch_size=fixed_batch_size, shape=input_shape, name=input_name)
         ir_backbone = keras.applications.MobileNetV2(
             input_shape=input_shape,
@@ -295,7 +295,7 @@ def _pool_backbone_output(features, prefix):
 
 # 이 파일을 직접 실행해 모델 구조만 확인할 때 쓰는 CLI 인자 파서(학습 경로는 tf_train.py가 따로 정의).
 def parse_args():
-    parser = argparse.ArgumentParser(description="Build and summarize the Keras MobileNetV2 models.")
+    parser = argparse.ArgumentParser(description="Keras MobileNetV2 모델을 만들고 구조를 출력합니다.")
     parser.add_argument("--rgb-weights", choices=["imagenet", "none"], default="imagenet")
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--classifier-units", type=int, default=1024)

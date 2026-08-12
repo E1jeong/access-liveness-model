@@ -9,9 +9,9 @@ spec.py의 MODEL_INPUT_SIGNATURES에 적힌 계약(입력 개수·이름·shape,
     입력 shape : (batch, 224, 224, 3), (batch, 224, 224, 1)
     출력       : 1개, (batch, 10)
 
-왜 필요한가: 안드로이드 앱은 입력 인덱스 0에 RGB, 1에 IR을 넣도록 고정돼 있다.
-변환 과정에서 이름이나 순서가 틀어진 모델이 앱에 들어가면 RGB 자리에 IR이 들어가
-예외 없이 조용히 엉뚱한 예측을 한다. 그것을 배포 전에 잡는 것이 이 파일의 목적이다.
+왜 필요한가: 입력 개수·이름·shape가 계약과 다른 모델을 배포 전에 거부하기 위해서다.
+이 검사는 입력을 이름으로 대조하므로 리스트 순서 자체는 검사하지 않는다. 입력 순서는
+spec.py의 a_/b_ 접두사와 TFLite 변환 결과로 관리하며, inspect_tflite 로그에서 별도로 확인한다.
 
 같은 검사를 Keras 모델과 TFLite 파일 양쪽에서 하는 이유도 같다 — 변환 전에 한 번,
 변환 후에 한 번 확인해야 변환 단계에서 생긴 어긋남을 잡을 수 있다.
@@ -39,7 +39,7 @@ def _shape_tuple(shape):
 
 
 # TFLite 변환기가 붙인 장식을 떼고 원래 이름만 남긴다.
-#   "serving_default_a_rgb:0"  →  "a_rgb"
+# 예: "serving_default_a_rgb:0"  →  "a_rgb"
 # ":0"은 텐서 출력 인덱스, "serving_default_"는 서명 이름에서 온 접두사다.
 # Keras 쪽 이름에는 둘 다 없으므로 이 함수를 통과해도 그대로 나온다.
 def _logical_input_name(name):
@@ -59,7 +59,7 @@ def _validate_inputs(inputs, model_type, tflite=False):
             f"{model_type} 모델은 입력 {len(expected_inputs)}개여야 하지만 {len(inputs)}개입니다."
         )
 
-    expected_by_name = dict(expected_inputs)  # {"a_rgb": (224,224,3), "b_ir": (224,224,1)}
+    expected_by_name = dict(expected_inputs)  # 예: {"a_rgb": (224,224,3), "b_ir": (224,224,1)}
     actual_names = []
     for item in inputs:
         name = _logical_input_name(item["name"] if tflite else item.name)
@@ -107,7 +107,7 @@ def _validate_outputs(outputs, model_type, tflite=False):
 # 진입점 1: 변환 '전'. convert_keras_to_tflite.main()이 .keras를 로드한 직후 호출한다.
 # 여기서 걸리면 애초에 잘못 학습된 모델이므로 변환을 시작하지 않는다.
 def validate_keras_model_signature(model, model_type):
-    """Validate a loaded Keras model before TFLite conversion."""
+    """불러온 Keras 모델의 서명을 TFLite 변환 전에 검사한다."""
     _validate_inputs(model.inputs, model_type)
     _validate_outputs(model.outputs, model_type)
 
@@ -115,6 +115,6 @@ def validate_keras_model_signature(model, model_type):
 # 진입점 2: 변환 '후'. 아직 파일로 쓰기 전의 tflite 바이트를 인터프리터에 올려 검사한다
 # (_validate_tflite_bytes 참고). 여기서 걸리면 변환 과정이 서명을 망가뜨린 것이다.
 def validate_tflite_model_signature(input_details, output_details, model_type):
-    """Validate TFLite interpreter tensor details before an artifact is accepted."""
+    """산출물을 채택하기 전에 TFLite 인터프리터의 텐서 정보를 검사한다."""
     _validate_inputs(input_details, model_type, tflite=True)
     _validate_outputs(output_details, model_type, tflite=True)

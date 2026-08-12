@@ -55,6 +55,7 @@ from keras_pipeline.export_validator import (
 )
 
 
+# 파일 경로에 상위 디렉터리가 있으면 산출물을 쓰기 전에 생성한다.
 def _makedirs(path):
     dirpath = os.path.dirname(path)
     if dirpath:
@@ -72,7 +73,7 @@ def _validate_tflite_bytes(tflite_model, model_type):
 
 
 # float32 변환. 양자화를 하지 않으므로 calibration 데이터가 필요 없고,
-# Keras 모델의 계산을 그대로 옮긴다. 정확도 손실이 없어 int8 결과를 비교할 기준이 된다.
+# Keras 모델을 양자화하지 않고 옮기므로 int8 결과를 비교할 float 기준점이 된다.
 def convert_float(model, output_path, model_type):
     converter = tf.lite.TFLiteConverter.from_keras_model(model)
     tflite_model = converter.convert()
@@ -83,9 +84,8 @@ def convert_float(model, output_path, model_type):
     print(f"[float tflite saved] {output_path}")
 
 
-# 캘리브레이션 이미지 한 장을 학습과 '완전히 동일한' 전처리로 읽는다.
-# augment=False가 핵심 — 증강된 이미지로 범위를 재면 실제 추론 때 들어올 분포와
-# 어긋난 스케일이 잡힌다.
+# 캘리브레이션 이미지 한 장을 학습·평가 경로와 같은 디코딩·resize·정규화로 읽는다.
+# 캘리브레이션에는 학습용 증강을 적용하지 않는다.
 def _load_calibration_sample(item, model_type):
     rgb_path, ir_path, _ = item
     return load_sample(rgb_path, ir_path, augment=False)
@@ -93,11 +93,12 @@ def _load_calibration_sample(item, model_type):
 
 # TFLite 변환기가 양자화 범위를 재기 위해 호출할 '표본 공급 함수'를 만들어 돌려준다.
 # 변환기는 이 제너레이터를 돌려 각 텐서에 실제로 어떤 값이 흐르는지 관찰하고,
-# 그 최소/최대에서 scale과 zero_point를 계산한다.
+# 그 흐름을 바탕으로 각 텐서의 양자화 범위를 추정한다.
 def _make_representative_dataset_gen(calibration_items, model_type, remap_rgb=False):
-    """remap_rgb=True applies _rgb_imagenet_norm_to_mobilenet_range to the RGB
-    channel(s) — used only for the NPU export graph, which has no in-graph
-    Lambda to do this itself."""
+    """``remap_rgb=True``이면 RGB 채널을 MobileNet 입력 범위로 다시 매핑한다.
+
+    이 옵션은 해당 변환을 수행하는 Lambda 층이 없는 NPU export 그래프에서만 쓴다.
+    """
     # npu 경로에서는 보정 Lambda가 그래프에 없으므로 여기서 미리 [-1,1]로 바꿔 넣어야
     # 관찰되는 입력 분포가 실제 앱이 넣을 값과 일치한다.
     def _rgb(sample_channel):
@@ -168,8 +169,9 @@ def convert_int8_npu(trained_model, output_path, calibration_items, model_type):
     _convert_int8_core(export_model, output_path, calibration_items, model_type, remap_rgb=True, log_label="npu int8")
 
 
+# 변환할 모델·데이터·산출물 종류를 받는 CLI 인자 파서.
 def parse_args():
-    parser = argparse.ArgumentParser(description="Convert a saved Keras model to TFLite.")
+    parser = argparse.ArgumentParser(description="저장된 Keras 모델을 TFLite로 변환합니다.")
     # 변환할 체크포인트. 생략하면 --output-dir와 --model-type으로 규칙에 따라 유도한다.
     # --h5-path는 .h5를 쓰던 시절의 옛 이름으로, 기존 스크립트 호환용 별칭이다.
     parser.add_argument(
@@ -193,9 +195,9 @@ def parse_args():
     # 최소한 클래스 수(10) 이상이어야 한다 — 아래 stratified 선정이 이를 강제한다.
     parser.add_argument("--calibration-samples", type=int, default=500)
     # 세 산출물은 서로 독립이라 필요한 것만 골라 만들 수 있다(하나도 안 고르면 종료).
-    parser.add_argument("--float", action="store_true", help="Write a float TFLite model.")
-    parser.add_argument("--int8", action="store_true", help="Write a full INT8 TFLite model.")
-    parser.add_argument("--npu-int8", action="store_true", help="Write an NNAPI/NPU-friendly full INT8 TFLite model.")
+    parser.add_argument("--float", action="store_true", help="float TFLite 모델 생성")
+    parser.add_argument("--int8", action="store_true", help="완전 정수 양자화 INT8 TFLite 모델 생성")
+    parser.add_argument("--npu-int8", action="store_true", help="NNAPI/NPU 호환 완전 정수 양자화 INT8 TFLite 모델 생성")
     parser.add_argument("--force", action="store_true", help="기존 산출물을 덮어쓰기 허용")
     return parser.parse_args()
 
@@ -227,8 +229,8 @@ def select_stratified_calibration_items(items, max_samples, seed):
         raise ValueError(f"train calibration에 없는 클래스: {missing_labels}")
 
     # 시드 고정 난수. 클래스 순서와 각 클래스 내부 순서를 모두 섞는다.
-    # 클래스 순서까지 섞는 이유: 라운드로빈에서 앞자리 클래스가 항상 한 장씩 더
-    # 뽑히므로, 순서가 고정이면 특정 클래스가 계속 유리해진다.
+    # 클래스 순서까지 섞는 이유: 요청 수가 클래스 수의 배수가 아니면 라운드로빈의
+    # 앞자리 클래스가 한 장씩 더 뽑힐 수 있어, 순서 고정 시 특정 클래스가 계속 유리해진다.
     rng = random.Random(seed)
     labels = list(by_label)
     rng.shuffle(labels)
@@ -278,14 +280,14 @@ def select_stratified_calibration_items(items, max_samples, seed):
 # validation으로 양자화 범위를 맞추면 검증 지표가 부풀려지고, test를 쓰면
 # 최종 평가가 오염된다. 이 함수가 "train"을 하드코딩해 실수 여지를 없앤다.
 def collect_calibration_items(data_dir, max_samples, seed):
-    """Collect calibration inputs exclusively from the fixed train split."""
+    """고정 train split에서만 캘리브레이션 입력을 수집한다."""
     return select_stratified_calibration_items(
         collect_split_items(data_dir, "train"), max_samples, seed
     )
 
 
-# 표본 한 장이 차지하는 메모리(바이트). dual은 RGB 3채널 + IR 1채널 = 4채널.
-# 매니페스트에 기록해, 변환 중 메모리 사용량을 나중에 가늠할 수 있게 한다.
+# 전처리된 float32 입력 표본 한 장의 배열 크기(바이트).
+# dual은 RGB 3채널 + IR 1채널 = 4채널이다. 변환기의 전체 peak 메모리는 포함하지 않는다.
 def _estimated_calibration_sample_bytes(model_type):
     channels = {"dual": 4, "crop_rgb": 3, "crop_ir": 1}[model_type]
     return 224 * 224 * channels * np.dtype(np.float32).itemsize
@@ -303,6 +305,8 @@ def write_calibration_manifest(path, items, report, model_type, seed, requested_
         "selected_samples": len(items),
         **report,
         "missing_required_samples": 0,
+        # 키 이름은 기존 매니페스트 호환을 위해 유지하지만, 값은 전체 peak가 아니라
+        # 전처리된 float32 입력 표본 한 장의 배열 크기다.
         "estimated_peak_sample_bytes": _estimated_calibration_sample_bytes(model_type),
         "preloaded_sample_bytes": 0,
         "items": [
@@ -315,7 +319,7 @@ def write_calibration_manifest(path, items, report, model_type, seed, requested_
         json.dump(payload, f, ensure_ascii=False, indent=2)
         f.write("\n")
     print(f"[calibration manifest] {path}: {payload['selected_by_class']}, "
-          f"peak~{payload['estimated_peak_sample_bytes']} bytes, preload=0 bytes")
+          f"sample~{payload['estimated_peak_sample_bytes']} bytes, preload=0 bytes")
 
 
 # 변환 전체 흐름: 모델 로드 → 서명 검사 → (필요시) calibration 표본 수집 → 변형별 변환.

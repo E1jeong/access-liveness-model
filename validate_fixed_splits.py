@@ -1,4 +1,4 @@
-"""Validate dataset/raw/{train,validation,test} before training or evaluation."""
+"""학습·평가 전에 dataset/raw/{train,validation,test}를 검증한다."""
 
 import argparse
 

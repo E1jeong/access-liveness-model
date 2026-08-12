@@ -1,4 +1,4 @@
-"""Unit tests for keras_pipeline.artifact_paths — naming conventions and overwrite guard."""
+"""keras_pipeline.artifact_paths의 이름 규칙과 덮어쓰기 방지를 검증한다."""
 import os
 
 import pytest
@@ -22,7 +22,7 @@ from keras_pipeline.artifact_paths import (
 )
 
 
-# ── checkpoint naming ──────────────────────────────────────────────
+# ── 체크포인트 이름 ───────────────────────────────────────────────
 
 class TestKerasCheckpoint:
     def test_dual(self):
@@ -39,7 +39,7 @@ class TestKerasCheckpoint:
         assert p == os.path.join("model/keras", "best_crop_ir_fixed.keras")
 
 
-# ── tflite naming ──────────────────────────────────────────────────
+# ── TFLite 이름 ───────────────────────────────────────────────────
 
 class TestTfliteNaming:
     def test_name(self):
@@ -60,7 +60,7 @@ class TestTfliteNaming:
         assert "float" in result
 
 
-# ── manifest naming ────────────────────────────────────────────────
+# ── 매니페스트 이름 ───────────────────────────────────────────────
 
 class TestManifestNaming:
     def test_sidecar_manifest_path(self):
@@ -76,7 +76,7 @@ class TestManifestNaming:
         assert p == os.path.join("model/keras", "best_crop_ir_fixed_calibration_manifest.json")
 
 
-# ── learning curves & metadata naming ──────────────────────────────
+# ── 학습곡선과 메타데이터 이름 ────────────────────────────────────
 
 class TestCurvesAndMetadata:
     def test_curves_dual(self):
@@ -97,7 +97,7 @@ class TestCurvesAndMetadata:
         assert p == os.path.join("model/keras", "20260716T120000Z_dual_metadata.json")
 
 
-# ── overwrite protection ───────────────────────────────────────────
+# ── 덮어쓰기 방지 ─────────────────────────────────────────────────
 
 class TestOverwriteProtection:
     def test_no_existing_file_passes(self, tmp_path):
@@ -112,14 +112,13 @@ class TestOverwriteProtection:
     def test_existing_file_with_force(self, tmp_path):
         target = tmp_path / "existing.tflite"
         target.write_text("dummy")
-        check_no_overwrite(str(target), force=True)  # should not raise
+        check_no_overwrite(str(target), force=True)  # 예외가 발생하지 않아야 한다.
 
 
-# ── consistency with legacy conventions ────────────────────────────
+# ── 기존 규칙과의 일관성 ──────────────────────────────────────────
 
 class TestLegacyConsistency:
-    """Verify that centralized names match the patterns used by
-    run_fixed_split.sh and the converter main() prior to refactoring."""
+    """중앙화한 이름이 리팩터링 전 셸 래퍼와 변환기의 규칙에 맞는지 검증한다."""
 
     def test_shell_prefix_dual(self):
         stem = os.path.splitext(keras_checkpoint_name("dual"))[0]

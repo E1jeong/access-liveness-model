@@ -35,13 +35,13 @@ case "$MODEL_TYPE" in
 esac
 
 echo "========================================="
-echo "  [Start] Fixed Split Training Pipeline"
-echo "  Model Type    : $MODEL_TYPE"
-echo "  Data Dir      : $DATA_DIR"
-echo "  Epochs        : $EPOCHS"
-echo "  Batch Size    : $BATCH_SIZE"
-echo "  Learning Rate : $LEARNING_RATE"
-echo "  Force Overwrite: ${FORCE:-False}"
+echo "  [시작] 고정 split 학습 파이프라인"
+echo "  모델 종류      : $MODEL_TYPE"
+echo "  데이터 경로    : $DATA_DIR"
+echo "  에폭            : $EPOCHS"
+echo "  배치 크기       : $BATCH_SIZE"
+echo "  학습률          : $LEARNING_RATE"
+echo "  강제 덮어쓰기   : ${FORCE:-사용 안 함}"
 echo "========================================="
 
 .venv-tf/bin/python validate_fixed_splits.py --data-dir "$DATA_DIR"
@@ -70,6 +70,6 @@ echo "========================================="
     "model/keras/${PREFIX}_npu_int8.tflite"
 
 echo "========================================="
-echo "  [Success] Fixed split pipeline complete"
+echo "  [성공] 고정 split 파이프라인 완료"
 echo "  test split은 자동 평가하지 않았습니다."
 echo "========================================="

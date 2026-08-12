@@ -70,11 +70,11 @@ def _group_subject_dirs(subdirs, category):
     if category == "live":
         # live의 경우: high/live_1, medium/live_1 등이 있으므로 basename에서 숫자를 추출하여 그룹화
         for sd in subdirs:
-            basename = os.path.basename(sd)  # "live_1"
+            basename = os.path.basename(sd)  # 폴더명 예: "live_1"
             try:
                 group_key = int(basename.split("_")[1])
             except (IndexError, ValueError):
-                group_key = basename  # fallback
+                group_key = basename  # 숫자를 읽지 못하면 폴더 이름을 대신 쓴다
             groups.setdefault(group_key, []).append(sd)
     else:
         # 그 외 spoof: subject 목록을 정렬한 순서대로 2개씩 묶음
@@ -245,7 +245,7 @@ def validate_fixed_split_coverage(data_dir="dataset/raw"):
     # 3. Content MD5 Hash Leakage 검사
     # 2번(realpath)을 통과해도, 파일을 물리적으로 복사해 두 split에 넣었다면 잡히지 않는다.
     # 그래서 내용 자체를 해시해 비교한다. 여기서는 보안이 아니라 중복 탐지가 목적이라
-    # 속도가 빠른 MD5로 충분하다. 전 이미지를 읽으므로 이 단계가 검증에서 가장 느리다.
+    # 속도가 빠른 MD5로 충분하다. 전 이미지 내용을 읽으므로 데이터 크기에 비례해 비용이 든다.
     hash_to_split_paths = {}
     for split, items in split_items.items():
         for rgb_path, ir_path, _ in items:
@@ -402,8 +402,10 @@ def gather_frame_items(cat_path, subdirs_list, label):
 
 
 def quantize_for_tflite(arr, detail):
-    """int8/uint8-quantize `arr` per an interpreter tensor `detail` dict
-    (from `interpreter.get_input_details()`); float dtype is a no-op cast."""
+    """인터프리터의 텐서 정보에 따라 ``arr``를 int8/uint8로 양자화한다.
+
+    float 자료형이면 값 변환 없이 float32 형식으로만 맞춘다.
+    """
     dtype = detail['dtype']
     if dtype not in (np.int8, np.uint8):
         return arr.astype(np.float32)
@@ -432,7 +434,7 @@ def calculate_validation_metrics(labels, preds):
     10-클래스 분류 결과를 live vs spoof 2진 관점으로 눌러서 보는 것이 핵심이다.
       APCER = 스푸핑을 live(0)로 통과시킨 비율          ← 보안 사고에 직결
       BPCER = 진짜 사람을 spoof로 거부한 비율            ← 사용성 저하
-      ACER  = 두 값의 단순 평균 (제품 통과 기준, 낮을수록 좋음)
+      ACER  = 두 값의 단순 평균 (현재 체크포인트 선택 기준, 낮을수록 좋음)
 
     구체 예) 검증셋에 live 100장, spoof 900장이 있고 spoof 중 9장을 live로,
     live 중 5장을 spoof로 틀렸다면

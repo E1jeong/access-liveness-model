@@ -123,7 +123,7 @@ def _npu_parity_inputs(sample, model_type):
 # 모델이 나간다. 그것을 막는 마지막 관문이다. (양자화 오차는 아직 없는 단계 —
 # Keras 대 Keras, float 대 float 비교라 결과가 거의 정확히 같아야 정상이다.)
 def validate_npu_export_parity(trained_model, export_model, sample, model_type):
-    """Fail when the NPU export graph no longer preserves Keras logits."""
+    """NPU export 그래프가 Keras logits을 보존하지 못하면 실패시킨다."""
     source_inputs, export_inputs = _npu_parity_inputs(sample, model_type)
     # 단일 입력 모델은 리스트가 아니라 텐서 하나를 그대로 넘겨야 한다.
     source_call_inputs = source_inputs[0] if len(source_inputs) == 1 else source_inputs
@@ -157,7 +157,7 @@ def validate_npu_export_parity(trained_model, export_model, sample, model_type):
 #   pooling="avg"                → AveragePooling2D 층      명시적 연산 필요
 #   배치 크기 동적(None)         → 1로 고정                  NPU는 고정 크기 요구
 #   입력 보정 Lambda 층          → 없음(앱이 [-1,1]로 넣음)  그래프 단순화
-#   Dropout 0.2                  → 0.0                      추론에는 불필요
+#   Dropout(학습 설정값)         → 0.0                      추론에는 불필요
 #
 # Dense (2560,1024)를 Conv2D (1,1,2560,1024)로 reshape하는 것은 모양만 바꾸는 일이라
 # 숫자는 하나도 변하지 않는다. 1x1 Conv는 (1,1) 위치에서 채널 방향 내적을 하므로
@@ -207,7 +207,7 @@ def build_npu_export_model(trained_model, model_type):
     for layer_name in backbones:
         _copy_nested_weights(trained_model, export_model, layer_name)
 
-    # ② classifier_dense (Dense) -> classifier_dense_conv (Conv2D 1x1)
+    # ② classifier_dense(Dense)를 classifier_dense_conv(1x1 Conv2D)로 이식한다.
     #    (2560, 1024) → (1, 1, 2560, 1024). bias는 모양이 같아 그대로 쓴다.
     if trained_dense is not None:
         export_dense_conv = export_model.get_layer("classifier_dense_conv")
@@ -215,7 +215,7 @@ def build_npu_export_model(trained_model, model_type):
         conv_w = np.reshape(dense_w, (1, 1, dense_w.shape[0], dense_w.shape[1]))
         export_dense_conv.set_weights([conv_w, dense_b])
 
-    # ③ logits (Dense) -> logits_conv (Conv2D 1x1)
+    # ③ logits(Dense)를 logits_conv(1x1 Conv2D)로 이식한다.
     #    (1024, 10) → (1, 1, 1024, 10). 이 층은 classifier_units=0이어도 항상 존재한다.
     trained_logits = trained_model.get_layer("logits")
     export_logits_conv = export_model.get_layer("logits_conv")
@@ -227,8 +227,7 @@ def build_npu_export_model(trained_model, model_type):
 
 
 # 변환이 끝난 .tflite 파일을 실제로 열어 서명을 검사하고 텐서 정보를 로그에 남긴다.
-# 파일에서 읽은 실물 기준이라, 변환 과정에서 이름·shape·양자화 파라미터가 어떻게
-# 바뀌었는지 확인할 수 있는 유일한 지점이다.
+# 파일로 저장된 실물 기준으로 이름·shape·양자화 파라미터를 확인하고 로그에 남기는 단계다.
 def inspect_tflite(path, model_type):
     interpreter = tf.lite.Interpreter(model_path=path)
     # allocate_tensors()를 불러야 텐서 정보(details)를 읽을 수 있다.
@@ -262,7 +261,8 @@ def write_tflite_sidecar_manifest(tflite_path, model_type):
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
 
-    # 변형 구분을 파일명으로 한다. npu_int8만 정규화 계약과 delegate가 다르기 때문.
+    # 변형 구분을 파일명으로 한다. npu_int8만 정규화 계약과 delegate가 다르기 때문이다.
+    # artifact_paths의 표준 이름을 전제로 하므로, 파일을 임의로 바꾸면 잘못 판별될 수 있다.
     is_npu_int8 = "npu_int8" in os.path.basename(tflite_path)
 
     inputs_info = []
@@ -362,8 +362,8 @@ def write_tflite_sidecar_manifest(tflite_path, model_type):
         "outputs": outputs_info,
         # 출력 인덱스 → 클래스 이름 대응. 앱이 결과를 해석하는 유일한 근거다.
         "class_order": CLASS_NAMES,
-        # 얼굴 검출 박스를 10% 넓혀 크롭하라는 지시. 학습 데이터의 cropRGB/cropIR이
-        # 그 여백으로 만들어졌으므로, 앱이 다르게 자르면 입력 분포가 어긋난다.
+        # 얼굴 검출 박스를 10% 넓혀 크롭하라는 현재 앱 계약이다.
+        # 학습 crop과 이 값의 일치 여부를 자동으로 검증하는 코드는 아직 없다.
         "crop_margin_ratio": 0.10
     }
 

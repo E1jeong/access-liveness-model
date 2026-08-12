@@ -1,8 +1,8 @@
 """tf.data 입력 파이프라인.
 
 이미지 디코딩·증강·정규화를 OpenCV로 수행하고 tf.py_function으로 감싸 tf.data에 태운다.
-TF 네이티브 연산 대신 OpenCV를 쓰는 이유는 PyTorch 파이프라인(pytorch_pipeline/dataset.py)과
-픽셀 단위로 같은 결과를 내야 두 파이프라인의 지표를 비교할 수 있기 때문이다.
+공간 증강 방식과 정규화 계약은 PyTorch 파이프라인(pytorch_pipeline/dataset.py)에 맞췄지만,
+resize 구현과 ColorJitter 연산 순서가 달라 픽셀 단위 결과까지 같지는 않다.
 
 정규화 계약(앱/PyTorch와 동일해야 함):
   RGB: BGR→RGB → 0~1 → (x - ImageNet_mean) / ImageNet_std
@@ -58,15 +58,15 @@ def load_sample(rgb_path, ir_path, augment=False, flip=0, angle=0.0, brightness_
         rgb = cv2.warpAffine(rgb, M, (w, h), flags=cv2.INTER_LINEAR)
         ir = cv2.warpAffine(ir, M, (w, h), flags=cv2.INTER_LINEAR)
 
-    # 회전을 원본 해상도에서 먼저 하고 그다음 224로 축소한다(순서가 바뀌면 보간 품질이 나빠진다).
-    # INTER_AREA는 축소 전용으로 에일리어싱이 가장 적은 보간법.
+    # PyTorch 경로와 같은 처리 순서로 원본 해상도에서 회전한 뒤 224로 resize한다.
+    # 축소에는 OpenCV가 권장하는 INTER_AREA 보간을 사용한다.
     rgb = cv2.resize(rgb, IMAGE_SIZE, interpolation=cv2.INTER_AREA)
     ir = cv2.resize(ir, IMAGE_SIZE, interpolation=cv2.INTER_AREA)
 
     if augment:
-        # ColorJitter (RGB only): match PyTorch after resize.
-        # IR에는 색 증강을 걸지 않는다 — IR 밝기는 물리적 반사 특성이고 스푸핑 판별의
-        # 핵심 신호라, 흔들면 오히려 단서를 지우게 된다.
+        # PyTorch 경로처럼 resize 뒤 RGB에만 ColorJitter를 적용한다. 다만 torchvision은
+        # 밝기·대비·채도 적용 순서를 무작위화하고, 이 구현은 그 순서를 고정한다.
+        # IR에는 공간 증강만 적용하며, 밝기·대비 같은 광도 증강의 효과는 아직 검증되지 않았다.
         rgb_f = rgb.astype(np.float32)
         # 1) 밝기: 전 픽셀에 상수배
         rgb_f = np.clip(rgb_f * brightness_f, 0, 255)
@@ -77,7 +77,7 @@ def load_sample(rgb_path, ir_path, augment=False, flip=0, angle=0.0, brightness_
         #    sat_f=0이면 완전 흑백, 1이면 원본, 1보다 크면 색이 진해진다.
         gray = (0.299 * rgb_f[:, :, 0] + 0.587 * rgb_f[:, :, 1] + 0.114 * rgb_f[:, :, 2])[:, :, np.newaxis]
         rgb_f = np.clip(gray + sat_f * (rgb_f - gray), 0, 255)
-        rgb = rgb_f.astype(np.uint8)  # PyTorch ColorJitter와 동일하게 uint8로 되돌린 뒤 정규화
+        rgb = rgb_f.astype(np.uint8)  # 이후 0~1 변환을 위해 uint8로 되돌린다.
 
     # 정규화: 0~255 → 0~1 → ImageNet 표준화. 파일 상단 계약 참고.
     rgb = rgb.astype(np.float32) / 255.0
@@ -113,7 +113,7 @@ def load_single_sample(path, input_type="crop_rgb", augment=False, flip=0, angle
         rgb = cv2.resize(rgb, IMAGE_SIZE, interpolation=cv2.INTER_AREA)
 
         if augment:
-            # ColorJitter (RGB only)
+            # RGB에만 ColorJitter 적용
             rgb_f = rgb.astype(np.float32)
             rgb_f = np.clip(rgb_f * brightness_f, 0, 255)
             mean_val = rgb_f.mean()
@@ -125,7 +125,7 @@ def load_single_sample(path, input_type="crop_rgb", augment=False, flip=0, angle
         rgb = rgb.astype(np.float32) / 255.0
         rgb = (rgb - RGB_MEAN) / RGB_STD
         return rgb.astype(np.float32)
-    else: # crop_ir
+    else:  # crop_ir 입력 경로
         ir = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
         if ir is None:
             raise ValueError(f"Failed to read IR image: {path}")
@@ -151,20 +151,19 @@ def _sample_augmentation_params(index, seed, augment):
     핵심: tf.random.stateless_* 는 전역 난수 상태가 아니라 넘겨준 seed 텐서만으로 값이
     정해진다. seed를 (샘플 index, 학습 시드)로 만들었기 때문에
       - 같은 시드 + 같은 index → 항상 같은 증강 (재현 가능, tests/dataset/test_deterministic_augmentation.py가 검증)
-      - index가 다르면 → 서로 다른 증강
-    이 두 가지가 동시에 성립한다. 일반 tf.random을 쓰면 tf.data가 map을 병렬 실행하는 순간
-    호출 순서가 비결정적이 되어 재현이 깨진다.
+      - index가 다르면 → 서로 다른 난수 입력을 사용한다(결과 값이 우연히 같을 수는 있다)
+    이 두 가지가 동시에 성립한다. stateless 난수를 쓰면 병렬 map의 실행 순서와 난수 결과를
+    분리할 수 있어 실행 간 재현성이 유지된다.
 
     index는 파일 목록 내 위치가 아니라 repeat 뒤에 붙인 enumerate가 매기는 '스트림 전역
-    카운터'다(make_dataset 참고). 따라서 e번째 에폭의 j번째 샘플은 index = e*N + j 를 받고,
-    같은 이미지라도 에폭이 바뀌면 다른 증강이 걸린다. 그러면서도 그 수열 자체는 seed로
-    고정되므로 실행 간 재현성은 유지된다.
+    카운터'다(make_dataset 참고). 데이터 스트림을 계속 소비할수록 index가 증가하므로 같은
+    이미지가 나중에 다시 등장하면 다른 난수 입력을 받는다. 이 반복 주기는 batch 경계 때문에
+    Keras 학습 에폭과 정확히 일치하지 않을 수 있으며, 난수 수열 자체는 seed로 고정된다.
     """
     if augment:
         # 2원소 int64 텐서가 stateless 계열이 요구하는 seed 형식이다.
         seed_tensor = tf.stack([index, tf.cast(seed, tf.int64)])
-        # 파라미터마다 seed의 두 번째 성분을 +1씩 밀어 서로 독립된 난수열을 뽑는다.
-        # (같은 seed를 재사용하면 flip과 angle이 완전히 상관돼 버린다.)
+        # 파라미터마다 seed의 두 번째 성분을 +1씩 밀어 별도의 난수 입력을 사용한다.
         flip_val = tf.random.stateless_uniform([], seed=seed_tensor, minval=0, maxval=2, dtype=tf.int32)          # 0 또는 1
         angle_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 1], minval=-10.0, maxval=10.0, dtype=tf.float32)   # ±10도
         brightness_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 2], minval=0.7, maxval=1.3, dtype=tf.float32) # ±30%
@@ -234,7 +233,7 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, rep
             return rgb, ir, np.int32(lbl_val)
 
         # OpenCV는 TF 그래프 연산이 아니므로 py_function으로 감싸야 tf.data에 태울 수 있다.
-        # 대가로 GIL 때문에 병렬성이 제한되지만, 여기서는 GPU 학습 속도가 병목이라 문제되지 않는다.
+        # 이 방식은 Python GIL 때문에 병렬 처리량이 제한될 수 있다.
         outputs = tf.py_function(
             _py_fn,
             inp=[rgb_path, ir_path, label, flip_val, angle_val, brightness_val, contrast_val, sat_val],
@@ -318,9 +317,8 @@ def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=Fals
     return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 
-# --- 아래 두 함수는 학습이 아니라 INT8 변환 경로(convert_keras_to_tflite.py)에서 쓰인다. ---
-# 양자화 스케일을 정하려면 실제 입력 분포 표본이 필요해서, 증강 없이 원본 그대로를 흘려보낸다.
-# 학습 데이터와 동일한 전처리를 써야 스케일이 맞으므로 load_sample을 공유한다.
+# 아래 두 함수는 현재 호출부가 없는 잔존 코드다.
+# 실제 INT8 변환은 convert_keras_to_tflite.py의 _make_representative_dataset_gen을 사용한다.
 def representative_dataset(items, max_samples=200):
     for rgb_path, ir_path, _ in items[:max_samples]:
         rgb, ir = load_sample(rgb_path, ir_path, augment=False)
@@ -331,12 +329,10 @@ def representative_dataset(items, max_samples=200):
 
 
 def representative_single_dataset(items, input_type="crop_rgb", max_samples=200):
+    """단일 입력용 대표 표본을 순회한다. 현재 호출부가 없는 잔존 코드다."""
     for rgb_path, ir_path, _ in items[:max_samples]:
         if input_type == "crop_rgb":
             img = load_single_sample(rgb_path, input_type="crop_rgb", augment=False)
         else:
             img = load_single_sample(ir_path, input_type="crop_ir", augment=False)
         yield [np.expand_dims(img, axis=0).astype(np.float32)]
-
-
-

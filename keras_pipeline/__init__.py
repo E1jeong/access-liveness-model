@@ -1,4 +1,4 @@
-"""Keras/TensorFlow training and TFLite conversion pipeline.
+"""Keras/TensorFlow 학습 및 TFLite 변환 파이프라인.
 
 이 파일은 폴더를 파이썬 패키지로 만드는 표시자다. 실행되는 코드는 없고
 docstring만 들어 있으며, 있기 때문에 아래가 성립한다.

@@ -22,8 +22,8 @@ import numpy as np
 import tensorflow as tf
 
 # GPU 메모리를 시작 시점에 전부 선점하지 않고 필요한 만큼만 늘려 잡는다.
-# GTX 1660 Ti(6GB) 한 장에서 학습하므로, 다른 프로세스(변환/평가)와 동시에 떠도
-# OOM으로 죽지 않게 하려는 설정. import 직후 즉, 어떤 텐서도 만들기 전에 호출해야 한다.
+# GTX 1660 Ti(6GB)에서 다른 프로세스와 메모리를 나눠 쓸 여지를 남기는 설정이다.
+# 동시 실행 시 OOM을 보장해서 막지는 않는다. import 직후, 텐서를 만들기 전에 호출해야 한다.
 for _gpu in tf.config.list_physical_devices('GPU'):
     tf.config.experimental.set_memory_growth(_gpu, True)
 
@@ -105,12 +105,13 @@ def _save_learning_curves(history, val_acers, output_dir, model_type):
     print(f"[learning curves saved] {out_path}")
 
 
-# 매 에폭 끝에 검증셋을 평가해, loss나 accuracy가 아니라 ACER가 최저일 때만 체크포인트를 저장하는 콜백(제품 통과 기준이 ACER이므로).
+# 매 에폭 끝에 검증셋을 평가해, 이 학습 파이프라인의 모델 선택 지표인 ACER가
+# 최저일 때만 체크포인트를 저장하는 콜백.
 #
 # 왜 기본 ModelCheckpoint(monitor="val_loss")를 쓰지 않는가:
-#  - 클래스가 10개인데 spoof 9 : live 1로 심하게 불균형이라 accuracy는 live를 다 틀려도 높게 나온다.
-#  - 제품 판정 기준은 APCER(공격 통과율)와 BPCER(정상 거부율)의 평균인 ACER 하나뿐이다.
-#  - 따라서 "최고의 모델"은 ACER 최저 에폭이고, 그 순간에만 파일을 덮어써야 한다.
+#  - 전체 accuracy 하나만으로는 공격 통과율과 정상 거부율의 차이를 구분할 수 없다.
+#  - 현재 구현은 APCER와 BPCER의 평균인 ACER를 체크포인트 선택 기준으로 정했다.
+#  - 외부 PAD 프로토콜의 최종 합격 기준은 별도 합의 대상이며 이 콜백이 결정하지 않는다.
 class AcerCheckpoint(tf.keras.callbacks.Callback):
     # 검증 데이터셋과 저장 경로를 받고, 최저 ACER 추적 상태를 초기화한다.
     def __init__(self, val_ds, output_path):
@@ -151,8 +152,8 @@ class AcerCheckpoint(tf.keras.callbacks.Callback):
 
         self.acer_history.append(acer)
 
-        # 동점(acer == best_acer)은 갱신하지 않는다 → 같은 성능이면 먼저 도달한
-        # (덜 학습된 = 덜 과적합된) 에폭을 남긴다.
+        # 동점(acer == best_acer)은 갱신하지 않아 먼저 저장된 체크포인트를 그대로 남긴다.
+        # 이 규칙만으로 두 에폭의 과적합 정도를 판단할 수는 없다.
         if acer < self.best_acer:
             self.best_acer = acer
             self.best_metrics = {
@@ -173,7 +174,7 @@ class AcerCheckpoint(tf.keras.callbacks.Callback):
 # 학습 CLI 인자 파서. 여기 default가 곧 학습 설정의 기본값이며, 그대로 run metadata에 기록된다.
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Train a Keras anti-spoofing model with fixed train/validation/test splits."
+        description="고정 train/validation/test split으로 Keras 안티스푸핑 모델을 학습합니다."
     )
     # 데이터 루트. 하위에 train/validation/test 세 고정 split이 반드시 있어야 한다(K-Fold는 폐기됨).
     parser.add_argument("--data-dir", default="dataset/raw")
@@ -200,7 +201,7 @@ def parse_args():
     parser.add_argument("--dropout", type=float, default=0.2)
     # 정답 목표를 1.0이 아니라 0.91로 낮춰(=y*(1-ε)+ε/K) 과확신에 벌점을 준다.
     # 0이면 label smoothing 없이 sparse CE로 대체된다.
-    parser.add_argument("--label-smoothing", type=float, default=0.1, help="Label smoothing factor (default: 0.1)")
+    parser.add_argument("--label-smoothing", type=float, default=0.1, help="라벨 스무딩 계수(기본값: 0.1)")
     # 백본 특징(dual이면 1280×2=2560차원)과 logits 사이 은닉층 폭. 0이면 은닉층 생략.
     parser.add_argument("--classifier-units", type=int, default=1024)
     # 지정하면 IR(1채널) 백본을 ImageNet 이식 없이 랜덤 초기화로 시작한다.
@@ -226,7 +227,7 @@ def parse_args():
         help="1채널 Conv1 가중치 이식 시 축소 방식 (mean: 평균, sum: 합산)"
     )
     # 산출물 파일명·metadata 키가 되는 실행 식별자.
-    parser.add_argument("--run-id", help="실행 metadata에 기록할 ID (기본: UTC timestamp + model type)")
+    parser.add_argument("--run-id", help="실행 메타데이터에 기록할 ID(기본값: UTC 시각 + 모델 종류)")
     # 기본은 덮어쓰기 금지. 이전 학습 결과를 실수로 날리는 사고를 막는다.
     parser.add_argument("--force", action="store_true", help="기존 산출물을 덮어쓰기 허용")
     return parser.parse_args()
@@ -237,13 +238,14 @@ def main():
     args = parse_args()
     # python random / numpy / tensorflow 세 난수원을 한 번에 고정한다.
     # 모델 생성보다 먼저 호출해야 가중치 초기화까지 재현된다.
-    # 난수가 총 4군데에 쓰이는데, 난수는 필요하지만 통제되어야 해서 학습 시작전 랜덤 난수 하나 고정.
+    # Python, NumPy, TensorFlow가 관리하는 난수원을 같은 시드로 맞춰 실행 간 재현성을 확보한다.
     tf.keras.utils.set_random_seed(args.seed)
 
     # (1) 지표가 뒤집히지 않았는지 먼저 확인 — 실패하면 학습을 시작조차 하지 않는다.
     _run_apcer_self_check()
     # (2) split 누수 검증. subject/실경로/파일내용 해시/meta.json 세션·비디오 ID까지 교차 검사하고,
-    #     하나라도 겹치면 예외를 던져 학습을 막는다. test split은 여기서 개수만 세고 건드리지 않는다.
+    #     하나라도 겹치면 예외를 던져 학습을 막는다. test는 학습·선택에 쓰지 않지만
+    #     split 무결성과 누수 검사 대상에는 포함된다.
     split_counts = validate_fixed_split_coverage(args.data_dir)
     # (3) 실제 학습/검증에 쓸 (cropRGB 경로, cropIR 경로, label) 튜플 목록.
     #     이 시점에는 경로만 들고 있고 이미지는 아직 읽지 않는다.
@@ -279,8 +281,8 @@ def main():
     steps_per_epoch = math.ceil(len(train_items) / args.batch_size)
 
     # 학습률 스케줄: 코사인 곡선을 따라 initial_learning_rate → initial×alpha 로 부드럽게 감소.
-    # decay_steps를 전체 학습 스텝과 같게 잡았으므로 마지막 스텝에서 정확히 바닥(1e-4×0.01=1e-6)에 닿는다.
-    # alpha=0.01은 0이 아니라 아주 작은 값으로 남겨, 마지막 에폭에도 미세 조정이 계속되게 한다.
+    # decay_steps를 전체 계획 스텝과 같게 잡아 학습 전 구간에 걸쳐 initial×alpha 쪽으로 감쇠한다.
+    # alpha=0.01은 최종 목표 학습률을 0이 아닌 작은 값으로 둔다는 뜻이다.
     total_steps = args.epochs * steps_per_epoch
     lr_schedule = tf.keras.optimizers.schedules.CosineDecay(
         initial_learning_rate=args.learning_rate,

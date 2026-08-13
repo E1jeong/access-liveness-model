@@ -43,6 +43,7 @@ from keras_pipeline.artifact_paths import (
     calibration_manifest_path,
     check_no_overwrite,
 )
+from keras_pipeline.tf_model import SUPPORTED_BACKBONES
 
 
 from keras_pipeline.export_validator import (
@@ -180,6 +181,7 @@ def parse_args():
         dest="model_path",
         default=None,
     )
+    parser.add_argument("--backbone", choices=SUPPORTED_BACKBONES, default="mobilenetv2")
     parser.add_argument("--output-dir", default="model/keras")
     # calibration 표본을 뽑을 데이터 루트. train split만 사용한다.
     parser.add_argument("--data-dir", default="dataset/raw")
@@ -330,7 +332,7 @@ def main():
         raise SystemExit("Choose at least one conversion mode: --float, --int8, and/or --npu-int8")
     # 경로를 안 줬으면 학습과 같은 규칙으로 유도한다(model/keras/best_model_fixed.keras 등).
     if args.model_path is None:
-        args.model_path = keras_checkpoint_path(args.output_dir, args.model_type)
+        args.model_path = keras_checkpoint_path(args.output_dir, args.model_type, args.backbone)
     if not os.path.exists(args.model_path):
         raise FileNotFoundError(args.model_path)
 

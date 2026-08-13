@@ -173,10 +173,20 @@ def build_npu_export_model(trained_model, model_type):
         trained_dense = None
         classifier_units = 0
 
+    if "mobilefacenet" in trained_model.name or any("mobilefacenet" in layer.name for layer in trained_model.layers):
+        backbone = "mobilefacenet"
+    elif "efficientnet_lite0" in trained_model.name or any("efficientnet_lite0" in layer.name for layer in trained_model.layers):
+        backbone = "efficientnet_lite0"
+    else:
+        backbone = "mobilenetv2"
+
+    if backbone == "mobilefacenet" and model_type != "crop_ir":
+        raise ValueError("MobileFaceNet은 crop_ir 단일 입력만 지원합니다")
+
     if model_type == "dual":
         # 함수 안에서 import하는 이유: tf_model이 이 모듈을 다시 참조하는 순환 import를 피한다.
-        from keras_pipeline.tf_model import build_dual_mobilenetv2
-        export_model = build_dual_mobilenetv2(
+        from keras_pipeline.tf_model import build_dual_model
+        export_model = build_dual_model(
             # ImageNet을 다시 받을 필요가 없다 — 어차피 학습 가중치로 전부 덮어쓴다.
             rgb_weights=None,
             dropout=0.0,
@@ -186,11 +196,12 @@ def build_npu_export_model(trained_model, model_type):
             average_pool_op=True,
             fixed_batch_size=1,
             classifier_as_conv=True,
+            backbone=backbone,
         )
-        backbones = ["rgb_mobilenetv2", "ir_mobilenetv2"]
+        backbones = [f"rgb_{backbone}", f"ir_{backbone}"]
     else:
-        from keras_pipeline.tf_model import build_single_mobilenetv2
-        export_model = build_single_mobilenetv2(
+        from keras_pipeline.tf_model import build_single_model
+        export_model = build_single_model(
             input_type=model_type,
             rgb_weights=None,
             dropout=0.0,
@@ -200,8 +211,9 @@ def build_npu_export_model(trained_model, model_type):
             average_pool_op=True,
             fixed_batch_size=1,
             classifier_as_conv=True,
+            backbone=backbone,
         )
-        backbones = [f"{model_type}_mobilenetv2"]
+        backbones = [f"{model_type}_{backbone}"]
 
     # ① 백본(구조가 동일) — 이름으로 짝지어 통째로 복사.
     for layer_name in backbones:

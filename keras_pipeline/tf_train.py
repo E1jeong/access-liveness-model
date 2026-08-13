@@ -42,9 +42,7 @@ from utils import (
 from keras_pipeline.tf_dataset import (
     make_dataset, make_single_dataset
 )
-from keras_pipeline.tf_model import (
-    build_dual_mobilenetv2, build_single_mobilenetv2
-)
+from keras_pipeline.tf_model import SUPPORTED_BACKBONES, build_dual_model, build_single_model
 from keras_pipeline.run_metadata import make_run_id, write_run_metadata
 from keras_pipeline.artifact_paths import (
     keras_checkpoint_path,
@@ -73,7 +71,7 @@ def _run_apcer_self_check():
 # history: model.fit이 반환한 History (train 지표만 들어 있다)
 # val_acers: AcerCheckpoint가 에폭마다 append한 검증 ACER 리스트
 # 왼쪽 그래프는 손실, 오른쪽 그래프는 정확도 계열을 겹쳐 과적합 시점을 눈으로 보게 한다.
-def _save_learning_curves(history, val_acers, output_dir, model_type):
+def _save_learning_curves(history, val_acers, output_dir, model_type, backbone):
     epochs = range(1, len(history.history["loss"]) + 1)  # x축은 1부터 시작하는 에폭 번호
     plt.figure(figsize=(12, 5))
 
@@ -99,7 +97,7 @@ def _save_learning_curves(history, val_acers, output_dir, model_type):
     plt.tight_layout()
     os.makedirs(output_dir, exist_ok=True)
     # 파일명 규칙은 artifact_paths에 한 곳으로 모여 있다(dual은 접미사 없음, 나머지는 _crop_rgb 등).
-    out_path = learning_curves_path(output_dir, model_type)
+    out_path = learning_curves_path(output_dir, model_type, backbone)
     plt.savefig(out_path)
     plt.close()
     print(f"[learning curves saved] {out_path}")
@@ -186,6 +184,12 @@ def parse_args():
         default="dual",
         help="학습할 모델 종류 (dual: 2입력, crop_rgb: 단일 RGB, crop_ir: 단일 IR)"
     )
+    parser.add_argument(
+        "--backbone",
+        choices=SUPPORTED_BACKBONES,
+        default="mobilenetv2",
+        help="특징 추출 백본 (mobilenetv2, efficientnet_lite0, mobilefacenet)",
+    )
     # 에폭 수. steps_per_epoch × epochs가 곧 CosineDecay의 총 스텝이 되므로,
     # 이 값을 바꾸면 학습률 스케줄 모양 자체가 바뀐다(단순히 더/덜 도는 게 아니다).
     parser.add_argument("--epochs", type=int, default=10)
@@ -236,6 +240,11 @@ def parse_args():
 # 학습 전체 흐름: split 누수 검증 → 데이터셋 구성 → 모델 생성 → compile → fit → 학습곡선과 run metadata 저장.
 def main():
     args = parse_args()
+    if args.backbone == "mobilefacenet":
+        if args.model_type != "crop_ir":
+            raise ValueError("MobileFaceNet은 crop_ir 단일 입력만 지원합니다")
+        if args.rgb_weights != "none":
+            raise ValueError("MobileFaceNet은 scratch 학습만 지원하므로 --rgb-weights none을 사용해야 합니다")
     # python random / numpy / tensorflow 세 난수원을 한 번에 고정한다.
     # 모델 생성보다 먼저 호출해야 가중치 초기화까지 재현된다.
     # Python, NumPy, TensorFlow가 관리하는 난수원을 같은 시드로 맞춰 실행 간 재현성을 확보한다.
@@ -257,6 +266,7 @@ def main():
     print(f" - validation images: {len(val_items)}")
     print(f" - test images (isolated): {split_counts['test']}")
     print(f" - model type: {args.model_type}")
+    print(f" - backbone: {args.backbone}")
 
     # (4) tf.data 파이프라인 구성.
     #  - train: 셔플 O, 증강 O, repeat=True로 무한 반복 (fit이 steps_per_epoch로 끊는다)
@@ -296,21 +306,23 @@ def main():
     # (5) 모델 생성. 여기서 ImageNet 가중치 다운로드/이식이 일어난다.
 
     if args.model_type == "dual":
-        model = build_dual_mobilenetv2(
+        model = build_dual_model(
             rgb_weights=rgb_weights,
             dropout=args.dropout,
             classifier_units=args.classifier_units,
             gray_imagenet_init=not args.no_gray_imagenet_init,
             conv1_reduction=args.conv1_reduction,
+            backbone=args.backbone,
         )
     else:
-        model = build_single_mobilenetv2(
+        model = build_single_model(
             input_type=args.model_type,
             rgb_weights=rgb_weights,
             dropout=args.dropout,
             classifier_units=args.classifier_units,
             gray_imagenet_init=not args.no_gray_imagenet_init,
             conv1_reduction=args.conv1_reduction,
+            backbone=args.backbone,
         )
 
     # (6) 손실 함수 선택.
@@ -344,7 +356,7 @@ def main():
 
     # (7) 저장 경로를 먼저 확정하고, 학습을 시작하기 전에 덮어쓰기 여부를 검사한다.
     #     몇 시간 학습한 뒤 마지막에 FileExistsError로 죽는 상황을 피하려는 순서다.
-    output_path = keras_checkpoint_path(args.output_dir, args.model_type)
+    output_path = keras_checkpoint_path(args.output_dir, args.model_type, args.backbone)
     check_no_overwrite(output_path, force=args.force)
     checkpoint = AcerCheckpoint(val_ds=val_ds, output_path=output_path)
 
@@ -358,7 +370,7 @@ def main():
     )
 
     # (9) 학습곡선 저장.
-    _save_learning_curves(history, checkpoint.acer_history, args.output_dir, args.model_type)
+    _save_learning_curves(history, checkpoint.acer_history, args.output_dir, args.model_type, args.backbone)
 
     # (10) 체크포인트가 한 번이라도 저장됐을 때만 run metadata를 남긴다.
     #      best_metrics가 None이면 저장된 .keras 파일도 없으므로 기록할 대상이 없다.
@@ -367,7 +379,7 @@ def main():
         for key, value in checkpoint.best_metrics.items():
             print(f" - {key}: {value:.4f}")
         # run_id를 안 줬으면 "UTC시각_모델타입" 형태로 자동 생성 (예: 20260807T100157Z_dual)
-        run_id = args.run_id or make_run_id(args.model_type)
+        run_id = args.run_id or make_run_id(args.model_type, args.backbone)
         meta_path = artifact_metadata_path(args.output_dir, run_id)
         # CLI 인자 전체를 그대로 기록해 두면 "이 모델이 어떤 설정으로 나왔는가"를
         # 나중에 파일 하나로 재구성할 수 있다. run_id는 metadata 최상위에 따로 들어가므로 중복 제외.

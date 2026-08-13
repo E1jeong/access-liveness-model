@@ -30,7 +30,8 @@ than the current PyTorch `.pth` to TFLite path.
 ## Files
 
 - `tf_dataset.py`: image loading and TensorFlow dataset construction. Spatial augmentation, resize, RGB ColorJitter, and normalization are aligned to the PyTorch pipeline.
-- `tf_model.py`: dual-input MobileNetV2 Keras model. RGB uses ImageNet weights; IR can copy those weights by averaging the first RGB convolution to one channel.
+- `tf_model.py`: input-contract builders and selectable MobileNetV2, EfficientNet-Lite0, and MobileFaceNet backbones.
+- `mobilefacenet.py`: scratch-only, IR-only ReLU6 MobileFaceNet with a 7×7 GDConv adapted to the fixed 224×224 input contract.
 - `tf_train.py`: trains and saves `.keras` checkpoints by best validation ACER.
 - `convert_keras_to_tflite.py`: converts a saved Keras model to float, standard full INT8, or NPU-friendly full INT8 TFLite.
 - `../validate_fixed_splits.py`: validates all three splits and blocks subject/frame leakage.
@@ -61,6 +62,23 @@ automatically. Final test evaluation must be requested explicitly:
   model/keras/best_model_fixed_int8.tflite \
   model/keras/best_model_fixed_npu_int8.tflite
 ```
+
+MobileFaceNet is an independent single-IR candidate. It keeps the ten-class
+`crop_ir` input/output contract, starts from scratch (no external face
+checkpoint), and writes backbone-specific artifacts so it cannot overwrite the
+MobileNetV2 baseline:
+
+```bash
+./scripts/keras/run_fixed_split.sh \
+  --model-type crop_ir --backbone mobilefacenet \
+  --epochs 30 --batch-size 16 --learning-rate 2e-4
+```
+
+`--backbone` defaults to `mobilenetv2`; `efficientnet_lite0` and
+`mobilefacenet` artifacts include their backbone name in every checkpoint,
+TFLite, calibration manifest, learning-curve, and run-metadata filename.
+MobileFaceNet rejects RGB and dual input types, and its ReLU6 replacement for
+PReLU is required for the NPU INT8 experiment.
 
 The generated files go under `model/keras/` by default.
 

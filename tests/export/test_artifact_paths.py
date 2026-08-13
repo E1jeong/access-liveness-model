@@ -34,6 +34,9 @@ class TestKerasCheckpoint:
     def test_crop_ir(self):
         assert keras_checkpoint_name("crop_ir") == "best_crop_ir_fixed.keras"
 
+    def test_mobilefacenet_crop_ir_is_separate_from_baseline(self):
+        assert keras_checkpoint_name("crop_ir", "mobilefacenet") == "best_crop_ir_mobilefacenet_fixed.keras"
+
     def test_full_path(self):
         p = keras_checkpoint_path("model/keras", "crop_ir")
         assert p == os.path.join("model/keras", "best_crop_ir_fixed.keras")
@@ -58,6 +61,10 @@ class TestTfliteNaming:
         result = tflite_paths("model/keras", "crop_rgb", variants=("float",))
         assert len(result) == 1
         assert "float" in result
+
+    def test_mobilefacenet_tflite_paths_are_separate_from_baseline(self):
+        result = tflite_paths("model/keras", "crop_ir", backbone="mobilefacenet")
+        assert result["npu_int8"].endswith("best_crop_ir_mobilefacenet_fixed_npu_int8.tflite")
 
 
 # ── 매니페스트 이름 ───────────────────────────────────────────────
@@ -88,6 +95,9 @@ class TestCurvesAndMetadata:
     def test_curves_path(self):
         p = learning_curves_path("model/keras", "crop_ir")
         assert p == os.path.join("model/keras", "learning_curves_crop_ir_fixed.png")
+
+    def test_mobilefacenet_curves_are_separate_from_baseline(self):
+        assert learning_curves_name("crop_ir", "mobilefacenet") == "learning_curves_crop_ir_mobilefacenet_fixed.png"
 
     def test_metadata_name(self):
         assert metadata_name("20260716T120000Z_dual") == "20260716T120000Z_dual_metadata.json"

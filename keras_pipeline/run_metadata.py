@@ -16,9 +16,10 @@ from utils import collect_split_items
 # 실행 식별자: UTC 시각 + 모델 타입 (예: 20260807T100157Z_dual).
 # 로컬 시간이 아니라 UTC를 쓰는 이유는 여러 머신(회사 PC/서브 노트북)의 기록을
 # 시간순으로 정렬할 때 타임존 차이로 순서가 뒤집히지 않게 하기 위해서다.
-def make_run_id(model_type):
+def make_run_id(model_type, backbone="mobilenetv2"):
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return f"{timestamp}_{model_type}"
+    suffix = f"_{backbone}" if backbone != "mobilenetv2" else ""
+    return f"{timestamp}_{model_type}{suffix}"
 
 
 # split별 파일 목록의 SHA-256 지문. "그때 그 데이터가 지금 이 데이터와 같은가"를

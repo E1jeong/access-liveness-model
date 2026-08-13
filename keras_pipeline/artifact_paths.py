@@ -17,18 +17,22 @@ TFLITE_VARIANTS = ("float", "int8", "npu_int8")
 # Keras 체크포인트 이름
 # ---------------------------------------------------------------------------
 
-def keras_checkpoint_name(model_type: str) -> str:
+def keras_checkpoint_name(model_type: str, backbone: str = "mobilenetv2") -> str:
     """모델 종류에 해당하는 표준 .keras 체크포인트 파일명을 반환한다."""
     # dual만 접미사가 없다. 이 파이프라인이 dual 하나로 시작했을 때 굳은 이름이라
     # 기존 산출물·문서·안드로이드 자산과의 호환을 위해 그대로 유지한다.
-    if model_type == "dual":
+    if backbone == "mobilenetv2" and model_type == "dual":
         return "best_model_fixed.keras"
-    return f"best_{model_type}_fixed.keras"
+    if backbone == "mobilenetv2":
+        return f"best_{model_type}_fixed.keras"
+    if model_type == "dual":
+        return f"best_model_{backbone}_fixed.keras"
+    return f"best_{model_type}_{backbone}_fixed.keras"
 
 
-def keras_checkpoint_path(output_dir: str, model_type: str) -> str:
+def keras_checkpoint_path(output_dir: str, model_type: str, backbone: str = "mobilenetv2") -> str:
     """출력 디렉터리와 .keras 체크포인트 파일명을 결합해 반환한다."""
-    return os.path.join(output_dir, keras_checkpoint_name(model_type))
+    return os.path.join(output_dir, keras_checkpoint_name(model_type, backbone))
 
 
 # ---------------------------------------------------------------------------
@@ -49,11 +53,11 @@ def tflite_path(output_dir: str, keras_stem: str, variant: str) -> str:
     return os.path.join(output_dir, tflite_name(keras_stem, variant))
 
 
-def tflite_paths(output_dir: str, model_type: str, variants=None):
+def tflite_paths(output_dir: str, model_type: str, variants=None, backbone: str = "mobilenetv2"):
     """요청한 변형별 산출물 경로를 ``{변형: 경로}`` 사전으로 반환한다."""
     if variants is None:
         variants = TFLITE_VARIANTS
-    stem = Path(keras_checkpoint_name(model_type)).stem
+    stem = Path(keras_checkpoint_name(model_type, backbone)).stem
     return {v: tflite_path(output_dir, stem, v) for v in variants}
 
 
@@ -80,16 +84,18 @@ def calibration_manifest_path(output_dir: str, keras_stem: str) -> str:
 # 학습곡선과 실행 메타데이터
 # ---------------------------------------------------------------------------
 
-def learning_curves_name(model_type: str) -> str:
+def learning_curves_name(model_type: str, backbone: str = "mobilenetv2") -> str:
     """학습곡선 이미지 파일명을 반환한다."""
     # 체크포인트와 같은 규칙: dual만 접미사 없음.
     suffix = f"_{model_type}" if model_type != "dual" else ""
+    if backbone != "mobilenetv2":
+        suffix += f"_{backbone}"
     return f"learning_curves{suffix}_fixed.png"
 
 
-def learning_curves_path(output_dir: str, model_type: str) -> str:
+def learning_curves_path(output_dir: str, model_type: str, backbone: str = "mobilenetv2") -> str:
     """출력 디렉터리와 학습곡선 PNG 파일명을 결합해 반환한다."""
-    return os.path.join(output_dir, learning_curves_name(model_type))
+    return os.path.join(output_dir, learning_curves_name(model_type, backbone))
 
 
 def metadata_name(run_id: str) -> str:

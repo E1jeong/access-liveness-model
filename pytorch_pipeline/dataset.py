@@ -15,10 +15,9 @@ import random
 from classes import CLASS_MAPPING
 from utils import (
     _sort_subject_dirs, _split_kfold_subjects,
-    gather_frame_items, validate_kfold_coverage,
+    gather_frame_items, validate_kfold_coverage, collect_split_items
 )
 
-# Windows 콘솔 인코딩 설정
 sys.stdout.reconfigure(encoding='utf-8')
 
 class DualInputDataset(Dataset):
@@ -71,10 +70,7 @@ class DualInputDataset(Dataset):
         return rgb_tensor, ir_tensor, label
 
 
-def get_data_loaders(data_dir="dataset/raw", batch_size=8, k_folds=5, fold_idx=0, seed=42, num_workers=4):
-    """
-    학습용(Train) 및 검증용(Val) 듀얼 인풋(RGB + IR) DataLoader를 생성합니다.
-    """
+def _get_default_transforms():
     train_transform_rgb = transforms.Compose([
         transforms.ToPILImage(),
         transforms.Resize((224, 224)),
@@ -96,6 +92,48 @@ def get_data_loaders(data_dir="dataset/raw", batch_size=8, k_folds=5, fold_idx=0
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5], std=[0.5])
     ])
+
+    return train_transform_rgb, val_transform_rgb, transform_ir
+
+
+def get_fixed_split_loaders(data_dir="dataset/raw", batch_size=8, num_workers=4):
+    """
+    고정 train/validation split DataLoader를 생성합니다.
+    """
+    train_transform_rgb, val_transform_rgb, transform_ir = _get_default_transforms()
+
+    train_items = collect_split_items(data_dir, "train")
+    val_items = collect_split_items(data_dir, "validation")
+
+    train_dataset = DualInputDataset(
+        train_items, transform_rgb=train_transform_rgb, transform_ir=transform_ir, augment=True
+    )
+    val_dataset = DualInputDataset(
+        val_items, transform_rgb=val_transform_rgb, transform_ir=transform_ir, augment=False
+    )
+
+    train_loader = DataLoader(
+        train_dataset, batch_size=batch_size, shuffle=True,
+        num_workers=num_workers, pin_memory=True, persistent_workers=num_workers > 0
+    )
+    val_loader = DataLoader(
+        val_dataset, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=True, persistent_workers=num_workers > 0
+    )
+
+    print(f"[고정 split 데이터셋 구성 완료]")
+    print(f" - Train 프레임: {len(train_dataset)}장 (배치 크기: {batch_size})")
+    print(f" - Validation 프레임: {len(val_dataset)}장")
+    print(f" - DataLoader num_workers: {num_workers}, pin_memory: True")
+
+    return train_loader, val_loader
+
+
+def get_data_loaders(data_dir="dataset/raw", batch_size=8, k_folds=5, fold_idx=0, seed=42, num_workers=4):
+    """
+    K-Fold 교차 검증용 train/val DataLoader를 생성합니다.
+    """
+    train_transform_rgb, val_transform_rgb, transform_ir = _get_default_transforms()
 
     if k_folds < 2:
         raise ValueError("k_folds는 2 이상이어야 합니다.")
@@ -140,21 +178,9 @@ def get_data_loaders(data_dir="dataset/raw", batch_size=8, k_folds=5, fold_idx=0
         num_workers=num_workers, pin_memory=True, persistent_workers=num_workers > 0
     )
 
-    print(f"[데이터셋 구성 완료]")
-    print(f" - 매핑 정보: {CLASS_MAPPING}")
+    print(f"[K-Fold 데이터셋 구성 완료]")
     print(f" - K-fold: {k_folds}개 중 fold {fold_idx}")
     print(f" - 학습용 데이터 수: {len(train_dataset)}장 (배치 크기: {batch_size})")
     print(f" - 검증용 데이터 수: {len(val_dataset)}장")
-    print(f" - DataLoader num_workers: {num_workers}, pin_memory: True")
 
     return train_loader, val_loader
-
-
-if __name__ == "__main__":
-    validate_kfold_coverage("dataset/raw", k_folds=5)
-    train_loader, val_loader = get_data_loaders("dataset/raw", batch_size=4, k_folds=5, fold_idx=0)
-    if len(train_loader) > 0:
-        rgb_batch, ir_batch, labels = next(iter(train_loader))
-        print(f"배치 RGB 텐서 크기: {rgb_batch.shape}")  # [B, 3, 224, 224]
-        print(f"배치 IR 텐서 크기: {ir_batch.shape}")    # [B, 1, 224, 224]
-        print(f"배치 라벨 값들: {labels}")

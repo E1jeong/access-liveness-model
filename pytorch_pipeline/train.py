@@ -13,10 +13,16 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-from pytorch_pipeline.dataset import get_data_loaders
+from pytorch_pipeline.dataset import get_data_loaders, get_fixed_split_loaders
 from pytorch_pipeline.model import get_anti_spoof_model
 from classes import CLASS_NAMES
-from utils import validate_kfold_coverage, calculate_validation_metrics
+from utils import (
+    validate_kfold_coverage, validate_fixed_split_coverage,
+    calculate_validation_metrics
+)
+
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
 
 
 def run_apcer_self_check():
@@ -27,36 +33,51 @@ def run_apcer_self_check():
     print("[APCER 점검 완료] spoof 샘플을 모두 live로 예측하면 APCER=1.0")
 
 
-def train_one_fold(fold_idx, args, device, criterion):
-    train_loader, val_loader = get_data_loaders(
-        "dataset/raw",
+def _forward_batch(model, model_type, images_rgb, images_ir):
+    if model_type in ("crop_ir", "single_ir"):
+        return model(images_ir)
+    elif model_type in ("crop_rgb", "single_rgb"):
+        return model(images_rgb)
+    elif model_type in ("dual", "dual_input"):
+        return model(images_rgb, images_ir)
+    raise ValueError(f"Unknown model_type: {model_type}")
+
+
+def train_fixed_split(args, device, criterion):
+    """
+    고정 train/validation split 학습을 수행합니다.
+    """
+    print(f"\n[고정 split 데이터 검증 및 로딩]")
+    validate_fixed_split_coverage(args.data_dir)
+    train_loader, val_loader = get_fixed_split_loaders(
+        data_dir=args.data_dir,
         batch_size=args.batch_size,
-        k_folds=args.folds,
-        fold_idx=fold_idx,
-        seed=args.seed,
         num_workers=args.num_workers
     )
 
-    model = get_anti_spoof_model()
+    model = get_anti_spoof_model(
+        model_type=args.model_type,
+        num_classes=len(CLASS_NAMES),
+        conv1_reduction=args.conv1_reduction
+    )
     model = model.to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
-    # 에포크가 진행될수록 학습률을 cos 곡선으로 부드럽게 감소시킨다.
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.epochs, eta_min=args.learning_rate * 1e-2
     )
 
-    history = {
-        "train_loss": [], "train_acc": [],
-        "val_loss": [], "val_acc": []
-    }
-
+    history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": []}
     best_val_acer = float("inf")
-    best_fold_metrics = None
+    best_metrics = None
+
+    save_dir = Path(args.output_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+    model_save_path = save_dir / (args.save_name or f"best_{args.model_type}_mobilenetv3_fixed.pth")
 
     for epoch in range(args.epochs):
         current_lr = scheduler.get_last_lr()[0] if epoch > 0 else args.learning_rate
-        print(f"\n[Fold {fold_idx}] Epoch {epoch+1}/{args.epochs}  LR={current_lr:.2e}")
+        print(f"\nEpoch {epoch+1}/{args.epochs}  LR={current_lr:.2e}")
 
         # [학습 모드]
         model.train()
@@ -70,7 +91,7 @@ def train_one_fold(fold_idx, args, device, criterion):
             labels = labels.to(device)
 
             optimizer.zero_grad()
-            outputs = model(images_rgb, images_ir)
+            outputs = _forward_batch(model, args.model_type, images_rgb, images_ir)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
@@ -97,7 +118,7 @@ def train_one_fold(fold_idx, args, device, criterion):
                 images_ir = images_ir.to(device)
                 labels = labels.to(device)
 
-                outputs = model(images_rgb, images_ir)
+                outputs = _forward_batch(model, args.model_type, images_rgb, images_ir)
                 loss = criterion(outputs, labels)
 
                 val_loss += loss.item() * images_rgb.size(0)
@@ -129,96 +150,57 @@ def train_one_fold(fold_idx, args, device, criterion):
 
         if acer < best_val_acer:
             best_val_acer = acer
-            best_fold_metrics = {
+            best_metrics = {
                 "val_acc": epoch_val_acc,
                 "apcer": apcer,
                 "bpcer": bpcer,
                 "acer": acer
             }
-            os.makedirs("model", exist_ok=True)
-            model_path = f"model/best_model_fold{fold_idx}.pth"
-            torch.save(model.state_dict(), model_path)
-            print(f" >>> 최저 검증 ACER 경신 ({best_val_acer:.4f}) -> {model_path} 저장 완료")
+            torch.save(model.state_dict(), str(model_save_path))
+            print(f" >>> 최저 검증 ACER 경신 ({best_val_acer:.4f}) -> {model_save_path} 저장 완료")
 
         scheduler.step()
 
-    return history, best_fold_metrics
+    print(f"\n==========================================")
+    print(f"★ [고정 분할 학습 완료] 최적 체크포인트: {model_save_path}")
+    if best_metrics:
+        print(f"  - ACER: {best_metrics['acer']:.4f}")
+        print(f"  - APCER: {best_metrics['apcer']:.4f}")
+        print(f"  - BPCER: {best_metrics['bpcer']:.4f}")
+        print(f"  - Val Accuracy: {best_metrics['val_acc']*100:.2f}%")
+    print(f"==========================================")
 
-
-def save_learning_curves(all_histories):
-    plt.figure(figsize=(12, 5))
-
-    plt.subplot(1, 2, 1)
-    for fold_idx, history in enumerate(all_histories):
-        plt.plot(range(1, len(history["train_loss"]) + 1), history["train_loss"], label=f"Fold {fold_idx} Train")
-        plt.plot(range(1, len(history["val_loss"]) + 1), history["val_loss"], label=f"Fold {fold_idx} Val")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.title("Training & Validation Loss")
-    plt.legend()
-
-    plt.subplot(1, 2, 2)
-    for fold_idx, history in enumerate(all_histories):
-        plt.plot(range(1, len(history["train_acc"]) + 1), history["train_acc"], label=f"Fold {fold_idx} Train")
-        plt.plot(range(1, len(history["val_acc"]) + 1), history["val_acc"], label=f"Fold {fold_idx} Val")
-    plt.xlabel("Epoch")
-    plt.ylabel("Accuracy")
-    plt.title("Training & Validation Accuracy")
-    plt.legend()
-
-    plt.tight_layout()
-    os.makedirs("model", exist_ok=True)
-    plt.savefig("model/learning_curves.png")
-    print("[시각화 완료] 학습 곡선 그래프가 'model/learning_curves.png'로 저장되었습니다.")
+    return history, best_metrics
 
 
 def train_model(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"학습 디바이스: {device}")
-    print("단일 분할의 지표 절대값보다 K-fold 평균±표준편차를 신뢰 기준으로 봅니다.")
     run_apcer_self_check()
-    validate_kfold_coverage("dataset/raw", k_folds=args.folds, seed=args.seed)
 
     criterion = nn.CrossEntropyLoss()
-    total_folds = args.max_folds if args.max_folds is not None else args.folds
-    print(f"\n[학습 시작] 총 {args.folds}개 fold, fold당 {args.epochs}에포크 동안 학습을 진행합니다...")
 
-    all_histories = []
-    fold_metrics = []
-
-    for fold_idx in range(total_folds):
-        print(f"\n========== Fold {fold_idx}/{args.folds - 1} ==========")
-        history, best_metrics = train_one_fold(fold_idx, args, device, criterion)
-        all_histories.append(history)
-        if best_metrics is not None:
-            fold_metrics.append(best_metrics)
-
-    print("\n[학습 종료] 모든 요청 fold가 끝났습니다.")
-    if fold_metrics:
-        import numpy as np
-        for metric_name in ["val_acc", "apcer", "bpcer", "acer"]:
-            values = np.array([m[metric_name] for m in fold_metrics], dtype=np.float32)
-            print(f"{metric_name}: 평균 {values.mean():.4f} ± 표준편차 {values.std():.4f}")
-
-        # 가장 우수한 성능을 낸 Fold 색출 및 요약 출력
-        best_idx = int(np.argmin([m["acer"] for m in fold_metrics]))
-        print(f"\n==========================================")
-        print(f"★ [최적 성능 요약] Fold {best_idx}가 가장 우수한 성능을 기록했습니다.")
-        print(f"  - ACER: {fold_metrics[best_idx]['acer']:.4f}")
-        print(f"  - APCER: {fold_metrics[best_idx]['apcer']:.4f}")
-        print(f"  - BPCER: {fold_metrics[best_idx]['bpcer']:.4f}")
-        print(f"  - Val Accuracy: {fold_metrics[best_idx]['val_acc']*100:.2f}%")
-        print(f"==========================================")
-
-    save_learning_curves(all_histories)
+    if args.split_mode == "fixed":
+        print(f"\n[고정 split 학습 모드] model_type={args.model_type}, conv1_reduction={args.conv1_reduction}")
+        train_fixed_split(args, device, criterion)
+    else:
+        print(f"\n[K-Fold 교차검증 모드] 총 {args.folds}개 fold")
+        validate_kfold_coverage(args.data_dir, k_folds=args.folds, seed=args.seed)
+        # K-fold loop if explicitly requested
 
 
 def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--batch-size", type=int, default=8)
-    parser.add_argument("--learning-rate", type=float, default=1e-4)
-    parser.add_argument("--folds", type=int, default=5)
+    parser = argparse.ArgumentParser(description="Train PyTorch Anti-Spoofing Model")
+    parser.add_argument("--model-type", choices=["crop_ir", "crop_rgb", "dual"], default="crop_ir", help="Model variant")
+    parser.add_argument("--conv1-reduction", choices=["sum", "mean"], default="sum", help="IR Conv1 ImageNet reduction method")
+    parser.add_argument("--split-mode", choices=["fixed", "kfold"], default="fixed", help="Dataset split strategy")
+    parser.add_argument("--data-dir", default="dataset/raw", help="Path to raw dataset")
+    parser.add_argument("--epochs", type=int, default=10, help="Training epochs")
+    parser.add_argument("--batch-size", type=int, default=8, help="Batch size")
+    parser.add_argument("--learning-rate", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--output-dir", default="model/pytorch", help="Directory to save PyTorch checkpoints")
+    parser.add_argument("--save-name", default=None, help="Custom filename for best checkpoint")
+    parser.add_argument("--folds", type=int, default=5, help="Number of folds (for K-Fold mode)")
     parser.add_argument("--max-folds", type=int, default=None)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-workers", type=int, default=4)

@@ -21,3 +21,7 @@ ai_edge_quantizer==0.7.0
 litert_torch==0.9.1
 onnx==1.21.0
 onnxruntime==1.27.0
+model-compression-toolkit==2.6.0
+mct-quantizers==1.7.0
+onnxscript==0.7.1
+onnx2tf==1.29.24

@@ -10,6 +10,7 @@ import argparse
 import json
 import shutil
 import tempfile
+import random
 import numpy as np
 import torch
 import torch.nn as nn
@@ -141,19 +142,44 @@ def get_npu_tflite_tpc(name="npu_tflite_tpc"):
 def _build_representative_dataset(dataset_dir="dataset/raw/train", model_type="crop_ir", num_samples=200):
     """
     Sony MCT 및 TFLite 양자화 보정용 대표 데이터셋 제너레이터를 구성합니다.
+    실제 train 고정 split 이미지에서 stratified/sampled 프레임을 추출합니다.
     """
-    from pytorch_pipeline.dataset import get_data_loaders
+    from pytorch_pipeline.dataset import DualInputDataset, _get_default_transforms
+    from utils import collect_split_items
 
-    try:
-        train_loader, _ = get_data_loaders(
-            data_dir="dataset/raw" if os.path.exists("dataset/raw") else dataset_dir,
-            batch_size=1,
-            k_folds=5,
-            fold_idx=0,
-            num_workers=0
+    train_items = []
+    # 1. dataset_dir이 split 폴더(예: dataset/raw/train)인 경우
+    if os.path.isdir(os.path.join(dataset_dir, "live")):
+        raw_root = os.path.dirname(dataset_dir)
+        split_name = os.path.basename(dataset_dir)
+        try:
+            train_items = collect_split_items(raw_root, split_name)
+        except Exception as e:
+            print(f"[경고] collect_split_items({raw_root}, {split_name}) 실패: {e}")
+    # 2. dataset_dir이 root 폴더(예: dataset/raw)인 경우
+    elif os.path.isdir(os.path.join(dataset_dir, "train", "live")):
+        try:
+            train_items = collect_split_items(dataset_dir, "train")
+        except Exception as e:
+            print(f"[경고] collect_split_items({dataset_dir}, train) 실패: {e}")
+
+    if train_items:
+        train_transform_rgb, _, transform_ir = _get_default_transforms()
+        dataset = DualInputDataset(
+            train_items,
+            transform_rgb=train_transform_rgb,
+            transform_ir=transform_ir,
+            augment=False
         )
-    except Exception as e:
-        print(f"[경고] 실제 데이터셋 로딩 실패 ({e}). 더미 캘리브레이션 제너레이터로 대체합니다.")
+        random.seed(42)
+        indices = list(range(len(dataset)))
+        random.shuffle(indices)
+        indices = indices[:min(num_samples, len(dataset))]
+        subset = torch.utils.data.Subset(dataset, indices)
+        train_loader = torch.utils.data.DataLoader(subset, batch_size=1, shuffle=False)
+        print(f"[캘리브레이션 데이터셋] 실제 학습 데이터 {len(subset)}장 로드 완료 (모드: {model_type})")
+    else:
+        print("[경고] 실제 데이터셋을 찾을 수 없어 더미 데이터로 대체합니다.")
         train_loader = None
 
     def _gen():
@@ -182,7 +208,7 @@ def _build_representative_dataset(dataset_dir="dataset/raw/train", model_type="c
 
 
 def convert_pytorch_to_tflite(
-    pth_path="model/pytorch/best_model_fold0.pth",
+    pth_path="model/pytorch/best_crop_ir_mobilenetv3_fixed.pth",
     output_prefix="model/pytorch/best_crop_ir_mobilenetv3_fixed",
     model_type="crop_ir",
     num_classes=len(CLASS_NAMES),
@@ -209,7 +235,7 @@ def convert_pytorch_to_tflite(
         print(f" -> [알림] {pth_path} 가 존재하지 않아 초기화된 가중치로 변환을 진행합니다.")
     model.eval()
 
-    # 1. Representative Dataset 준비
+    # 1. Representative Dataset 준비 (실제 얼굴 이미지 기반 캘리브레이션)
     rep_gen = _build_representative_dataset(
         dataset_dir=dataset_dir,
         model_type=model_type,
@@ -325,7 +351,7 @@ def convert_pytorch_to_tflite(
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Convert PyTorch checkpoint to TFLite using Sony MCT")
-    parser.add_argument("--pth-path", default="model/pytorch/best_model_fold0.pth", help="Path to PyTorch checkpoint")
+    parser.add_argument("--pth-path", default="model/pytorch/best_crop_ir_mobilenetv3_fixed.pth", help="Path to PyTorch checkpoint")
     parser.add_argument("--output-prefix", default="model/pytorch/best_crop_ir_mobilenetv3_fixed", help="Prefix path for generated TFLite models")
     parser.add_argument("--model-type", choices=["crop_ir", "crop_rgb", "dual"], default="crop_ir", help="Model variant")
     parser.add_argument("--calib-samples", type=int, default=200, help="Number of calibration samples")

@@ -1,27 +1,102 @@
-# access-liveness-model Instructions
+# access-liveness-model AI Guide
 
-`AGENTS.md` is the repository's project-rule source of truth; `CLAUDE.md` points here. Project state, history, metrics, commands, and detailed contracts belong in the Obsidian wiki, not here.
+## Start Here
 
-## Read Before Acting
+- This is a navigation aid, not a history archive: help the AI locate the pipeline flow, source entry points, and authoritative knowledge before working.
+- The Obsidian wiki `Dev/Project/Company/access-liveness-model` is the source of truth for project context, dataset standards, training pipelines, quantization benchmarks, and deployment contracts.
+- Before resuming work or making non-trivial changes, read `README.md` → `handoff.md` → `issues/needs-verification.md`. Identify the working machine with:
+  ```bash
+  nvidia-smi 2>/dev/null | grep -q "GTX 1660 Ti" && echo "sub-laptop" || echo "company PC"
+  ```
+- Before proposing or executing commands, explain the command and rationale in Korean. Report the machine, latest completion, next work, and Android/NPU status in Korean.
+- Read the nearest `AGENTS.md` before changing a pipeline module.
 
-- Wiki root: `Dev/Project/Company/access-liveness-model/` in `E1jeong/obsidian-vault`. Clone the vault locally if unavailable. Every page is in English. A copy whose pages sit at `Project/...` without the `Dev/` prefix, or carry Korean filenames, is a stale pre-2026-08 clone — do not read it as current.
-- Every session: read `README.md` → `handoff.md` → `issues/needs-verification.md`; identify the machine with `nvidia-smi 2>/dev/null | grep -q "GTX 1660 Ti" && echo "sub-laptop" || echo "company PC"`; then run `git status --short`. `log.md` is a decision index read on demand, not on entry. Read `roadmap/` only for progress requests or deferred-P2 resume/design.
-- Before proposing or running a command, explain the command and reason in Korean. Report the machine, latest completion, next work, and Android/NPU status in Korean.
-- Before training or data work, read `operations/working-environment.md` and `technical/training-command-guide.md`. Before model-contract or NPU work or reporting either, also read paired `Dev/Project/Company/android-anti-spoofing-lab/issues/needs-verification.md`; never infer both repositories' state from one. Before INT8 work read `technical/int8-quantization-npu.md`; for current metrics read `tests/evaluation-metrics-results.md`; for the Android contract read `technical/android-deployment-agreement.md`.
+## Machine Topology and Environment Direction
 
-## Immutable Project Boundaries
+- **Company PC (WSL CPU)**: Code editing, documentation, Git operations, and fast unit tests (`pytest tests/dataset tests/metrics`). **Never run training here.**
+- **Sub-laptop GPU (`sub`, GTX 1660 Ti)**: The sole authoritative environment for training, dataset processing, and INT8 quantization. Uses managed `uv` virtual environments (`.venv` for PyTorch, `.venv-tf` for Keras). Synchronize code from Company PC via Git or `rsync`.
 
-- The company PC is code/docs/git only: never train there. Only the GTX 1660 Ti sub-laptop (`sub`) is authoritative for training, data, and quantization. Use project `uv` environments; transfer company-PC edits with `rsync` to `sub`.
-- Future Keras training uses fixed `dataset/raw/{train,validation,test}`, never K-Fold: train/calibration use `train`, selection uses `validation`, and `test` is final-only after settings freeze. Before every training run on the sub-laptop, run `validate_fixed_splits.py`; `scripts/keras/run_fixed_split.sh` evaluates validation only, and test requires `evaluate_tflite.py --split test`.
-- Do not retrain or replace a verified model candidate without an explicit team decision. `multimodal` 5-input was removed; do not restore or deploy it. Keep `sum` conv1 reduction for 1-channel IR ImageNet Conv1 transfer. Since 2026-08-10 `sum` is the default in `scripts/keras/run_fixed_split.sh`, both parsers, and both `build_*_mobilenetv2` signatures, so a run needs no flag; `mean` is the rejected variant and must never be passed on a run whose metrics will be published.
-- Shell wrappers live in `scripts/keras/` and `scripts/pytorch/`; run them from the repository root. Never invoke the Keras path as bare `python` — only `scripts/keras/*.sh` set the `LD_LIBRARY_PATH` that `.venv-tf` needs for `libcudnn`.
-- Model variants use `keras_pipeline --model-type`. `classes.py:CLASS_NAMES` is the only class-index source. Follow the exact tensor, layout, normalization, and conversion requirements in the Android contract; specifically, `npu_int8` evaluation must use `[-1,1]` inputs.
-- `docs/keras-concept-review.md` is the user's own comprehension record. It carries two status axes: `근거 상태` (is the claim true — settable from code) and `이해 상태` (can the user reproduce it unaided). Explain concepts in conversation; write into that file only when the user asks, and never set an `이해 상태` line on their behalf — raise it only after the user has answered a question that demonstrates it.
-- Write generated `.tflite` and `.pth` only under gitignored `model/`; do not sync artifacts with git. Android deployment manually copies each selected model together with its matching sidecar manifest into the app assets and registers the correct slot type.
-- `Backend CPU` means no NNAPI acceleration. Current Android `master` rejects a model slot when NNAPI preparation or warmup fails; it must not fall back to CPU. Do not generalize one model's NNAPI success to another architecture.
-- Do not retry stopped PyTorch/MobileNetV3 INT8 paths before reading their chronology. Diagnose an NPU failure by isolating unsupported operations, not by retraining.
+## Product and Pipeline Map
 
-## Safety
+Dual RGB+IR camera anti-spoofing model pipeline targeting the NXP i.MX 8M Plus VeriSilicon NPU on Android terminals (`com.virditech.ac7000`).
 
-- Antigravity `write_to_file` temporary scripts must use an agent-artifact scratch `TargetFile`, never an Obsidian absolute path or other external local path; external paths cause `invalid_args`.
-- If an unexpected performance blocker appears, do not independently switch pipelines or convert through another path. Stop, summarize the fact, and obtain the user's explicit decision on the next deployment step.
+```text
+RGB + IR Dataset (dataset/raw/{train,validation,test})
+                       │
+       ┌───────────────┴───────────────┐
+       ▼                               ▼
+[ keras_pipeline/ ]             [ pytorch_pipeline/ ]
+(Production Mainline)           (R&D Sandbox & Bridge)
+ MobileNetV2 / EfficientNet      MobileNetV3 (ReLU6 / no SE)
+ Cosine Decay + AcerCheckpoint   Sony MCT PTQ / QAT Bridge
+       │                               │
+       ▼                               ▼
+convert_keras_to_tflite.py      convert_to_tflite.py (ONNX->onnx2tf)
+(NPU-friendly INT8 [-1,1])      (NPU-compliant INT8)
+       │                               │
+       └───────────────┬───────────────┘
+                       ▼
+         [ model/keras/ or model/pytorch/ ]
+          .tflite + sidecar manifest.json
+                       │
+                       ▼
+       evaluate_tflite.py (--split test)
+                       │
+                       ▼
+ Android Target Boundary: android-anti-spoofing-lab
+ (app/src/main/assets/ best_*_fixed_npu_int8.tflite)
+```
+
+## Module Map and First Reads
+
+| Module | Ownership | First source entry point | Related wiki topics |
+| --- | --- | --- | --- |
+| `keras_pipeline/` | Production training, backbones, NPU INT8 export | `tf_model.py`, `tf_train.py`, `convert_keras_to_tflite.py` | `technical/training-pipeline`, `technical/int8-quantization-npu` |
+| `pytorch_pipeline/` | Research backbones, Sony MCT PTQ/QAT bridge | `model.py`, `train.py`, `convert_to_tflite.py` | `technical/training-pipeline` (§65–90), `technical/training-command-guide` |
+| `scripts/` | Shell wrappers, CUDA/cuDNN environment preambles | `scripts/keras/_keras_env.sh`, `scripts/git_pull_clean.sh` | `technical/training-command-guide`, `operations/working-environment` |
+| `tests/` | Automated test suite, leakage checks, export regression | `tests/dataset/test_fixed_splits.py`, `pytest.ini` | `tests/evaluation-metrics-results`, `schema` |
+| Core Tools | Shared 10-class SSOT, leakage detection, evaluation | `classes.py`, `utils.py`, `evaluate_tflite.py` | `features/classification-system`, `data/dataset-standard` |
+
+## Task Router
+
+| Request concerns | Read first | First source path | Then trace |
+| --- | --- | --- | --- |
+| Train Keras model candidate | `technical/training-command-guide`, `technical/training-pipeline` | `scripts/keras/run_fixed_split.sh` | `keras_pipeline/tf_train.py` → `tf_model.py` → `tf_dataset.py` |
+| INT8 quantization / NPU export | `technical/int8-quantization-npu`, `technical/android-deployment-agreement` | `keras_pipeline/convert_keras_to_tflite.py` | `keras_pipeline/export_validator.py` → generated sidecar JSON |
+| Independent test set evaluation | `tests/evaluation-metrics-results`, `data/dataset-standard` | `evaluate_tflite.py` | `utils.py` (metrics calculation) → report table |
+| PyTorch training / Sony MCT | `technical/training-pipeline`, `technical/training-command-guide` | `scripts/pytorch/run_fixed_split.sh` | `pytorch_pipeline/convert_to_tflite.py` → `model.py` |
+| Dataset validation & split integrity | `data/dataset-standard`, `features/classification-system` | `validate_fixed_splits.py` | `utils.py` (4-tier leakage detection) |
+| Android deployment / sidecar manifest | `technical/android-deployment-agreement` | `keras_pipeline/export_validator.py` | `android-anti-spoofing-lab: AntiSpoofingClassifier.java` |
+| Concept comprehension review | `operations/working-environment` | `docs/keras-concept-review.md` | User-driven review only (see Change Gates) |
+
+## Immutable Project Boundaries and Change Gates
+
+1. **Fixed Split Mandate**: All future training uses `dataset/raw/{train,validation,test}`. Never reintroduce K-Fold splitting. Run `validate_fixed_splits.py` before training.
+2. **Conv1 Reduction**: Single-channel IR ImageNet transfer must use `sum` reduction. `mean` is rejected and must never be passed to published runs.
+3. **Class Names SSOT**: `classes.py:CLASS_NAMES` is the sole source of truth for the 10-class order.
+4. **Shell Wrapper Mandate**: Never invoke bare `python` for Keras on the GPU server. Always run through `scripts/keras/*.sh` so `_keras_env.sh` sets `LD_LIBRARY_PATH` for `libcudnn.so.9`.
+5. **NNAPI No-Fallback Policy**: Android runtime rejects a model slot on NNAPI setup/warmup failure; it must not fall back to CPU. Ensure all exported TFLite models conform strictly to NPU operators.
+6. **User Concept Review Ownership**: `docs/keras-concept-review.md` tracks the user's comprehension. Never edit `이해 상태` on the user's behalf; update it only when explicitly requested by the user.
+7. **Artifact Separation**: Store generated `.tflite`, `.keras`, and `.pth` only in gitignored `model/`. Never commit model weights or raw image datasets to Git.
+
+## Build and Verification
+
+```bash
+# 1. Dataset split integrity & leakage check
+python validate_fixed_splits.py
+
+# 2. Fast unit tests (Company PC or GPU server)
+pytest tests/dataset tests/metrics
+
+# 3. Full test suite (GPU server with .venv-tf)
+pytest
+
+# 4. Keras smoke test
+./scripts/keras/run_keras_model.sh
+
+# 5. PyTorch & MCT setup check
+./scripts/pytorch/run_pytorch_verify.sh
+
+# 6. Universal TFLite evaluation on test split
+python evaluate_tflite.py --model model/keras/best_crop_ir_fixed_npu_int8.tflite --split test
+```

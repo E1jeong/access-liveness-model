@@ -103,6 +103,57 @@ def _save_learning_curves(history, val_acers, output_dir, model_type, backbone):
     print(f"[learning curves saved] {out_path}")
 
 
+class CombinedHistory:
+    """두 단계(워밍업 + 본 학습)의 History를 하나로 합쳐 학습 곡선을 그릴 수 있게 하는 래퍼."""
+    def __init__(self, h1, h2=None):
+        self.history = {}
+        for key, val in h1.history.items():
+            self.history[key] = list(val)
+        if h2 is not None:
+            for key, val in h2.history.items():
+                if key in self.history:
+                    self.history[key].extend(val)
+                else:
+                    self.history[key] = list(val)
+
+
+def _merge_histories(h1, h2):
+    return CombinedHistory(h1, h2)
+
+
+def _build_optimizer(optimizer_name, learning_rate, weight_decay=0.01, use_ema=False, ema_momentum=0.99):
+    """지정된 설정(Adam/AdamW, EMA)에 맞춰 Keras Optimizer 인스턴스를 생성한다."""
+    opt_kwargs = {"learning_rate": learning_rate}
+    if use_ema:
+        opt_kwargs["use_ema"] = True
+        opt_kwargs["ema_momentum"] = ema_momentum
+
+    if optimizer_name == "adamw":
+        if hasattr(tf.keras.optimizers, "AdamW"):
+            return tf.keras.optimizers.AdamW(weight_decay=weight_decay, **opt_kwargs)
+        elif hasattr(tf.keras.optimizers.experimental, "AdamW"):
+            return tf.keras.optimizers.experimental.AdamW(weight_decay=weight_decay, **opt_kwargs)
+        else:
+            raise AttributeError("현재 TensorFlow 환경에서 AdamW를 지원하지 않습니다.")
+    elif optimizer_name == "adam":
+        return tf.keras.optimizers.Adam(**opt_kwargs)
+    else:
+        raise ValueError(f"지원하지 않는 옵티마이저: {optimizer_name}")
+
+
+def _set_backbone_trainable(model, trainable=True):
+    """백본 특징 추출기 레이어들을 찾아 trainable 상태를 설정한다."""
+    count = 0
+    for layer in model.layers:
+        if isinstance(layer, tf.keras.Model) or any(
+            b in layer.name for b in ("mobilenetv2", "efficientnet", "mobilefacenet")
+        ):
+            layer.trainable = trainable
+            count += 1
+    state_str = "동결 해제(unfrozen)" if trainable else "동결(frozen)"
+    print(f"[{state_str}] {count}개 백본 레이어의 trainable을 {trainable}로 설정했습니다 (학습 가능 파라미터 텐서 수: {len(model.trainable_variables)})")
+
+
 # 매 에폭 끝에 검증셋을 평가해, 이 학습 파이프라인의 모델 선택 지표인 ACER가
 # 최저일 때만 체크포인트를 저장하는 콜백.
 #
@@ -130,43 +181,57 @@ class AcerCheckpoint(tf.keras.callbacks.Callback):
             self._val_labels = np.concatenate(
                 [batch_labels.numpy() for _, batch_labels in self.val_ds]
             )
-        # predict는 컴파일된 그래프 경로를 타므로 배치별 eager 호출보다 빠르다
-        # 반환값은 softmax가 아닌 raw logits (모델 마지막 층에 활성화가 없다).
-        # argmax만 쓸 것이므로 softmax를 통과시킬 필요가 없다 — 순서가 바뀌지 않는다.
-        logits = self.model.predict(self.val_ds, verbose=0)
-        labels = self._val_labels
-        preds = np.argmax(logits, axis=1)  # 샘플별 최고 점수 클래스 인덱스
 
-        # cm: (10,10) 혼동행렬, recalls: 클래스별 재현율, 나머지는 스푸핑 지표
-        cm, recalls, apcer, bpcer, acer = calculate_validation_metrics(labels, preds)
-        acc = float(np.mean(labels == preds))  # 참고용 전체 정확도(선택 기준 아님)
+        # EMA 가중치가 활성화된 경우, 모델 변수에 EMA 평균값을 임시 적용하여 검증하고 저장한다.
+        is_ema = getattr(self.model.optimizer, "use_ema", False)
+        orig_weights = None
+        if is_ema:
+            orig_weights = [v.numpy() for v in self.model.trainable_variables]
+            self.model.optimizer.finalize_variable_values(self.model.trainable_variables)
 
-        print("\n -> Confusion Matrix (row=true, col=pred):")
-        print(cm)
-        print(" -> Class recall:")
-        for class_name, recall in zip(CLASS_NAMES, recalls):
-            print(f"    {class_name}: {recall:.4f}")
-        print(f" -> Val Acc: {acc:.4f} | APCER: {apcer:.4f} | BPCER: {bpcer:.4f} | ACER: {acer:.4f}")
+        try:
+            # predict는 컴파일된 그래프 경로를 타므로 배치별 eager 호출보다 빠르다
+            # 반환값은 softmax가 아닌 raw logits (모델 마지막 층에 활성화가 없다).
+            # argmax만 쓸 것이므로 softmax를 통과시킬 필요가 없다 — 순서가 바뀌지 않는다.
+            logits = self.model.predict(self.val_ds, verbose=0)
+            labels = self._val_labels
+            preds = np.argmax(logits, axis=1)  # 샘플별 최고 점수 클래스 인덱스
 
-        self.acer_history.append(acer)
+            # cm: (10,10) 혼동행렬, recalls: 클래스별 재현율, 나머지는 스푸핑 지표
+            cm, recalls, apcer, bpcer, acer = calculate_validation_metrics(labels, preds)
+            acc = float(np.mean(labels == preds))  # 참고용 전체 정확도(선택 기준 아님)
 
-        # 동점(acer == best_acer)은 갱신하지 않아 먼저 저장된 체크포인트를 그대로 남긴다.
-        # 이 규칙만으로 두 에폭의 과적합 정도를 판단할 수는 없다.
-        if acer < self.best_acer:
-            self.best_acer = acer
-            self.best_metrics = {
-                "val_acc": acc,
-                "apcer": apcer,
-                "bpcer": bpcer,
-                "acer": acer,
-            }
-            dirpath = os.path.dirname(self.output_path)
-            if dirpath:
-                os.makedirs(dirpath, exist_ok=True)
-            # 가중치만이 아니라 모델 전체(.keras)를 저장한다. 변환 단계
-            # (convert_keras_to_tflite.py)가 구조 재생성 없이 그대로 로드해야 하기 때문.
-            self.model.save(self.output_path)
-            print(f" >>> Best ACER updated ({acer:.4f}) -> saved {self.output_path}")
+            print("\n -> Confusion Matrix (row=true, col=pred):")
+            print(cm)
+            print(" -> Class recall:")
+            for class_name, recall in zip(CLASS_NAMES, recalls):
+                print(f"    {class_name}: {recall:.4f}")
+            print(f" -> Val Acc: {acc:.4f} | APCER: {apcer:.4f} | BPCER: {bpcer:.4f} | ACER: {acer:.4f}")
+
+            self.acer_history.append(acer)
+
+            # 동점(acer == best_acer)은 갱신하지 않아 먼저 저장된 체크포인트를 그대로 남긴다.
+            # 이 규칙만으로 두 에폭의 과적합 정도를 판단할 수는 없다.
+            if acer < self.best_acer:
+                self.best_acer = acer
+                self.best_metrics = {
+                    "val_acc": acc,
+                    "apcer": apcer,
+                    "bpcer": bpcer,
+                    "acer": acer,
+                }
+                dirpath = os.path.dirname(self.output_path)
+                if dirpath:
+                    os.makedirs(dirpath, exist_ok=True)
+                # 가중치만이 아니라 모델 전체(.keras)를 저장한다. 변환 단계
+                # (convert_keras_to_tflite.py)가 구조 재생성 없이 그대로 로드해야 하기 때문.
+                self.model.save(self.output_path)
+                print(f" >>> Best ACER updated ({acer:.4f}) -> saved {self.output_path}")
+        finally:
+            if is_ema and orig_weights is not None:
+                # 다음 에폭의 원활한 학습 진행을 위해 원본 훈련 변수로 복구
+                for v, orig in zip(self.model.trainable_variables, orig_weights):
+                    v.assign(orig)
 
 
 # 학습 CLI 인자 파서. 여기 default가 곧 학습 설정의 기본값이며, 그대로 run metadata에 기록된다.
@@ -230,6 +295,38 @@ def parse_args():
         default="sum",
         help="1채널 Conv1 가중치 이식 시 축소 방식 (mean: 평균, sum: 합산)"
     )
+    # 옵티마이저 선택 및 가중치 감쇄(Weight Decay)
+    parser.add_argument(
+        "--optimizer",
+        choices=["adamw", "adam"],
+        default="adamw",
+        help="학습 옵티마이저 (adamw, adam, 기본값: adamw)",
+    )
+    parser.add_argument(
+        "--weight-decay",
+        type=float,
+        default=0.01,
+        help="AdamW 가중치 감쇄율 (기본값: 0.01)",
+    )
+    # 지수 이동 평균(EMA) 가중치 추적
+    parser.add_argument(
+        "--use-ema",
+        action="store_true",
+        help="EMA 가중치 추적 및 체크포인트 평가/저장 활성화",
+    )
+    parser.add_argument(
+        "--ema-momentum",
+        type=float,
+        default=0.99,
+        help="EMA 모멘텀 계수 (기본값: 0.99)",
+    )
+    # 2단계 백본 동결 워밍업 (Two-Stage Backbone Freeze Warmup)
+    parser.add_argument(
+        "--freeze-backbone-epochs",
+        type=int,
+        default=0,
+        help="초기 백본 동결 워밍업 에포크 수 (기본값: 0, 0이면 비활성화)",
+    )
     # 산출물 파일명·metadata 키가 되는 실행 식별자.
     parser.add_argument("--run-id", help="실행 메타데이터에 기록할 ID(기본값: UTC 시각 + 모델 종류)")
     # 기본은 덮어쓰기 금지. 이전 학습 결과를 실수로 날리는 사고를 막는다.
@@ -240,6 +337,13 @@ def parse_args():
 # 학습 전체 흐름: split 누수 검증 → 데이터셋 구성 → 모델 생성 → compile → fit → 학습곡선과 run metadata 저장.
 def main():
     args = parse_args()
+    if args.freeze_backbone_epochs < 0:
+        raise ValueError("--freeze-backbone-epochs는 0 이상이어야 합니다.")
+    if args.freeze_backbone_epochs >= args.epochs:
+        raise ValueError(
+            f"--freeze-backbone-epochs ({args.freeze_backbone_epochs})는 총 에포크({args.epochs})보다 작아야 합니다."
+        )
+
     if args.backbone == "mobilefacenet":
         if args.model_type != "crop_ir":
             raise ValueError("MobileFaceNet은 crop_ir 단일 입력만 지원합니다")
@@ -267,6 +371,9 @@ def main():
     print(f" - test images (isolated): {split_counts['test']}")
     print(f" - model type: {args.model_type}")
     print(f" - backbone: {args.backbone}")
+    print(f" - optimizer: {args.optimizer} (weight_decay={args.weight_decay})")
+    print(f" - use_ema: {args.use_ema} (momentum={args.ema_momentum})")
+    print(f" - freeze_backbone_epochs: {args.freeze_backbone_epochs}")
 
     # (4) tf.data 파이프라인 구성.
     #  - train: 셔플 O, 증강 O, repeat=True로 무한 반복 (fit이 steps_per_epoch로 끊는다)
@@ -290,21 +397,10 @@ def main():
     # 한 에폭이 전 샘플 1회 통과 '이상'이 되게 한다(자투리를 버리지 않으려는 의도).
     steps_per_epoch = math.ceil(len(train_items) / args.batch_size)
 
-    # 학습률 스케줄: 코사인 곡선을 따라 initial_learning_rate → initial×alpha 로 부드럽게 감소.
-    # decay_steps를 전체 계획 스텝과 같게 잡아 학습 전 구간에 걸쳐 initial×alpha 쪽으로 감쇠한다.
-    # alpha=0.01은 최종 목표 학습률을 0이 아닌 작은 값으로 둔다는 뜻이다.
-    total_steps = args.epochs * steps_per_epoch
-    lr_schedule = tf.keras.optimizers.schedules.CosineDecay(
-        initial_learning_rate=args.learning_rate,
-        decay_steps=total_steps,
-        alpha=0.01,
-    )
-
     # keras.applications는 "가중치 없음"을 문자열 "none"이 아니라 None으로 받는다.
     rgb_weights = None if args.rgb_weights == "none" else args.rgb_weights
 
     # (5) 모델 생성. 여기서 ImageNet 가중치 다운로드/이식이 일어난다.
-
     if args.model_type == "dual":
         model = build_dual_model(
             rgb_weights=rgb_weights,
@@ -332,42 +428,105 @@ def main():
         cce_loss = tf.keras.losses.CategoricalCrossentropy(
             from_logits=True, label_smoothing=args.label_smoothing
         )
-        # 데이터셋의 정수 라벨을 one-hot으로 바꿔 넘기는 어댑터. label_smoothing은 CategoricalCrossentropy에만 있어서 필요하다.
-        # 예) label_smoothing=0.1, 클래스 10개, 정답 3 →
-        #     one-hot [0,0,0,1,0,...] 이 [0.01,...,0.91,...,0.01] 로 완만해진다.
         def loss_fn(y_true, y_pred):
-            # y_true는 (batch,) 또는 (batch,1)로 올 수 있어 reshape로 1차원으로 통일한다.
             y_true_int = tf.cast(tf.reshape(y_true, [-1]), tf.int32)
             y_true_oh = tf.one_hot(y_true_int, depth=len(CLASS_NAMES))
             return cce_loss(y_true_oh, y_pred)
     else:
-        # smoothing이 필요 없으면 one-hot 변환 없이 정수 라벨을 그대로 받는 sparse 버전을 쓴다.
         loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 
-    model.compile(
-        # Adam에 스케줄 객체를 직접 넘기면 스텝마다 학습률이 자동으로 갱신된다.
-        optimizer=tf.keras.optimizers.Adam(learning_rate=lr_schedule),
-        loss=loss_fn,
-        # 손실이 one-hot을 받더라도 metric은 정수 라벨 기준 Sparse 버전이어야 한다
-        # (데이터셋이 내보내는 y_true가 정수이므로). name="acc"는 학습곡선에서 참조하는 키.
-        metrics=[tf.keras.metrics.SparseCategoricalAccuracy(name="acc")],
-    )
-    model.summary()  # 층 구성과 파라미터 수를 로그에 남겨 나중에 실행 기록과 대조할 수 있게 한다
-
     # (7) 저장 경로를 먼저 확정하고, 학습을 시작하기 전에 덮어쓰기 여부를 검사한다.
-    #     몇 시간 학습한 뒤 마지막에 FileExistsError로 죽는 상황을 피하려는 순서다.
     output_path = keras_checkpoint_path(args.output_dir, args.model_type, args.backbone)
     check_no_overwrite(output_path, force=args.force)
     checkpoint = AcerCheckpoint(val_ds=val_ds, output_path=output_path)
 
-    # (8) 학습 루프. validation_data를 넘기지 않는 이유는 검증을 AcerCheckpoint가
-    #     직접(혼동행렬·APCER/BPCER 포함) 수행하기 때문 — 중복 평가를 피한다.
-    history = model.fit(
-        train_ds,
-        steps_per_epoch=steps_per_epoch,  # 무한 반복 데이터셋이라 필수
-        epochs=args.epochs,
-        callbacks=[checkpoint],
-    )
+    # (8) 학습 루프 (2단계 워밍업 또는 단일 전체 학습)
+    if args.freeze_backbone_epochs > 0:
+        # [Stage 1: Backbone Freeze Warmup]
+        print(f"\n========================================================")
+        print(f" [Stage 1/2: Backbone Freeze Warmup] ({args.freeze_backbone_epochs} epoch(s))")
+        print(f"========================================================")
+        _set_backbone_trainable(model, trainable=False)
+        warmup_optimizer = _build_optimizer(
+            optimizer_name=args.optimizer,
+            learning_rate=args.learning_rate,
+            weight_decay=args.weight_decay,
+            use_ema=args.use_ema,
+            ema_momentum=args.ema_momentum,
+        )
+        model.compile(
+            optimizer=warmup_optimizer,
+            loss=loss_fn,
+            metrics=[tf.keras.metrics.SparseCategoricalAccuracy(name="acc")],
+        )
+        model.summary()
+        history_warmup = model.fit(
+            train_ds,
+            steps_per_epoch=steps_per_epoch,
+            epochs=args.freeze_backbone_epochs,
+            callbacks=[checkpoint],
+        )
+
+        # [Stage 2: Full Fine-tuning]
+        remaining_epochs = args.epochs - args.freeze_backbone_epochs
+        remaining_steps = remaining_epochs * steps_per_epoch
+        print(f"\n========================================================")
+        print(f" [Stage 2/2: Full Fine-tuning] ({remaining_epochs} epoch(s), Epochs {args.freeze_backbone_epochs + 1}~{args.epochs})")
+        print(f"========================================================")
+        _set_backbone_trainable(model, trainable=True)
+        lr_schedule_finetune = tf.keras.optimizers.schedules.CosineDecay(
+            initial_learning_rate=args.learning_rate,
+            decay_steps=remaining_steps,
+            alpha=0.01,
+        )
+        finetune_optimizer = _build_optimizer(
+            optimizer_name=args.optimizer,
+            learning_rate=lr_schedule_finetune,
+            weight_decay=args.weight_decay,
+            use_ema=args.use_ema,
+            ema_momentum=args.ema_momentum,
+        )
+        model.compile(
+            optimizer=finetune_optimizer,
+            loss=loss_fn,
+            metrics=[tf.keras.metrics.SparseCategoricalAccuracy(name="acc")],
+        )
+        model.summary()
+        history_finetune = model.fit(
+            train_ds,
+            steps_per_epoch=steps_per_epoch,
+            initial_epoch=args.freeze_backbone_epochs,
+            epochs=args.epochs,
+            callbacks=[checkpoint],
+        )
+        history = _merge_histories(history_warmup, history_finetune)
+    else:
+        # [단일 스테이지 전체 학습]
+        total_steps = args.epochs * steps_per_epoch
+        lr_schedule = tf.keras.optimizers.schedules.CosineDecay(
+            initial_learning_rate=args.learning_rate,
+            decay_steps=total_steps,
+            alpha=0.01,
+        )
+        optimizer = _build_optimizer(
+            optimizer_name=args.optimizer,
+            learning_rate=lr_schedule,
+            weight_decay=args.weight_decay,
+            use_ema=args.use_ema,
+            ema_momentum=args.ema_momentum,
+        )
+        model.compile(
+            optimizer=optimizer,
+            loss=loss_fn,
+            metrics=[tf.keras.metrics.SparseCategoricalAccuracy(name="acc")],
+        )
+        model.summary()
+        history = model.fit(
+            train_ds,
+            steps_per_epoch=steps_per_epoch,
+            epochs=args.epochs,
+            callbacks=[checkpoint],
+        )
 
     # (9) 학습곡선 저장.
     _save_learning_curves(history, checkpoint.acer_history, args.output_dir, args.model_type, args.backbone)

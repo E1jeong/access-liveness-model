@@ -13,6 +13,11 @@ DATA_DIR="dataset/raw"
 CALIBRATION_SAMPLES=500
 FORCE=""
 REDUCTION="sum"
+OPTIMIZER="adamw"
+WEIGHT_DECAY="0.01"
+USE_EMA=""
+EMA_MOMENTUM="0.99"
+FREEZE_BACKBONE_EPOCHS=0
 TRAIN_EXTRA=()
 
 while [[ "$#" -gt 0 ]]; do
@@ -26,6 +31,11 @@ while [[ "$#" -gt 0 ]]; do
     --calibration-samples) CALIBRATION_SAMPLES="$2"; shift ;;
     --force) FORCE="--force" ;;
     --conv1-reduction) REDUCTION="$2"; shift ;;
+    --optimizer) OPTIMIZER="$2"; shift ;;
+    --weight-decay) WEIGHT_DECAY="$2"; shift ;;
+    --use-ema) USE_EMA="--use-ema" ;;
+    --ema-momentum) EMA_MOMENTUM="$2"; shift ;;
+    --freeze-backbone-epochs) FREEZE_BACKBONE_EPOCHS="$2"; shift ;;
     *) echo "알 수 없는 인자: $1"; exit 1 ;;
   esac
   shift
@@ -60,6 +70,9 @@ echo "  데이터 경로    : $DATA_DIR"
 echo "  에폭            : $EPOCHS"
 echo "  배치 크기       : $BATCH_SIZE"
 echo "  학습률          : $LEARNING_RATE"
+echo "  옵티마이저      : $OPTIMIZER (weight_decay: $WEIGHT_DECAY)"
+echo "  EMA 가중치      : ${USE_EMA:-비활성화} (momentum: $EMA_MOMENTUM)"
+echo "  백본 워밍업 에폭: $FREEZE_BACKBONE_EPOCHS"
 echo "  강제 덮어쓰기   : ${FORCE:-사용 안 함}"
 echo "========================================="
 
@@ -72,6 +85,10 @@ echo "========================================="
   --batch-size "$BATCH_SIZE" \
   --learning-rate "$LEARNING_RATE" \
   --conv1-reduction "$REDUCTION" \
+  --optimizer "$OPTIMIZER" \
+  --weight-decay "$WEIGHT_DECAY" \
+  ${USE_EMA:+$USE_EMA --ema-momentum "$EMA_MOMENTUM"} \
+  --freeze-backbone-epochs "$FREEZE_BACKBONE_EPOCHS" \
   "${TRAIN_EXTRA[@]}" \
   $FORCE
 ./scripts/keras/run_keras_convert.sh \

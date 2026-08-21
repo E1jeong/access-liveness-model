@@ -193,10 +193,10 @@ def parse_args():
     # 에폭 수. steps_per_epoch × epochs가 곧 CosineDecay의 총 스텝이 되므로,
     # 이 값을 바꾸면 학습률 스케줄 모양 자체가 바뀐다(단순히 더/덜 도는 게 아니다).
     parser.add_argument("--epochs", type=int, default=10)
-    # 6GB VRAM에서 224x224 백본 2개(dual)를 올리기 위한 보수적 기본값.
-    parser.add_argument("--batch-size", type=int, default=8)
-    # CosineDecay의 시작 학습률. 사전학습 백본 미세조정이라 1e-4 수준으로 낮게 잡는다.
-    parser.add_argument("--learning-rate", type=float, default=1e-4)
+    # 10개 클래스 균형 분포와 BatchNorm 통계 안정화를 위한 표준 기본값(32).
+    parser.add_argument("--batch-size", type=int, default=32)
+    # CosineDecay의 시작 학습률. 배치 32 스케일링에 맞춘 사전학습 백본 미세조정 기본값(2e-4).
+    parser.add_argument("--learning-rate", type=float, default=2e-4)
     # 가중치 초기화·셔플·증강 난수를 모두 지배하는 시드(재현성).
     parser.add_argument("--seed", type=int, default=42)
     # RGB 백본 초기 가중치. "none"이면 처음부터 학습(스크래치).

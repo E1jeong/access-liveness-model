@@ -6,8 +6,8 @@ cd "$(dirname "$0")/../.."
 
 MODEL_TYPE="crop_ir"
 EPOCHS=10
-BATCH_SIZE=8
-LEARNING_RATE="1e-4"
+BATCH_SIZE=32
+LEARNING_RATE="2e-4"
 DATA_DIR="dataset/raw"
 CALIBRATION_SAMPLES=200
 REDUCTION="sum"

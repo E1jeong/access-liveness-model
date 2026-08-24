@@ -43,7 +43,7 @@
 ./scripts/pytorch/run_pytorch_model.sh
 
 # End-to-end PyTorch fixed split run
-./scripts/pytorch/run_fixed_split.sh --model-type crop_ir --epochs 30 --batch-size 16 --learning-rate 2e-4
+./scripts/pytorch/run_fixed_split.sh --model-type crop_ir --epochs 30 --batch-size 32 --learning-rate 2e-4
 
 # Unit tests for PyTorch models and MCT export
 pytest tests/model/test_pytorch_model.py tests/export/test_pytorch_mct_export.py

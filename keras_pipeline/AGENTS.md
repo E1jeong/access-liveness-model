@@ -7,7 +7,7 @@
 
 ## Orient First
 
-- Read `technical/training-pipeline`, `technical/training-command-guide`, `technical/int8-quantization-npu`, and `technical/android-deployment-agreement` before modifying model architectures or quantization pipelines.
+- Read `technical/training-pipeline`, `technical/training-command-guide`, `technical/training-enhancement-proposals`, `technical/int8-quantization-npu`, and `technical/android-deployment-agreement` before modifying model architectures or quantization pipelines.
 - Source entry points:
   - Model definitions: `tf_model.py` (`build_single_input_mobilenetv2`, `build_dual_input_mobilenetv2`), `mobilefacenet.py`, `efficientnet_lite.py`
   - Training loop: `tf_train.py` (cosine decay, `AcerCheckpoint`, fixed-split evaluation)
@@ -43,7 +43,7 @@
 ./scripts/keras/run_keras_model.sh
 
 # End-to-end training + quantization + validation evaluation
-./scripts/keras/run_fixed_split.sh --model-type crop_ir --backbone mobilenetv2 --epochs 30 --batch-size 16 --learning-rate 2e-4
+./scripts/keras/run_fixed_split.sh --model-type crop_ir --backbone mobilenetv2 --epochs 30 --batch-size 32 --learning-rate 2e-4
 
 # Unit tests for Keras models and exports
 .venv-tf/bin/pytest tests/model/test_conv1_reduction.py tests/model/test_mobilefacenet.py tests/model/test_efficientnet_lite.py tests/export/test_npu_export.py

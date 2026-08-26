@@ -84,8 +84,8 @@ convert_keras_to_tflite.py      convert_to_tflite.py (ONNX->onnx2tf)
 ## Build and Verification
 
 ```bash
-# 1. Dataset split integrity & leakage check (only where dataset/raw exists)
-uv run python validate_fixed_splits.py
+# 1. Dataset split integrity & leakage check (data-bearing sub checkout)
+.venv/bin/python validate_fixed_splits.py
 
 # 2. Company PC fast unit tests
 uv run pytest tests/dataset tests/metrics

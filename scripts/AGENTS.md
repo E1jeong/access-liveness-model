@@ -14,7 +14,7 @@
   - PyTorch fixed-split wrapper: `scripts/pytorch/run_fixed_split.sh`
   - Git synchronization cleaner: `scripts/git_pull_clean.sh`
 
-## Boundary & Execution Constraints
+## Boundary & Architecture Constraints
 
 1. **Root-Relative Execution**: All scripts must resolve the repository root dynamically (`cd "$(dirname "$0")/../.."`) and be callable from the repository root.
 2. **cuDNN Library Resolution**: Keras scripts must source `scripts/keras/_keras_env.sh` to populate `LD_LIBRARY_PATH` from `.venv-tf/lib/.../nvidia/*/lib`. Bare Python execution fails to locate GPU cuDNN libraries on the training host.

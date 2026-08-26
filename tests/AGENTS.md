@@ -14,7 +14,7 @@
   - Metrics: `tests/metrics/` (`test_metrics.py`)
   - Model architectures: `tests/model/` (`test_conv1_reduction.py`, `test_efficientnet_lite.py`, `test_mobilefacenet.py`, `test_model_signature.py`, `test_pytorch_model.py`, `test_run_metadata.py`, `test_training_enhancements.py`)
 
-## Boundary & Test Execution Guidelines
+## Boundary & Architecture Constraints
 
 1. **Environment Scope**:
    - Fast unit tests without heavy framework imports can run on CPU (Company PC or GPU server).

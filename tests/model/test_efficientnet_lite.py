@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 import tensorflow as tf
 
+from classes import CLASS_NAMES
 from keras_pipeline.efficientnet_lite import EfficientNetLite0
 from keras_pipeline.tf_model import build_dual_model, build_single_model
 from keras_pipeline.export_validator import build_npu_export_model, validate_npu_export_parity
@@ -80,19 +81,19 @@ def test_efficientnet_lite_dual_and_single_models():
     assert len(dual_model.inputs) == 2
     assert tuple(dual_model.inputs[0].shape) == (None, 224, 224, 3)
     assert tuple(dual_model.inputs[1].shape) == (None, 224, 224, 1)
-    assert dual_model.output_shape == (None, 10)
+    assert dual_model.output_shape == (None, len(CLASS_NAMES))
 
     # Single crop_rgb
     rgb_model = build_single_model(input_type="crop_rgb", backbone="efficientnet_lite0", rgb_weights=None)
     assert len(rgb_model.inputs) == 1
     assert tuple(rgb_model.inputs[0].shape) == (None, 224, 224, 3)
-    assert rgb_model.output_shape == (None, 10)
+    assert rgb_model.output_shape == (None, len(CLASS_NAMES))
 
     # Single crop_ir
     ir_model = build_single_model(input_type="crop_ir", backbone="efficientnet_lite0", rgb_weights=None)
     assert len(ir_model.inputs) == 1
     assert tuple(ir_model.inputs[0].shape) == (None, 224, 224, 1)
-    assert ir_model.output_shape == (None, 10)
+    assert ir_model.output_shape == (None, len(CLASS_NAMES))
 
 
 def test_efficientnet_lite_npu_export_parity():

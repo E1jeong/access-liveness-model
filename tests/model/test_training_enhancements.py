@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 import tensorflow as tf
 
+from classes import CLASS_NAMES
 from keras_pipeline.tf_train import (
     _build_optimizer,
     _set_backbone_trainable,
@@ -89,7 +90,7 @@ def test_combined_history():
 def test_acer_checkpoint_ema_swap(tmp_path):
     # Dummy simple model with EMA optimizer
     inputs = tf.keras.Input(shape=(4,))
-    outputs = tf.keras.layers.Dense(10)(inputs)
+    outputs = tf.keras.layers.Dense(len(CLASS_NAMES))(inputs)
     model = tf.keras.Model(inputs, outputs)
 
     opt = _build_optimizer("adamw", learning_rate=0.1, weight_decay=0.01, use_ema=True, ema_momentum=0.9)
@@ -100,7 +101,7 @@ def test_acer_checkpoint_ema_swap(tmp_path):
     )
 
     x = np.random.randn(20, 4).astype(np.float32)
-    y = np.random.randint(0, 10, size=(20,)).astype(np.int32)
+    y = np.random.randint(0, len(CLASS_NAMES), size=(20,)).astype(np.int32)
     val_ds = tf.data.Dataset.from_tensor_slices((x, y)).batch(10)
 
     out_ckpt = str(tmp_path / "test_model.keras")

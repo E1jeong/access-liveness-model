@@ -57,7 +57,7 @@ convert_keras_to_tflite.py      convert_to_tflite.py (ONNX->onnx2tf)
 | `pytorch_pipeline/` | Research backbones, Sony MCT PTQ/QAT bridge | `pytorch_pipeline/model.py`, `pytorch_pipeline/train.py`, `pytorch_pipeline/convert_to_tflite.py` | `technical/training-pipeline` (§65–90), `technical/training-command-guide` |
 | `scripts/` | Shell wrappers, CUDA/cuDNN environment preambles | `scripts/keras/_keras_env.sh`, `scripts/git_pull_clean.sh` | `technical/training-command-guide`, `operations/working-environment` |
 | `tests/` | Automated test suite, leakage checks, export regression | `tests/dataset/test_fixed_splits.py`, `pytest.ini` | `tests/evaluation-metrics-results`, `schema` |
-| Core Tools | Shared 10-class SSOT, leakage detection, evaluation | `classes.py`, `utils.py`, `evaluate_tflite.py` | `features/classification-system`, `data/dataset-standard` |
+| Core Tools | Shared 12-class SSOT, leakage detection, evaluation | `classes.py`, `utils.py`, `evaluate_tflite.py` | `features/classification-system`, `data/dataset-standard` |
 
 ## Task Router
 
@@ -75,7 +75,7 @@ convert_keras_to_tflite.py      convert_to_tflite.py (ONNX->onnx2tf)
 
 1. **Fixed Split Mandate**: All future training uses `dataset/raw/{train,validation,test}`. Never reintroduce K-Fold splitting. Run `validate_fixed_splits.py` before training.
 2. **Conv1 Reduction**: Single-channel IR ImageNet transfer must use `sum` reduction. `mean` is rejected and must never be passed to published runs.
-3. **Class Names SSOT**: `classes.py:CLASS_NAMES` is the sole source of truth for the 10-class order.
+3. **Class Names SSOT**: `classes.py:CLASS_NAMES` is the sole source of truth for the 12-class order.
 4. **Shell Wrapper Mandate**: Never invoke bare `python` for Keras on the GPU server. Always run through `scripts/keras/*.sh` so `_keras_env.sh` sets `LD_LIBRARY_PATH` for `libcudnn.so.9`.
 5. **NNAPI No-Fallback Policy**: Android runtime rejects a model slot on NNAPI setup/warmup failure; it must not fall back to CPU. Ensure all exported TFLite models conform strictly to NPU operators.
 6. **User Concept Review Ownership**: `docs/keras-concept-review.md` tracks the user's comprehension. Never edit `이해 상태` on the user's behalf; update it only when explicitly requested by the user.

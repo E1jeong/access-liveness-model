@@ -47,7 +47,7 @@ def test_pytorch_mct_tflite_export_and_manifest():
         assert "b_crop_ir" in input_details[0]["name"]
         
         assert len(output_details) == 1
-        assert list(output_details[0]["shape"]) == [1, 10]
+        assert list(output_details[0]["shape"]) == [1, len(CLASS_NAMES)]
         assert output_details[0]["dtype"].__name__ == "int8"
         
         # Verify sidecar manifest content

@@ -20,6 +20,8 @@ def test_class_order_matches_android_collection_names():
         "curved_mask",
         "curved_picture",
         "curved_pmask",
+        "dental_white",
+        "dental_black",
     ]
 
 

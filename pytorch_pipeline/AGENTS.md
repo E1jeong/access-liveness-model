@@ -24,7 +24,7 @@
 2. **Sony MCT Quantization Bridge**:
    - Standard PyTorch PTQ causes activation collapse on MobileNetV3; use the Sony MCT path with QAT fine-tuning for INT8 convergence.
 3. **Android Contract Compatibility**:
-   - The emitted TFLite model from `convert_to_tflite.py` (via ONNX -> `onnx2tf`) must strictly follow the Android contract: NHWC input `[1, 224, 224, 1]` or `[1, 224, 224, 3]`, output `[1, 10]` INT8 logits.
+   - The emitted TFLite model from `convert_to_tflite.py` (via ONNX -> `onnx2tf`) must strictly follow the Android contract: NHWC input `[1, 224, 224, 1]` or `[1, 224, 224, 3]`, output `[1, 12]` INT8 logits (matching `len(CLASS_NAMES)`).
    - Sidecar manifest must be generated and inspected using `keras_pipeline.export_validator`.
 
 ## Change Gates

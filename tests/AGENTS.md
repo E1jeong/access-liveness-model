@@ -23,7 +23,7 @@
    - Any modification to `utils.py` or `keras_pipeline/tf_dataset.py` must pass `test_fixed_splits.py` and `test_deterministic_augmentation.py`.
    - Never weaken the 4-tier leakage detection rules (subject ID, canonical realpath, MD5 content hash, and session/video metadata).
 3. **Artifact Regression**:
-   - `test_artifact_regression.py` ensures generated TFLite models conform to output shape `[1, 10]`, valid tensor names, and expected quantization scales.
+   - `test_artifact_regression.py` ensures generated TFLite models conform to output shape `[1, 12]`, valid tensor names, and expected quantization scales.
 
 ## Change Gates
 

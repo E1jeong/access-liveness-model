@@ -69,6 +69,7 @@ convert_keras_to_tflite.py      convert_to_tflite.py (ONNX->onnx2tf)
 | PyTorch training / Sony MCT | `technical/training-pipeline`, `technical/training-command-guide` | `scripts/pytorch/run_fixed_split.sh` | `pytorch_pipeline/convert_to_tflite.py` → `model.py` |
 | Dataset validation & split integrity | `data/dataset-standard`, `features/classification-system` | `validate_fixed_splits.py` | `utils.py` (4-tier leakage detection) |
 | Android deployment / sidecar manifest | `technical/android-deployment-agreement` | `keras_pipeline/export_validator.py` | `android-anti-spoofing-lab` → `app/src/main/java/com/virditech/ac7000/model/AntiSpoofingClassifier.java` |
+| Face recognition NPU export | `technical/mobilefacenet-recognition-experiment` (viewer wiki) | `scripts/recognition/export_npu_mobilenet_emore.py` | `model/recognition/mobilenet_emb256.h5` → `model/recognition/tflite/mobilenet_emore_npu_int8.tflite` |
 | Concept comprehension review | `operations/working-environment` | `docs/keras-concept-review.md` | User-driven review only (see Change Gates) |
 
 ## Immutable Boundaries and Change Gates

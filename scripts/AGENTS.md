@@ -12,6 +12,7 @@
   - Keras environment preamble: `scripts/keras/_keras_env.sh`
   - Keras fixed-split wrapper: `scripts/keras/run_fixed_split.sh`
   - PyTorch fixed-split wrapper: `scripts/pytorch/run_fixed_split.sh`
+  - Recognition NPU export: `scripts/recognition/export_npu_mobilenet_emore.py`
   - Git synchronization cleaner: `scripts/git_pull_clean.sh`
 
 ## Boundary & Architecture Constraints

@@ -3,14 +3,15 @@
 ## Scope
 
 - Own production training, validation, evaluation, and TFLite INT8 quantization for the `access-liveness-model` project.
-- Implement dataset loading (`tf_dataset.py`), model architectures (`tf_model.py`, `mobilefacenet.py`, `efficientnet_lite.py`), training loops with ACER checkpointing (`tf_train.py`), TFLite export (`convert_keras_to_tflite.py`), and sidecar manifest validation (`export_validator.py`).
+- Implement dataset loading (`tf_dataset.py`), pseudo 3D depth generation (`depth_generator.py`), model architectures (`tf_model.py`, `mobilefacenet.py`, `efficientnet_lite.py`), training loops with ACER checkpointing (`tf_train.py`), TFLite export (`convert_keras_to_tflite.py`), and sidecar manifest validation (`export_validator.py`).
 
 ## Orient First
 
 - Read `technical/training-pipeline`, `technical/training-command-guide`, `technical/training-enhancement-proposals`, `technical/int8-quantization-npu`, and `technical/android-deployment-agreement` before modifying model architectures or quantization pipelines.
 - Source entry points:
-  - Model definitions: `tf_model.py` (`build_single_input_mobilenetv2`, `build_dual_input_mobilenetv2`), `mobilefacenet.py`, `efficientnet_lite.py`
-  - Training loop: `tf_train.py` (cosine decay, `AcerCheckpoint`, fixed-split evaluation)
+  - Model definitions: `tf_model.py` (`build_single_model`, `build_dual_model`, `extract_deploy_model`), `mobilefacenet.py`, `efficientnet_lite.py`
+  - 3D Depth supervision: `depth_generator.py` (`generate_pseudo_depth_map`, `_build_base_templates`)
+  - Training loop: `tf_train.py` (cosine decay, `AcerCheckpoint`, fixed-split evaluation, `--aux-depth`)
   - Quantization & export: `convert_keras_to_tflite.py` (Full INT8 and NPU-friendly INT8)
   - Graph inspection & sidecars: `export_validator.py` (`inspect_tflite_graph`, `generate_sidecar_manifest`)
 

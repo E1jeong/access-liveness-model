@@ -19,6 +19,7 @@ USE_EMA=""
 EMA_MOMENTUM="0.99"
 FREEZE_BACKBONE_EPOCHS=0
 AUX_DEPTH=""
+DEPTH_LOSS_WEIGHT="0.5"
 TRAIN_EXTRA=()
 
 while [[ "$#" -gt 0 ]]; do
@@ -38,6 +39,7 @@ while [[ "$#" -gt 0 ]]; do
     --ema-momentum) EMA_MOMENTUM="$2"; shift ;;
     --freeze-backbone-epochs) FREEZE_BACKBONE_EPOCHS="$2"; shift ;;
     --aux-depth) AUX_DEPTH="--aux-depth" ;;
+    --depth-loss-weight) DEPTH_LOSS_WEIGHT="$2"; shift ;;
     *) echo "알 수 없는 인자: $1"; exit 1 ;;
   esac
   shift
@@ -91,7 +93,7 @@ echo "========================================="
   --weight-decay "$WEIGHT_DECAY" \
   ${USE_EMA:+$USE_EMA --ema-momentum "$EMA_MOMENTUM"} \
   --freeze-backbone-epochs "$FREEZE_BACKBONE_EPOCHS" \
-  ${AUX_DEPTH} \
+  ${AUX_DEPTH:+$AUX_DEPTH --depth-loss-weight "$DEPTH_LOSS_WEIGHT"} \
   "${TRAIN_EXTRA[@]}" \
   $FORCE
 ./scripts/keras/run_keras_convert.sh \

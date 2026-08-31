@@ -20,6 +20,9 @@ EMA_MOMENTUM="0.99"
 FREEZE_BACKBONE_EPOCHS=0
 AUX_DEPTH=""
 DEPTH_LOSS_WEIGHT="0.5"
+LOSS_TYPE="ce"
+FOCAL_GAMMA="2.0"
+FOCAL_ALPHA="0.25"
 TRAIN_EXTRA=()
 
 while [[ "$#" -gt 0 ]]; do
@@ -40,6 +43,9 @@ while [[ "$#" -gt 0 ]]; do
     --freeze-backbone-epochs) FREEZE_BACKBONE_EPOCHS="$2"; shift ;;
     --aux-depth) AUX_DEPTH="--aux-depth" ;;
     --depth-loss-weight) DEPTH_LOSS_WEIGHT="$2"; shift ;;
+    --loss|--loss-type) LOSS_TYPE="$2"; shift ;;
+    --focal-gamma) FOCAL_GAMMA="$2"; shift ;;
+    --focal-alpha) FOCAL_ALPHA="$2"; shift ;;
     *) echo "알 수 없는 인자: $1"; exit 1 ;;
   esac
   shift
@@ -75,6 +81,7 @@ echo "  에폭            : $EPOCHS"
 echo "  배치 크기       : $BATCH_SIZE"
 echo "  학습률          : $LEARNING_RATE"
 echo "  옵티마이저      : $OPTIMIZER (weight_decay: $WEIGHT_DECAY)"
+echo "  손실 함수       : $LOSS_TYPE (gamma: $FOCAL_GAMMA, alpha: $FOCAL_ALPHA)"
 echo "  EMA 가중치      : ${USE_EMA:-비활성화} (momentum: $EMA_MOMENTUM)"
 echo "  백본 워밍업 에폭: $FREEZE_BACKBONE_EPOCHS"
 echo "  강제 덮어쓰기   : ${FORCE:-사용 안 함}"
@@ -91,6 +98,9 @@ echo "========================================="
   --conv1-reduction "$REDUCTION" \
   --optimizer "$OPTIMIZER" \
   --weight-decay "$WEIGHT_DECAY" \
+  --loss-type "$LOSS_TYPE" \
+  --focal-gamma "$FOCAL_GAMMA" \
+  --focal-alpha "$FOCAL_ALPHA" \
   ${USE_EMA:+$USE_EMA --ema-momentum "$EMA_MOMENTUM"} \
   --freeze-backbone-epochs "$FREEZE_BACKBONE_EPOCHS" \
   ${AUX_DEPTH:+$AUX_DEPTH --depth-loss-weight "$DEPTH_LOSS_WEIGHT"} \

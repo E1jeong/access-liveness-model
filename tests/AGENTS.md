@@ -12,7 +12,7 @@
   - Dataset & leakage: `tests/dataset/` (`test_dataset_pipeline.py`, `test_deterministic_augmentation.py`, `test_fixed_splits.py`)
   - Export & quantization: `tests/export/` (`test_artifact_paths.py`, `test_artifact_regression.py`, `test_calibration_sampling.py`, `test_npu_export.py`, `test_pytorch_mct_export.py`)
   - Metrics: `tests/metrics/` (`test_metrics.py`)
-  - Model architectures: `tests/model/` (`test_aux_depth.py`, `test_conv1_reduction.py`, `test_efficientnet_lite.py`, `test_mobilefacenet.py`, `test_model_signature.py`, `test_pytorch_model.py`, `test_run_metadata.py`, `test_training_enhancements.py`)
+  - Model architectures & loss: `tests/model/` (`test_aux_depth.py`, `test_conv1_reduction.py`, `test_efficientnet_lite.py`, `test_focal_loss.py`, `test_mobilefacenet.py`, `test_model_signature.py`, `test_pytorch_model.py`, `test_run_metadata.py`, `test_training_enhancements.py`)
 
 ## Boundary & Architecture Constraints
 

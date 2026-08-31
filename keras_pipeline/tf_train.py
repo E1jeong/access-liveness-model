@@ -42,6 +42,7 @@ from keras_pipeline.tf_dataset import (
 from keras_pipeline.tf_model import (
     SUPPORTED_BACKBONES, build_dual_model, build_single_model, extract_deploy_model
 )
+from keras_pipeline.losses import build_classification_loss
 from keras_pipeline.run_metadata import make_run_id, write_run_metadata
 from keras_pipeline.artifact_paths import (
     keras_checkpoint_path,
@@ -278,6 +279,26 @@ def parse_args():
         default=0.5,
         help="3D Depth 보조 손실 가중치 (기본값: 0.5)",
     )
+    parser.add_argument(
+        "--loss-type",
+        "--loss",
+        dest="loss_type",
+        choices=["ce", "focal"],
+        default="ce",
+        help="분류 손실 함수 (ce: CrossEntropy, focal: FocalLoss, 기본값: ce)",
+    )
+    parser.add_argument(
+        "--focal-gamma",
+        type=float,
+        default=2.0,
+        help="Focal Loss 감마 계수 (난이도 집중 파라미터, 기본값: 2.0)",
+    )
+    parser.add_argument(
+        "--focal-alpha",
+        type=float,
+        default=0.25,
+        help="Focal Loss 알파 계수 (클래스 밸런싱 파라미터, 기본값: 0.25)",
+    )
     parser.add_argument("--run-id", help="실행 메타데이터에 기록할 ID(기본값: UTC 시각 + 모델 종류)")
     parser.add_argument("--force", action="store_true", help="기존 산출물을 덮어쓰기 허용")
     return parser.parse_args()
@@ -314,6 +335,7 @@ def main():
     print(f" - optimizer: {args.optimizer} (weight_decay={args.weight_decay})")
     print(f" - use_ema: {args.use_ema} (momentum={args.ema_momentum})")
     print(f" - freeze_backbone_epochs: {args.freeze_backbone_epochs}")
+    print(f" - loss_type: {args.loss_type} (gamma={args.focal_gamma}, alpha={args.focal_alpha}, label_smoothing={args.label_smoothing})")
     print(f" - aux_depth: {args.aux_depth} (depth_loss_weight={args.depth_loss_weight})")
 
     if args.model_type == "dual":
@@ -355,16 +377,12 @@ def main():
         )
 
     # 손실 함수 구성
-    if args.label_smoothing > 0:
-        cce_loss = tf.keras.losses.CategoricalCrossentropy(
-            from_logits=True, label_smoothing=args.label_smoothing
-        )
-        def cls_loss_fn(y_true, y_pred):
-            y_true_int = tf.cast(tf.reshape(y_true, [-1]), tf.int32)
-            y_true_oh = tf.one_hot(y_true_int, depth=len(CLASS_NAMES))
-            return cce_loss(y_true_oh, y_pred)
-    else:
-        cls_loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+    cls_loss_fn = build_classification_loss(
+        loss_type=args.loss_type,
+        label_smoothing=args.label_smoothing,
+        focal_gamma=args.focal_gamma,
+        focal_alpha=args.focal_alpha,
+    )
 
     if args.aux_depth:
         loss_dict = {

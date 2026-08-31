@@ -11,7 +11,8 @@
 - Source entry points:
   - Model definitions: `tf_model.py` (`build_single_model`, `build_dual_model`, `extract_deploy_model`), `mobilefacenet.py`, `efficientnet_lite.py`
   - 3D Depth supervision: `depth_generator.py` (`generate_pseudo_depth_map`, `_build_base_templates`)
-  - Training loop: `tf_train.py` (cosine decay, `AcerCheckpoint`, fixed-split evaluation, `--aux-depth`)
+  - Losses: `losses.py` (`build_classification_loss` for CrossEntropy and Focal Loss)
+  - Training loop: `tf_train.py` (cosine decay, `AcerCheckpoint`, fixed-split evaluation, `--aux-depth`, `--loss focal`)
   - Quantization & export: `convert_keras_to_tflite.py` (Full INT8 and NPU-friendly INT8)
   - Graph inspection & sidecars: `export_validator.py` (`inspect_tflite_graph`, `generate_sidecar_manifest`)
 

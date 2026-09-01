@@ -4,7 +4,7 @@
 
 - This is a navigation and execution safety aid, not a history archive: help the AI locate the pipeline flow, source entry points, and authoritative knowledge before working.
 - The Obsidian wiki at vault-relative `Dev/Project/Company/access-liveness-model` is the source of truth for project context, dataset standards, training pipelines, quantization benchmarks, and deployment contracts. Resolve the vault through `_meta/routing-tables.md` or `obsidian-wiki-sync`, never a hardcoded file URL.
-- Before resuming work or making non-trivial changes, read wiki `README.md` → `handoff.md` → `schema.md` → `index.md`; read `issues/needs-verification.md` when the task touches uncertainty.
+- Before resuming work or making non-trivial changes, read wiki `README.md` → `handoff.md` → `schema.md` → `index.md`; read `roadmap.md` when the task touches backlog, defect verification, or roadmap gates.
 - Before multi-step or resumed implementation, ground the wiki context against live code, propose `step → verify` checkpoints, and confirm them before editing.
 - Keep command execution concise without repeating boilerplate status (working machine, NPU defaults, latest completion). Explain non-trivial commands in Korean concisely (1 line) only when necessary.
 - Read the nearest `AGENTS.md` before changing a pipeline module.

@@ -59,7 +59,7 @@ convert_keras_to_tflite.py      convert_to_tflite.py (ONNX->onnx2tf)
 
 | Request concerns | Read first | First source path | Then trace |
 | --- | --- | --- | --- |
-| Train Keras model candidate | `technical/training-command-guide`, `technical/training-pipeline` | `scripts/keras/run_fixed_split.sh` | `keras_pipeline/tf_train.py` → `tf_model.py` → `tf_dataset.py` |
+| Train Keras model candidate | `technical/training-command-guide`, `technical/training-pipeline`, `technical/training-options-and-checklist` | `scripts/keras/run_fixed_split.sh` | `keras_pipeline/tf_train.py` → `tf_model.py` → `tf_dataset.py` |
 | INT8 quantization / NPU export | `technical/int8-quantization-npu`, `technical/android-deployment-agreement` | `keras_pipeline/convert_keras_to_tflite.py` | `keras_pipeline/export_validator.py` → generated sidecar JSON |
 | Independent test set evaluation | `tests/evaluation-metrics-results`, `data/dataset-standard` | `evaluate_tflite.py` | `utils.py` (metrics calculation) → report table |
 | PyTorch training / Sony MCT | `technical/training-pipeline`, `technical/training-command-guide` | `scripts/pytorch/run_fixed_split.sh` | `pytorch_pipeline/convert_to_tflite.py` → `model.py` |

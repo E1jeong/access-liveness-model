@@ -42,7 +42,7 @@ from keras_pipeline.tf_dataset import (
 from keras_pipeline.tf_model import (
     SUPPORTED_BACKBONES, build_dual_model, build_single_model, extract_deploy_model
 )
-from keras_pipeline.losses import build_classification_loss
+from keras_pipeline.losses import build_binary_pad_loss, build_classification_loss
 from keras_pipeline.run_metadata import make_run_id, write_run_metadata
 from keras_pipeline.artifact_paths import (
     keras_checkpoint_path,
@@ -280,6 +280,17 @@ def parse_args():
         help="3D Depth 보조 손실 가중치 (기본값: 0.5)",
     )
     parser.add_argument(
+        "--aux-binary-pad",
+        action="store_true",
+        help="Phase 2 bona-fide/spoof 보조 지도학습 활성화",
+    )
+    parser.add_argument(
+        "--binary-pad-loss-weight",
+        type=float,
+        default=0.2,
+        help="binary PAD 보조 손실 가중치 (기본값: 0.2)",
+    )
+    parser.add_argument(
         "--loss-type",
         "--loss",
         dest="loss_type",
@@ -312,6 +323,8 @@ def main():
         raise ValueError(
             f"--freeze-backbone-epochs ({args.freeze_backbone_epochs})는 총 에포크({args.epochs})보다 작아야 합니다."
         )
+    if args.binary_pad_loss_weight < 0:
+        raise ValueError("--binary-pad-loss-weight는 0 이상이어야 합니다.")
 
     if args.backbone == "mobilefacenet":
         if args.model_type != "crop_ir":
@@ -337,17 +350,20 @@ def main():
     print(f" - freeze_backbone_epochs: {args.freeze_backbone_epochs}")
     print(f" - loss_type: {args.loss_type} (gamma={args.focal_gamma}, alpha={args.focal_alpha}, label_smoothing={args.label_smoothing})")
     print(f" - aux_depth: {args.aux_depth} (depth_loss_weight={args.depth_loss_weight})")
+    print(f" - aux_binary_pad: {args.aux_binary_pad} (binary_pad_loss_weight={args.binary_pad_loss_weight})")
 
     if args.model_type == "dual":
         train_ds = make_dataset(
             train_items, batch_size=args.batch_size, shuffle=True, seed=args.seed,
-            augment=True, repeat=True, aux_depth=args.aux_depth
+            augment=True, repeat=True, aux_depth=args.aux_depth,
+            aux_binary_pad=args.aux_binary_pad
         )
         val_ds = make_dataset(val_items, batch_size=args.batch_size, shuffle=False, seed=args.seed).cache()
     else:
         train_ds = make_single_dataset(
             train_items, input_type=args.model_type, batch_size=args.batch_size, shuffle=True, seed=args.seed,
-            augment=True, repeat=True, aux_depth=args.aux_depth
+            augment=True, repeat=True, aux_depth=args.aux_depth,
+            aux_binary_pad=args.aux_binary_pad
         )
         val_ds = make_single_dataset(val_items, input_type=args.model_type, batch_size=args.batch_size, shuffle=False, seed=args.seed).cache()
 
@@ -363,6 +379,7 @@ def main():
             conv1_reduction=args.conv1_reduction,
             backbone=args.backbone,
             aux_depth=args.aux_depth,
+            aux_binary_pad=args.aux_binary_pad,
         )
     else:
         model = build_single_model(
@@ -374,6 +391,7 @@ def main():
             conv1_reduction=args.conv1_reduction,
             backbone=args.backbone,
             aux_depth=args.aux_depth,
+            aux_binary_pad=args.aux_binary_pad,
         )
 
     # 손실 함수 구성
@@ -384,15 +402,15 @@ def main():
         focal_alpha=args.focal_alpha,
     )
 
-    if args.aux_depth:
-        loss_dict = {
-            "logits": cls_loss_fn,
-            "depth_output": tf.keras.losses.MeanSquaredError(),
-        }
-        loss_weights_dict = {
-            "logits": 1.0,
-            "depth_output": args.depth_loss_weight,
-        }
+    if args.aux_depth or args.aux_binary_pad:
+        loss_dict = {"logits": cls_loss_fn}
+        loss_weights_dict = {"logits": 1.0}
+        if args.aux_depth:
+            loss_dict["depth_output"] = tf.keras.losses.MeanSquaredError()
+            loss_weights_dict["depth_output"] = args.depth_loss_weight
+        if args.aux_binary_pad:
+            loss_dict["pad_output"] = build_binary_pad_loss()
+            loss_weights_dict["pad_output"] = args.binary_pad_loss_weight
         metrics_dict = {"logits": [tf.keras.metrics.SparseCategoricalAccuracy(name="acc")]}
     else:
         loss_dict = cls_loss_fn

@@ -2,7 +2,7 @@
 from typing import Callable, Optional
 import tensorflow as tf
 
-from classes import CLASS_NAMES
+from classes import BONA_FIDE_CLASS_INDICES, CLASS_NAMES
 
 
 def build_classification_loss(
@@ -46,5 +46,26 @@ def build_classification_loss(
         y_true_int = tf.cast(tf.reshape(y_true, [-1]), tf.int32)
         y_true_oh = tf.one_hot(y_true_int, depth=num_classes)
         return core_loss(y_true_oh, y_pred)
+
+    return loss_fn
+
+
+def build_binary_pad_loss():
+    """12-class labels를 Phase 2 bona-fide/spoof PAD target으로 변환한 BCE loss.
+
+    ``live``, ``dental_white``, ``dental_black``은 bona-fide(0), 나머지는
+    spoof(1)다. 모델의 12-class logits 출력은 그대로 유지하며 이 loss는
+    학습 전용 ``pad_output`` 보조 head에만 사용한다.
+    """
+    core_loss = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+    bona_fide_indices = tf.constant(BONA_FIDE_CLASS_INDICES, dtype=tf.int32)
+
+    def loss_fn(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
+        labels = tf.cast(tf.reshape(y_true, [-1]), tf.int32)
+        bona_fide = tf.reduce_any(
+            tf.equal(tf.expand_dims(labels, axis=-1), bona_fide_indices), axis=-1
+        )
+        spoof_targets = tf.cast(tf.logical_not(bona_fide), tf.float32)
+        return core_loss(tf.expand_dims(spoof_targets, axis=-1), y_pred)
 
     return loss_fn

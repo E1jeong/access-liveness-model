@@ -39,4 +39,4 @@
 - GPU server full test suite: `.venv-tf/bin/pytest`
 - Keras model & GPU smoke test: `./scripts/keras/run_keras_model.sh`
 - GPU-server TFLite evaluation on test split: `.venv-tf/bin/python evaluate_tflite.py --model model/keras/best_crop_ir_fixed_npu_int8.tflite --split test`
-- Report exact commands and results. Never commit or push: the user manages all git commits and pushes manually.
+- Report exact commands and results.

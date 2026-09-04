@@ -5,6 +5,7 @@
 
 Multi-Task Auxiliary 3D Depth 학습 지원:
   - `aux_depth=True` 시 12-Class `logits` 외에 14x14 `depth_output` 헤드가 함께 생성된다.
+  - `aux_binary_pad=True` 시 Phase 2 bona-fide/spoof용 `pad_output` head가 함께 생성된다.
   - `extract_deploy_model(model)`을 호출하면 보조 헤드를 제거한 순수 배포용 단일 출력 모델을 얻을 수 있다.
 """
 import argparse
@@ -99,6 +100,20 @@ def _build_depth_head(spatial_features, prefix="aux"):
     return depth_out
 
 
+def _build_binary_pad_head(features):
+    """학습 전용 Phase 2 bona-fide/spoof logits head."""
+    return layers.Dense(1, name="pad_output")(features)
+
+
+def _build_training_outputs(logits, depth_out=None, pad_out=None):
+    outputs = [logits]
+    if depth_out is not None:
+        outputs.append(depth_out)
+    if pad_out is not None:
+        outputs.append(pad_out)
+    return outputs[0] if len(outputs) == 1 else outputs
+
+
 def _rgb_current_norm_to_mobilenet_range(x):
     raw_0_1 = x * tf.constant(RGB_STD, dtype=tf.float32) + tf.constant(RGB_MEAN, dtype=tf.float32)
     return raw_0_1 * 2.0 - 1.0
@@ -130,7 +145,7 @@ def build_dual_model(
     rgb_weights="imagenet", dropout=0.2, classifier_units=1024, gray_imagenet_init=True,
     rgb_input_mobilenet_range=False, average_pool_op=False, fixed_batch_size=None,
     classifier_as_conv=False, conv1_reduction="sum", backbone="mobilenetv2",
-    aux_depth=False,
+    aux_depth=False, aux_binary_pad=False,
 ):
     if backbone == "mobilefacenet":
         raise ValueError("MobileFaceNet은 crop_ir 단일 입력만 지원합니다")
@@ -156,20 +171,28 @@ def build_dual_model(
         fused_features = layers.Concatenate(name="fused_features")([rgb_features, ir_features])
         logits = _build_classifier_head(fused_features, classifier_units, dropout, classifier_as_conv)
         depth_out = _build_depth_head(ir_raw, prefix="dual_ir")
-        return keras.Model([rgb_input, ir_input], [logits, depth_out], name=f"dual_{backbone}")
+        pad_out = _build_binary_pad_head(fused_features) if aux_binary_pad else None
+        return keras.Model(
+            [rgb_input, ir_input], _build_training_outputs(logits, depth_out, pad_out),
+            name=f"dual_{backbone}",
+        )
     else:
         rgb_features = _features_for_head(rgb_backbone, rgb_preprocessed, backbone, average_pool_op, "rgb")
         ir_features = _features_for_head(ir_backbone, ir_input, backbone, average_pool_op, "ir")
         fused_features = layers.Concatenate(name="fused_features")([rgb_features, ir_features])
         logits = _build_classifier_head(fused_features, classifier_units, dropout, classifier_as_conv)
-        return keras.Model([rgb_input, ir_input], logits, name=f"dual_{backbone}")
+        pad_out = _build_binary_pad_head(fused_features) if aux_binary_pad else None
+        return keras.Model(
+            [rgb_input, ir_input], _build_training_outputs(logits, pad_out=pad_out),
+            name=f"dual_{backbone}",
+        )
 
 
 def build_single_model(
     input_type="crop_rgb", rgb_weights="imagenet", dropout=0.2, classifier_units=1024,
     gray_imagenet_init=True, rgb_input_mobilenet_range=False, average_pool_op=False,
     fixed_batch_size=None, classifier_as_conv=False, conv1_reduction="sum", backbone="mobilenetv2",
-    aux_depth=False,
+    aux_depth=False, aux_binary_pad=False,
 ):
     if input_type not in ("crop_rgb", "crop_ir"):
         raise ValueError(f"Unknown input_type: {input_type}")
@@ -199,11 +222,19 @@ def build_single_model(
         features = layers.GlobalAveragePooling2D(name=f"{input_type}_gap")(raw_features)
         logits = _build_classifier_head(features, classifier_units, dropout, classifier_as_conv)
         depth_out = _build_depth_head(raw_features, prefix=input_type)
-        return keras.Model(model_input, [logits, depth_out], name=f"single_{input_type}_{backbone}")
+        pad_out = _build_binary_pad_head(features) if aux_binary_pad else None
+        return keras.Model(
+            model_input, _build_training_outputs(logits, depth_out, pad_out),
+            name=f"single_{input_type}_{backbone}",
+        )
     else:
         features = _features_for_head(backbone_model, backbone_input, backbone, average_pool_op, input_type)
         logits = _build_classifier_head(features, classifier_units, dropout, classifier_as_conv)
-        return keras.Model(model_input, logits, name=f"single_{input_type}_{backbone}")
+        pad_out = _build_binary_pad_head(features) if aux_binary_pad else None
+        return keras.Model(
+            model_input, _build_training_outputs(logits, pad_out=pad_out),
+            name=f"single_{input_type}_{backbone}",
+        )
 
 
 # 기존 호출부 및 저장된 코드의 import 호환성.
@@ -221,6 +252,7 @@ def parse_args():
     parser.add_argument("--backbone", choices=SUPPORTED_BACKBONES, default="mobilenetv2")
     parser.add_argument("--conv1-reduction", choices=["mean", "sum"], default="sum")
     parser.add_argument("--aux-depth", action="store_true", help="3D Depth 보조 헤드 생성 여부")
+    parser.add_argument("--aux-binary-pad", action="store_true", help="Phase 2 binary PAD 보조 헤드 생성 여부")
     return parser.parse_args()
 
 
@@ -232,6 +264,6 @@ if __name__ == "__main__":
     builder = build_dual_model if args.model_type == "dual" else build_single_model
     kwargs = dict(rgb_weights=weights, dropout=args.dropout, classifier_units=args.classifier_units,
                   gray_imagenet_init=not args.no_gray_imagenet_init, conv1_reduction=args.conv1_reduction,
-                  backbone=args.backbone, aux_depth=args.aux_depth)
+                  backbone=args.backbone, aux_depth=args.aux_depth, aux_binary_pad=args.aux_binary_pad)
     model = builder(**kwargs) if args.model_type == "dual" else builder(input_type=args.model_type, **kwargs)
     model.summary()

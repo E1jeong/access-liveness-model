@@ -8,8 +8,10 @@ resize 구현과 ColorJitter 연산 순서가 달라 픽셀 단위 결과까지 
   RGB: BGR→RGB → 0~1 → (x - ImageNet_mean) / ImageNet_std
   IR : 그레이스케일 → 0~1 → (x - 0.5) / 0.5   즉 [-1, 1]
 
-Multi-Task Auxiliary 3D Depth 지원:
+Multi-Task Auxiliary 지도학습 지원:
   - `aux_depth=True` 시 14x14 크기의 3D 깊이 지도(`depth_output`)를 타겟 딕셔너리로 함께 반환한다.
+  - `aux_binary_pad=True` 시 같은 12-class label을 `pad_output`에도 전달한다.
+    binary target 변환은 loss에서 Phase 2 policy로 수행한다.
 """
 import os
 import random
@@ -137,7 +139,8 @@ def _sample_augmentation_params(index, seed, augment):
     return flip_val, angle_val, brightness_val, contrast_val, sat_val
 
 
-def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, repeat=False, aux_depth=False):
+def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, repeat=False,
+                 aux_depth=False, aux_binary_pad=False):
     """dual(RGB+IR) 모델용 tf.data 데이터셋을 만든다."""
     items = list(items)
     if not items:
@@ -189,7 +192,10 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, rep
             outputs[1].set_shape((224, 224, 1))
             outputs[2].set_shape(())
             outputs[3].set_shape((14, 14, 1))
-            return (outputs[0], outputs[1]), {"logits": outputs[2], "depth_output": outputs[3]}
+            targets = {"logits": outputs[2], "depth_output": outputs[3]}
+            if aux_binary_pad:
+                targets["pad_output"] = outputs[2]
+            return (outputs[0], outputs[1]), targets
         else:
             outputs = tf.py_function(
                 _py_fn,
@@ -199,13 +205,16 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, rep
             outputs[0].set_shape((224, 224, 3))
             outputs[1].set_shape((224, 224, 1))
             outputs[2].set_shape(())
+            if aux_binary_pad:
+                return (outputs[0], outputs[1]), {"logits": outputs[2], "pad_output": outputs[2]}
             return (outputs[0], outputs[1]), outputs[2]
 
     ds = ds.map(map_fn, num_parallel_calls=tf.data.AUTOTUNE)
     return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 
-def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=False, seed=42, augment=False, repeat=False, aux_depth=False):
+def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=False, seed=42,
+                        augment=False, repeat=False, aux_depth=False, aux_binary_pad=False):
     """crop_rgb / crop_ir 단일 입력 모델용 데이터셋."""
     items = list(items)
     if not items:
@@ -260,7 +269,10 @@ def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=Fals
                 outputs[0].set_shape((224, 224, 1))
             outputs[1].set_shape(())
             outputs[2].set_shape((14, 14, 1))
-            return outputs[0], {"logits": outputs[1], "depth_output": outputs[2]}
+            targets = {"logits": outputs[1], "depth_output": outputs[2]}
+            if aux_binary_pad:
+                targets["pad_output"] = outputs[1]
+            return outputs[0], targets
         else:
             outputs = tf.py_function(
                 _py_fn,
@@ -272,6 +284,8 @@ def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=Fals
             else:
                 outputs[0].set_shape((224, 224, 1))
             outputs[1].set_shape(())
+            if aux_binary_pad:
+                return outputs[0], {"logits": outputs[1], "pad_output": outputs[1]}
             return outputs[0], outputs[1]
 
     ds = ds.map(map_fn, num_parallel_calls=tf.data.AUTOTUNE)

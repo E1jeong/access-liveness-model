@@ -10,6 +10,7 @@ EPOCHS=10
 BATCH_SIZE=32
 LEARNING_RATE="2e-4"
 DATA_DIR="dataset/raw"
+OUTPUT_DIR="model/keras"
 CALIBRATION_SAMPLES=500
 FORCE=""
 REDUCTION="sum"
@@ -20,6 +21,8 @@ EMA_MOMENTUM="0.99"
 FREEZE_BACKBONE_EPOCHS=0
 AUX_DEPTH=""
 DEPTH_LOSS_WEIGHT="0.5"
+AUX_BINARY_PAD=""
+BINARY_PAD_LOSS_WEIGHT="0.2"
 LOSS_TYPE="ce"
 FOCAL_GAMMA="2.0"
 FOCAL_ALPHA="0.25"
@@ -33,6 +36,7 @@ while [[ "$#" -gt 0 ]]; do
     --batch-size) BATCH_SIZE="$2"; shift ;;
     --learning-rate) LEARNING_RATE="$2"; shift ;;
     --data-dir) DATA_DIR="$2"; shift ;;
+    --output-dir) OUTPUT_DIR="$2"; shift ;;
     --calibration-samples) CALIBRATION_SAMPLES="$2"; shift ;;
     --force) FORCE="--force" ;;
     --conv1-reduction) REDUCTION="$2"; shift ;;
@@ -43,6 +47,8 @@ while [[ "$#" -gt 0 ]]; do
     --freeze-backbone-epochs) FREEZE_BACKBONE_EPOCHS="$2"; shift ;;
     --aux-depth) AUX_DEPTH="--aux-depth" ;;
     --depth-loss-weight) DEPTH_LOSS_WEIGHT="$2"; shift ;;
+    --aux-binary-pad) AUX_BINARY_PAD="--aux-binary-pad" ;;
+    --binary-pad-loss-weight) BINARY_PAD_LOSS_WEIGHT="$2"; shift ;;
     --loss|--loss-type) LOSS_TYPE="$2"; shift ;;
     --focal-gamma) FOCAL_GAMMA="$2"; shift ;;
     --focal-alpha) FOCAL_ALPHA="$2"; shift ;;
@@ -76,7 +82,8 @@ echo "========================================="
 echo "  [시작] 고정 split 학습 파이프라인"
 echo "  모델 종류      : $MODEL_TYPE"
 echo "  백본           : $BACKBONE"
-echo "  데이터 경로    : $DATA_DIR"
+  echo "  데이터 경로    : $DATA_DIR"
+  echo "  산출물 경로    : $OUTPUT_DIR"
 echo "  에폭            : $EPOCHS"
 echo "  배치 크기       : $BATCH_SIZE"
 echo "  학습률          : $LEARNING_RATE"
@@ -90,6 +97,7 @@ echo "========================================="
 .venv-tf/bin/python validate_fixed_splits.py --data-dir "$DATA_DIR"
 ./scripts/keras/run_keras_train.sh \
   --data-dir "$DATA_DIR" \
+  --output-dir "$OUTPUT_DIR" \
   --model-type "$MODEL_TYPE" \
   --backbone "$BACKBONE" \
   --epochs "$EPOCHS" \
@@ -104,10 +112,12 @@ echo "========================================="
   ${USE_EMA:+$USE_EMA --ema-momentum "$EMA_MOMENTUM"} \
   --freeze-backbone-epochs "$FREEZE_BACKBONE_EPOCHS" \
   ${AUX_DEPTH:+$AUX_DEPTH --depth-loss-weight "$DEPTH_LOSS_WEIGHT"} \
+  ${AUX_BINARY_PAD:+$AUX_BINARY_PAD --binary-pad-loss-weight "$BINARY_PAD_LOSS_WEIGHT"} \
   "${TRAIN_EXTRA[@]}" \
   $FORCE
 ./scripts/keras/run_keras_convert.sh \
   --data-dir "$DATA_DIR" \
+  --output-dir "$OUTPUT_DIR" \
   --model-type "$MODEL_TYPE" \
   --backbone "$BACKBONE" \
   --calibration-samples "$CALIBRATION_SAMPLES" \
@@ -119,9 +129,9 @@ echo "========================================="
   --split validation \
   --model-type "$MODEL_TYPE" \
   --models \
-    "model/keras/${PREFIX}_float.tflite" \
-    "model/keras/${PREFIX}_int8.tflite" \
-    "model/keras/${PREFIX}_npu_int8.tflite"
+    "$OUTPUT_DIR/${PREFIX}_float.tflite" \
+    "$OUTPUT_DIR/${PREFIX}_int8.tflite" \
+    "$OUTPUT_DIR/${PREFIX}_npu_int8.tflite"
 
 echo "========================================="
 echo "  [성공] 고정 split 파이프라인 완료"

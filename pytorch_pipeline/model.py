@@ -9,7 +9,7 @@ if str(PROJECT_ROOT) not in sys.path:
 import torch
 import torch.nn as nn
 import torchvision.models as models
-from classes import CLASS_NAMES
+from common.classes import CLASS_NAMES
 
 def replace_hardswish_with_relu(model):
     """NPU 호환성을 위해 Hardswish를 ReLU6로 치환합니다."""

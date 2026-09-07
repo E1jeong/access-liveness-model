@@ -1,9 +1,9 @@
-"""keras_pipeline.artifact_paths의 이름 규칙과 덮어쓰기 방지를 검증한다."""
+"""keras_pipeline.training.artifact_paths의 이름 규칙과 덮어쓰기를 검증한다."""
 import os
 
 import pytest
 
-from keras_pipeline.artifact_paths import (
+from keras_pipeline.training.artifact_paths import (
     DEFAULT_OUTPUT_DIR,
     TFLITE_VARIANTS,
     keras_checkpoint_name,

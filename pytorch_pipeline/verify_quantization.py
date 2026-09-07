@@ -10,8 +10,8 @@ import argparse
 import numpy as np
 import torch
 from pytorch_pipeline.dataset import get_data_loaders
-from classes import CLASS_NAMES
-from utils import calculate_validation_metrics
+from common.classes import CLASS_NAMES
+from common.utils import calculate_validation_metrics
 
 def verify_tflite_quantization(tflite_path):
     print(f"\n==========================================")

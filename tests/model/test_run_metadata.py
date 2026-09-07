@@ -1,6 +1,6 @@
 import json
 
-from keras_pipeline import run_metadata
+from keras_pipeline.training import run_metadata
 
 
 def test_run_metadata_records_config_checkpoint_class_map_and_split_hashes(tmp_path, monkeypatch):

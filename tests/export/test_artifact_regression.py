@@ -3,8 +3,8 @@ import json
 import numpy as np
 import pytest
 
-from classes import CLASS_NAMES
-from evaluate_tflite import write_metrics_csv, write_regression_report
+from common.classes import CLASS_NAMES
+from common.evaluate_tflite import write_metrics_csv, write_regression_report
 
 
 def _result(name, logits, acer, latency):

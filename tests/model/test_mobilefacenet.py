@@ -2,9 +2,9 @@ import numpy as np
 import pytest
 from tensorflow.keras import layers
 
-from keras_pipeline.export_validator import build_npu_export_model, validate_npu_export_parity
-from keras_pipeline.mobilefacenet import MobileFaceNet
-from keras_pipeline.tf_model import build_dual_model, build_single_model
+from keras_pipeline.export.validator import build_npu_export_model, validate_npu_export_parity
+from keras_pipeline.models.mobilefacenet import MobileFaceNet
+from keras_pipeline.models.model import build_dual_model, build_single_model
 
 
 def test_mobilefacenet_backbone_has_224_ir_contract_and_gdconv():

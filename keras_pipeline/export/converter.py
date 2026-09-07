@@ -17,26 +17,26 @@ from pathlib import Path
 import numpy as np
 import tensorflow as tf
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from utils import collect_split_items, validate_fixed_split_coverage
-from classes import CLASS_NAMES
-from keras_pipeline.model_signature import (
+from common.utils import collect_split_items, validate_fixed_split_coverage
+from common.classes import CLASS_NAMES
+from keras_pipeline.contracts.model_signature import (
     validate_keras_model_signature,
     validate_tflite_model_signature,
 )
-from keras_pipeline.tf_dataset import load_sample
-from keras_pipeline.tf_model import _rgb_current_norm_to_mobilenet_range, extract_deploy_model, SUPPORTED_BACKBONES
-from keras_pipeline.artifact_paths import (
+from keras_pipeline.data.dataset import load_sample
+from keras_pipeline.models.model import _rgb_current_norm_to_mobilenet_range, extract_deploy_model, SUPPORTED_BACKBONES
+from keras_pipeline.training.artifact_paths import (
     keras_checkpoint_path,
     tflite_path as artifact_tflite_path,
     sidecar_manifest_path,
     calibration_manifest_path,
     check_no_overwrite,
 )
-from keras_pipeline.export_validator import (
+from keras_pipeline.export.validator import (
     _copy_nested_weights,
     _rgb_imagenet_norm_to_mobilenet_range,
     validate_npu_export_parity,

@@ -3,7 +3,7 @@ import random
 import numpy as np
 import hashlib
 import json
-from classes import CLASS_NAMES, CLASS_MAPPING
+from common.classes import CLASS_NAMES, CLASS_MAPPING
 
 FIXED_SPLITS = ("train", "validation", "test")
 
@@ -471,7 +471,7 @@ def calculate_validation_metrics(labels, preds):
         correct = confusion_matrix[class_idx, class_idx]
         recalls.append(float(correct / total) if total > 0 else 0.0)
 
-    # 인덱스 0 = live, 1 이상 = 전부 spoof (classes.py의 CLASS_NAMES 순서에 의존).
+    # 인덱스 0 = live, 1 이상 = 전부 spoof (common/classes.py의 CLASS_NAMES 순서에 의존).
     live_mask = labels == 0
     spoof_mask = labels != 0
     total_live = int(live_mask.sum())

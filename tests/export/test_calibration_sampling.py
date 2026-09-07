@@ -3,8 +3,8 @@ import json
 import numpy as np
 import pytest
 
-from classes import CLASS_NAMES
-from keras_pipeline import convert_keras_to_tflite as converter
+from common.classes import CLASS_NAMES
+from keras_pipeline.export import converter
 
 
 def _items(counts):

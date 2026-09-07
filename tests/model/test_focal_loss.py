@@ -1,10 +1,10 @@
-"""keras_pipeline.losses 모듈의 손실 함수 및 Focal Loss 동작을 검증한다."""
+"""keras_pipeline.models.losses 모듈의 손실 함수 및 Focal Loss 동작을 검증한다."""
 import numpy as np
 import pytest
 import tensorflow as tf
 
-from classes import CLASS_NAMES
-from keras_pipeline.losses import build_classification_loss
+from common.classes import CLASS_NAMES
+from keras_pipeline.models.losses import build_classification_loss
 
 
 class TestBuildClassificationLoss:

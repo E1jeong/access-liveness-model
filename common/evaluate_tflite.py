@@ -39,7 +39,7 @@ def _make_interpreter(model_path):
 
 
 def _summarize_result(name, model_path, labels, preds, logits, latencies_ms, file_size_bytes=None):
-    from utils import calculate_validation_metrics
+    from common.utils import calculate_validation_metrics
 
     labels = np.asarray(labels, dtype=np.int64)
     preds = np.asarray(preds, dtype=np.int64)
@@ -117,19 +117,19 @@ def write_metrics_csv(results, output_path, split):
 
 
 def evaluate(model_path, data_dir, split, model_type, max_samples=None):
-    from keras_pipeline.tf_dataset import (
+    from keras_pipeline.data.dataset import (
         load_sample,
         RGB_MEAN,
         RGB_STD,
     )
-    from utils import (
+    from common.utils import (
         calculate_validation_metrics,
         collect_split_items,
         dequantize_from_tflite,
         quantize_for_tflite,
         validate_fixed_split_coverage,
     )
-    from classes import CLASS_NAMES
+    from common.classes import CLASS_NAMES
 
     is_npu_int8 = "npu_int8" in os.path.basename(model_path)
 
@@ -231,11 +231,11 @@ def evaluate(model_path, data_dir, split, model_type, max_samples=None):
 
 def evaluate_keras_model(model_path, data_dir, split, model_type, max_samples=None, npu_export=False):
     import tensorflow as tf
-    from keras_pipeline.convert_keras_to_tflite import build_npu_export_model
-    from keras_pipeline.model_signature import validate_keras_model_signature
-    from keras_pipeline.tf_dataset import load_sample, RGB_MEAN, RGB_STD
-    from keras_pipeline.tf_model import _rgb_current_norm_to_mobilenet_range
-    from utils import collect_split_items, validate_fixed_split_coverage
+    from keras_pipeline.export.converter import build_npu_export_model
+    from keras_pipeline.contracts.model_signature import validate_keras_model_signature
+    from keras_pipeline.data.dataset import load_sample, RGB_MEAN, RGB_STD
+    from keras_pipeline.models.model import _rgb_current_norm_to_mobilenet_range
+    from common.utils import collect_split_items, validate_fixed_split_coverage
 
     model = tf.keras.models.load_model(
         model_path,

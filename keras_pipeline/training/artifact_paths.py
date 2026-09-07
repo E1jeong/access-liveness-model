@@ -117,7 +117,7 @@ def check_no_overwrite(path: str, force: bool = False) -> None:
 
     이전 학습·변환 결과를 실수로 덮어쓰지 않도록 산출물을 쓰기 전에 호출한다.
 
-    tf_train.py는 fit()을 시작하기 '전에' 이 검사를 호출한다. 몇 시간 학습한 뒤
+    training/train.py는 fit()을 시작하기 '전에' 이 검사를 호출한다. 몇 시간 학습한 뒤
     저장 단계에서 실패해 결과를 통째로 잃는 상황을 막기 위한 순서다.
     """
     if os.path.exists(path) and not force:

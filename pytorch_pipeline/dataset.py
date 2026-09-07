@@ -12,8 +12,8 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 import random
-from classes import CLASS_MAPPING
-from utils import (
+from common.classes import CLASS_MAPPING
+from common.utils import (
     _sort_subject_dirs, _split_kfold_subjects,
     gather_frame_items, validate_kfold_coverage, collect_split_items
 )

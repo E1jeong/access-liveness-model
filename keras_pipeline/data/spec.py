@@ -5,7 +5,7 @@
 안드로이드 계약 문서와 함께 검토하지 않고는 수정하지 말 것.
 """
 import numpy as np
-from classes import CLASS_NAMES
+from common.classes import CLASS_NAMES
 
 # 이미지 규격 — cv2.resize에 넘기는 순서라 (width, height)지만 정사각이라 구분이 무의미하다.
 IMAGE_SIZE = (224, 224)
@@ -19,7 +19,7 @@ RGB_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 IR_MEAN = np.array([0.5], dtype=np.float32)
 IR_STD = np.array([0.5], dtype=np.float32)
 
-# 출력 클래스 수 — classes.py의 CLASS_NAMES가 유일한 클래스 인덱스 출처다.
+# 출력 클래스 수 — common/classes.py의 CLASS_NAMES가 유일한 클래스 인덱스 출처다.
 NUM_CLASSES = len(CLASS_NAMES)
 
 # 모델별 입력 텐서 규격 (이름, shape)

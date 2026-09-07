@@ -2,13 +2,13 @@ import numpy as np
 import pytest
 from tensorflow import keras
 
-from keras_pipeline.convert_keras_to_tflite import (
+from keras_pipeline.export.converter import (
     _copy_nested_weights,
     build_npu_export_model,
     validate_npu_export_parity,
 )
-from keras_pipeline.tf_dataset import RGB_MEAN, RGB_STD
-from keras_pipeline.tf_model import build_single_mobilenetv2
+from keras_pipeline.data.dataset import RGB_MEAN, RGB_STD
+from keras_pipeline.models.model import build_single_mobilenetv2
 
 
 def _nested_model(weighted_layer_name, units, extra_weighted_layer_name=None):

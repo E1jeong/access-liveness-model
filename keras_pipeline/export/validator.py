@@ -17,9 +17,9 @@ import os
 import numpy as np
 import tensorflow as tf
 
-from classes import CLASS_NAMES
-from keras_pipeline.model_signature import validate_tflite_model_signature
-from keras_pipeline.tf_dataset import RGB_MEAN, RGB_STD
+from common.classes import CLASS_NAMES
+from keras_pipeline.contracts.model_signature import validate_tflite_model_signature
+from keras_pipeline.data.dataset import RGB_MEAN, RGB_STD
 
 
 # tf_model._rgb_current_norm_to_mobilenet_range와 같은 식의 numpy 판.
@@ -185,7 +185,7 @@ def build_npu_export_model(trained_model, model_type):
 
     if model_type == "dual":
         # 함수 안에서 import하는 이유: tf_model이 이 모듈을 다시 참조하는 순환 import를 피한다.
-        from keras_pipeline.tf_model import build_dual_model
+        from keras_pipeline.models.model import build_dual_model
         export_model = build_dual_model(
             # ImageNet을 다시 받을 필요가 없다 — 어차피 학습 가중치로 전부 덮어쓴다.
             rgb_weights=None,
@@ -200,7 +200,7 @@ def build_npu_export_model(trained_model, model_type):
         )
         backbones = [f"rgb_{backbone}", f"ir_{backbone}"]
     else:
-        from keras_pipeline.tf_model import build_single_model
+        from keras_pipeline.models.model import build_single_model
         export_model = build_single_model(
             input_type=model_type,
             rgb_weights=None,

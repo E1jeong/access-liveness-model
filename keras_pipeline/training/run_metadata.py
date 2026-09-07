@@ -9,8 +9,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from classes import CLASS_NAMES
-from utils import collect_split_items
+from common.classes import CLASS_NAMES
+from common.utils import collect_split_items
 
 
 # 실행 식별자: UTC 시각 + 모델 타입 (예: 20260807T100157Z_dual).

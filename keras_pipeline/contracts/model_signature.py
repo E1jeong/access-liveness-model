@@ -16,8 +16,8 @@ spec.py의 a_/b_ 접두사와 TFLite 변환 결과로 관리하며, inspect_tfli
 같은 검사를 Keras 모델과 TFLite 파일 양쪽에서 하는 이유도 같다 — 변환 전에 한 번,
 변환 후에 한 번 확인해야 변환 단계에서 생긴 어긋남을 잡을 수 있다.
 """
-from classes import CLASS_NAMES
-from keras_pipeline.spec import MODEL_INPUT_SIGNATURES
+from common.classes import CLASS_NAMES
+from keras_pipeline.data.spec import MODEL_INPUT_SIGNATURES
 
 
 # 모델 종류에 해당하는 계약 튜플을 꺼낸다. 오타 난 model_type이 조용히 통과하지 않도록

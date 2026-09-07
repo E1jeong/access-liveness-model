@@ -1,7 +1,7 @@
 """Keras 안티스푸핑 학습 진입점.
 
 실행 경로: `scripts/keras/run_fixed_split.sh` → `scripts/keras/run_keras_train.sh`
-→ `python -m keras_pipeline.tf_train`. bare `python`으로 직접 부르면
+→ `python -m keras_pipeline.training.train`. bare `python`으로 직접 부르면
 `.venv-tf`가 필요로 하는 `LD_LIBRARY_PATH`(libcudnn)가 설정되지 않아 GPU를 놓친다.
 
 전체 흐름:
@@ -26,25 +26,25 @@ import tensorflow as tf
 for _gpu in tf.config.list_physical_devices('GPU'):
     tf.config.experimental.set_memory_growth(_gpu, True)
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from classes import CLASS_NAMES
-from utils import (
+from common.classes import CLASS_NAMES
+from common.utils import (
     calculate_validation_metrics,
     collect_split_items,
     validate_fixed_split_coverage,
 )
-from keras_pipeline.tf_dataset import (
+from keras_pipeline.data.dataset import (
     make_dataset, make_single_dataset
 )
-from keras_pipeline.tf_model import (
+from keras_pipeline.models.model import (
     SUPPORTED_BACKBONES, build_dual_model, build_single_model, extract_deploy_model
 )
-from keras_pipeline.losses import build_binary_pad_loss, build_classification_loss
-from keras_pipeline.run_metadata import make_run_id, write_run_metadata
-from keras_pipeline.artifact_paths import (
+from keras_pipeline.models.losses import build_binary_pad_loss, build_classification_loss
+from keras_pipeline.training.run_metadata import make_run_id, write_run_metadata
+from keras_pipeline.training.artifact_paths import (
     keras_checkpoint_path,
     learning_curves_path,
     metadata_path as artifact_metadata_path,

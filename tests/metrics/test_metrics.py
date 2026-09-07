@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from classes import CLASS_NAMES
-from utils import calculate_validation_metrics
+from common.classes import CLASS_NAMES
+from common.utils import calculate_validation_metrics
 
 
 def _metrics(labels, preds):

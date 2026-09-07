@@ -3,18 +3,18 @@
 ## Scope
 
 - Own production training, validation, evaluation, and TFLite INT8 quantization for the `access-liveness-model` project.
-- Implement dataset loading (`tf_dataset.py`), pseudo 3D depth generation (`depth_generator.py`), model architectures (`tf_model.py`, `mobilefacenet.py`, `efficientnet_lite.py`), training loops with ACER checkpointing (`tf_train.py`), TFLite export (`convert_keras_to_tflite.py`), and sidecar manifest validation (`export_validator.py`).
+- Implement dataset loading (`data/dataset.py`), pseudo 3D depth generation (`data/depth_generator.py`), model architectures (`models/model.py`, `models/mobilefacenet.py`, `models/efficientnet_lite.py`), training loops with ACER checkpointing (`training/train.py`), TFLite export (`export/converter.py`), and sidecar manifest validation (`export/validator.py`).
 
 ## Orient First
 
 - Read `technical/training-pipeline`, `technical/training-command-guide`, `technical/training-options-and-checklist`, `technical/training-enhancement-proposals`, `technical/int8-quantization-npu`, and `technical/android-deployment-agreement` before modifying model architectures or quantization pipelines.
 - Source entry points:
-  - Model definitions: `tf_model.py` (`build_single_model`, `build_dual_model`, `extract_deploy_model`), `mobilefacenet.py`, `efficientnet_lite.py`
-  - 3D Depth supervision: `depth_generator.py` (`generate_pseudo_depth_map`, `_build_base_templates`)
-  - Losses: `losses.py` (`build_classification_loss` for CrossEntropy and Focal Loss)
-  - Training loop: `tf_train.py` (cosine decay, `AcerCheckpoint`, fixed-split evaluation, `--aux-depth`, `--loss focal`)
-  - Quantization & export: `convert_keras_to_tflite.py` (Full INT8 and NPU-friendly INT8)
-  - Graph inspection & sidecars: `export_validator.py` (`inspect_tflite_graph`, `generate_sidecar_manifest`)
+  - Model definitions: `models/model.py` (`build_single_model`, `build_dual_model`, `extract_deploy_model`), `models/mobilefacenet.py`, `models/efficientnet_lite.py`
+  - 3D Depth supervision: `data/depth_generator.py` (`generate_pseudo_depth_map`, `_build_base_templates`)
+  - Losses: `models/losses.py` (`build_classification_loss` for CrossEntropy and Focal Loss)
+  - Training loop: `training/train.py` (cosine decay, `AcerCheckpoint`, fixed-split evaluation, `--aux-depth`, `--loss focal`)
+  - Quantization & export: `export/converter.py` (Full INT8 and NPU-friendly INT8)
+  - Graph inspection & sidecars: `export/validator.py` (`inspect_tflite_graph`, `generate_sidecar_manifest`)
 
 ## Boundary & Architecture Constraints
 
@@ -36,7 +36,7 @@
 
 - Always execute via `scripts/keras/*.sh` from repository root. Never invoke bare `python` on the GPU machine (`sub`) because `.venv-tf` requires `libcudnn.so.9` from `_keras_env.sh`.
 - Do not overwrite existing candidate models (`model/keras/best_*`). Write new runs with unique timestamps or run IDs.
-- Any change to model inputs, outputs, or quantization must generate and validate the matching sidecar JSON (`best_*_manifest.json`) via `export_validator.py`.
+- Any change to model inputs, outputs, or quantization must generate and validate the matching sidecar JSON (`best_*_manifest.json`) via `export/validator.py`.
 
 ## Verify
 

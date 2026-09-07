@@ -25,13 +25,13 @@
    - Standard PyTorch PTQ causes activation collapse on MobileNetV3; use the Sony MCT path with QAT fine-tuning for INT8 convergence.
 3. **Android Contract Compatibility**:
    - The emitted TFLite model from `convert_to_tflite.py` (via ONNX -> `onnx2tf`) must strictly follow the Android contract: NHWC input `[1, 224, 224, 1]` or `[1, 224, 224, 3]`, output `[1, 12]` INT8 logits (matching `len(CLASS_NAMES)`).
-   - Sidecar manifest must be generated and inspected using `keras_pipeline.export_validator`.
+   - Sidecar manifest must be generated and inspected using `keras_pipeline.export.validator`.
 
 ## Change Gates
 
 - Always use `.venv` (Python 3.12, PyTorch cu128).
 - Do not introduce operations unsupported by VeriSilicon VIP8000 NPU (avoid arbitrary non-linearities, dynamic shapes, or per-channel dequantize ONNX ops).
-- Do not deploy PyTorch-origin INT8 models without full verification against `evaluate_tflite.py`.
+- Do not deploy PyTorch-origin INT8 models without full verification against `common/evaluate_tflite.py`.
 
 ## Verify
 

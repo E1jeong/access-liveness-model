@@ -20,7 +20,7 @@ dataset/raw/{train,validation,test}/live/{high,medium}/live_<subjectId>/<frame>/
 
 `train` is used for fitting and INT8 calibration, `validation` selects the
 best checkpoint, and `test` is evaluated only after the configuration is
-frozen. Run `validate_fixed_splits.py` before training to reject missing
+frozen. Run `python -m common.validate_fixed_splits` before training to reject missing
 classes/files and subject leakage across splits.
 
 The goal is to train a saved Keras model and convert it through the official
@@ -29,12 +29,12 @@ than the current PyTorch `.pth` to TFLite path.
 
 ## Files
 
-- `tf_dataset.py`: image loading and TensorFlow dataset construction. Spatial augmentation, resize, RGB ColorJitter, and normalization are aligned to the PyTorch pipeline.
-- `tf_model.py`: input-contract builders and selectable MobileNetV2, EfficientNet-Lite0, and MobileFaceNet backbones.
-- `mobilefacenet.py`: scratch-only, IR-only ReLU6 MobileFaceNet with a 7×7 GDConv adapted to the fixed 224×224 input contract.
-- `tf_train.py`: trains and saves `.keras` checkpoints by best validation ACER.
-- `convert_keras_to_tflite.py`: converts a saved Keras model to float, standard full INT8, or NPU-friendly full INT8 TFLite.
-- `../validate_fixed_splits.py`: validates all three splits and blocks subject/frame leakage.
+- `data/`: input specification, pseudo-depth generation, and TensorFlow dataset construction.
+- `models/`: input-contract builders, selectable backbones, and loss functions.
+- `training/`: training entry point, artifact naming, and run metadata.
+- `export/`: float/INT8/NPU-friendly TFLite conversion and graph validation.
+- `contracts/`: Keras and TFLite input/output signature validation.
+- `../common/validate_fixed_splits.py`: validates all three splits and blocks subject/frame leakage.
 
 ## Typical commands
 
@@ -44,10 +44,10 @@ automatically:
 
 ```bash
 ./scripts/keras/run_keras_model.sh
-.venv-tf/bin/python validate_fixed_splits.py
+.venv-tf/bin/python -m common.validate_fixed_splits
 ./scripts/keras/run_keras_train.sh --epochs 30
 ./scripts/keras/run_keras_convert.sh --float --int8 --npu-int8 --calibration-samples 500
-.venv-tf/bin/python evaluate_tflite.py --split validation --models \
+.venv-tf/bin/python -m common.evaluate_tflite --split validation --models \
   model/keras/best_model_fixed_float.tflite \
   model/keras/best_model_fixed_int8.tflite
 ```
@@ -57,7 +57,7 @@ checkpoint, and evaluates `validation`; it never evaluates `test`
 automatically. Final test evaluation must be requested explicitly:
 
 ```bash
-.venv-tf/bin/python evaluate_tflite.py --split test --models \
+.venv-tf/bin/python -m common.evaluate_tflite --split test --models \
   model/keras/best_model_fixed_float.tflite \
   model/keras/best_model_fixed_int8.tflite \
   model/keras/best_model_fixed_npu_int8.tflite

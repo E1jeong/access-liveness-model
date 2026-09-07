@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 고정 train/validation/test 기준 학습 + 변환 + validation 평가.
-# test split은 설정 확정 후 evaluate_tflite.py --split test로 별도 실행한다.
+# test split은 설정 확정 후 common.evaluate_tflite --split test로 별도 실행한다.
 set -e
 cd "$(dirname "$0")/../.."
 
@@ -94,7 +94,7 @@ echo "  백본 워밍업 에폭: $FREEZE_BACKBONE_EPOCHS"
 echo "  강제 덮어쓰기   : ${FORCE:-사용 안 함}"
 echo "========================================="
 
-.venv-tf/bin/python validate_fixed_splits.py --data-dir "$DATA_DIR"
+.venv-tf/bin/python -m common.validate_fixed_splits --data-dir "$DATA_DIR"
 ./scripts/keras/run_keras_train.sh \
   --data-dir "$DATA_DIR" \
   --output-dir "$OUTPUT_DIR" \
@@ -124,7 +124,7 @@ echo "========================================="
   --float --int8 --npu-int8 \
   $FORCE
 
-.venv-tf/bin/python evaluate_tflite.py \
+.venv-tf/bin/python -m common.evaluate_tflite \
   --data-dir "$DATA_DIR" \
   --split validation \
   --model-type "$MODEL_TYPE" \

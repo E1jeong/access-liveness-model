@@ -15,8 +15,8 @@ from tqdm import tqdm
 
 from pytorch_pipeline.dataset import get_data_loaders, get_fixed_split_loaders
 from pytorch_pipeline.model import get_anti_spoof_model
-from classes import CLASS_NAMES
-from utils import (
+from common.classes import CLASS_NAMES
+from common.utils import (
     validate_kfold_coverage, validate_fixed_split_coverage,
     calculate_validation_metrics
 )

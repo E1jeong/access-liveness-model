@@ -15,17 +15,17 @@
 
 | Module | Responsibility | First entry point | Module guide |
 | --- | --- | --- | --- |
-| `keras_pipeline/` | Production training, backbones, NPU INT8 export | `keras_pipeline/tf_train.py` | `keras_pipeline/AGENTS.md` |
+| `keras_pipeline/` | Production training, backbones, NPU INT8 export | `keras_pipeline/training/train.py` | `keras_pipeline/AGENTS.md` |
 | `pytorch_pipeline/` | Research backbones, Sony MCT PTQ/QAT bridge | `pytorch_pipeline/train.py` | `pytorch_pipeline/AGENTS.md` |
 | `scripts/` | Shell wrappers, CUDA/cuDNN environment preambles | `scripts/keras/_keras_env.sh` | `scripts/AGENTS.md` |
 | `tests/` | Automated test suite, leakage checks, export regression | `tests/dataset/test_fixed_splits.py` | `tests/AGENTS.md` |
-| Core Tools | Shared 12-class SSOT, leakage detection, evaluation | `classes.py`, `utils.py`, `evaluate_tflite.py` | Root `AGENTS.md` |
+| Common Tools | Shared 12-class SSOT, leakage detection, evaluation | `common/classes.py`, `common/utils.py`, `common/evaluate_tflite.py` | Root `AGENTS.md` |
 
 ## Change Gates
 
-- **Fixed Split Mandate**: All future training uses `dataset/raw/{train,validation,test}`. Never reintroduce K-Fold splitting. Run `validate_fixed_splits.py` before training.
+- **Fixed Split Mandate**: All future training uses `dataset/raw/{train,validation,test}`. Never reintroduce K-Fold splitting. Run `python -m common.validate_fixed_splits` before training.
 - **Conv1 Reduction**: Single-channel IR ImageNet transfer must use `sum` reduction. `mean` is rejected and must never be passed to published runs.
-- **Class Names SSOT**: `classes.py:CLASS_NAMES` is the sole source of truth for the 12-class order.
+- **Class Names SSOT**: `common/classes.py:CLASS_NAMES` is the sole source of truth for the 12-class order.
 - **Shell Wrapper Mandate**: Never invoke bare `python` for Keras on the GPU server. Always run through `scripts/keras/*.sh` so `_keras_env.sh` sets `LD_LIBRARY_PATH` for `libcudnn.so.9`.
 - **NNAPI No-Fallback Policy**: Android runtime rejects a model slot on NNAPI setup/warmup failure; it must not fall back to CPU. Ensure all exported TFLite models conform strictly to NPU operators.
 - **User Concept Review Ownership**: `docs/keras-concept-review.md` tracks the user's comprehension. Never edit `이해 상태` on the user's behalf; update it only when explicitly requested by the user.
@@ -34,8 +34,8 @@
 ## Verify
 
 - Company PC fast unit tests: `uv run pytest tests/dataset tests/metrics`
-- Split integrity & leakage check: `.venv/bin/python validate_fixed_splits.py`
+- Split integrity & leakage check: `.venv/bin/python -m common.validate_fixed_splits`
 - GPU server full test suite: `.venv-tf/bin/pytest`
 - Keras model & GPU smoke test: `./scripts/keras/run_keras_model.sh`
-- GPU-server TFLite evaluation on test split: `.venv-tf/bin/python evaluate_tflite.py --model model/keras/best_crop_ir_fixed_npu_int8.tflite --split test`
+- GPU-server TFLite evaluation on test split: `.venv-tf/bin/python -m common.evaluate_tflite --model model/keras/best_crop_ir_fixed_npu_int8.tflite --split test`
 - Report exact commands and results.

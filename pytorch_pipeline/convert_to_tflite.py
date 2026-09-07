@@ -21,8 +21,8 @@ from model_compression_toolkit.target_platform_capabilities.tpc_models.tflite_tp
 import onnx2tf
 import tensorflow as tf
 
-from classes import CLASS_NAMES
-from keras_pipeline.export_validator import inspect_tflite, write_tflite_sidecar_manifest
+from common.classes import CLASS_NAMES
+from keras_pipeline.export.validator import inspect_tflite, write_tflite_sidecar_manifest
 from pytorch_pipeline.model import get_anti_spoof_model
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -145,7 +145,7 @@ def _build_representative_dataset(dataset_dir="dataset/raw/train", model_type="c
     실제 train 고정 split 이미지에서 stratified/sampled 프레임을 추출합니다.
     """
     from pytorch_pipeline.dataset import DualInputDataset, _get_default_transforms
-    from utils import collect_split_items
+    from common.utils import collect_split_items
 
     train_items = []
     # 1. dataset_dir이 split 폴더(예: dataset/raw/train)인 경우

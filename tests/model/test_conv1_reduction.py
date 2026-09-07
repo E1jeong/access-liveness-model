@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from keras_pipeline.tf_model import build_single_mobilenetv2
+from keras_pipeline.models.model import build_single_mobilenetv2
 
 
 def test_conv1_parity():

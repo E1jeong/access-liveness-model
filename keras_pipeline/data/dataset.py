@@ -26,8 +26,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from keras_pipeline.depth_generator import generate_pseudo_depth_map
-from keras_pipeline.spec import IMAGE_SIZE, RGB_MEAN, RGB_STD, IR_MEAN, IR_STD
+from keras_pipeline.data.depth_generator import generate_pseudo_depth_map
+from keras_pipeline.data.spec import IMAGE_SIZE, RGB_MEAN, RGB_STD, IR_MEAN, IR_STD
 
 
 def load_sample(rgb_path, ir_path, augment=False, flip=0, angle=0.0, brightness_f=1.0, contrast_f=1.0, sat_f=1.0):

@@ -3,10 +3,10 @@ import numpy as np
 import pytest
 import tensorflow as tf
 
-from classes import BONA_FIDE_CLASS_INDICES
-from keras_pipeline.losses import build_binary_pad_loss
-from keras_pipeline.tf_dataset import make_single_dataset
-from keras_pipeline.tf_model import build_single_model, extract_deploy_model
+from common.classes import BONA_FIDE_CLASS_INDICES
+from keras_pipeline.models.losses import build_binary_pad_loss
+from keras_pipeline.data.dataset import make_single_dataset
+from keras_pipeline.models.model import build_single_model, extract_deploy_model
 
 
 def test_phase_two_bona_fide_indices():

@@ -2,7 +2,7 @@
 
 import argparse
 
-from utils import FIXED_SPLITS, validate_fixed_split_coverage
+from common.utils import FIXED_SPLITS, validate_fixed_split_coverage
 
 
 def main():

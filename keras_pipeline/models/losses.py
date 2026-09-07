@@ -2,7 +2,7 @@
 from typing import Callable, Optional
 import tensorflow as tf
 
-from classes import BONA_FIDE_CLASS_INDICES, CLASS_NAMES
+from common.classes import BONA_FIDE_CLASS_INDICES, CLASS_NAMES
 
 
 def build_classification_loss(

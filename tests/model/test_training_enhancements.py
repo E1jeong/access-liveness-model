@@ -2,15 +2,15 @@ import pytest
 import numpy as np
 import tensorflow as tf
 
-from classes import CLASS_NAMES
-from keras_pipeline.tf_train import (
+from common.classes import CLASS_NAMES
+from keras_pipeline.training.train import (
     _build_optimizer,
     _set_backbone_trainable,
     _merge_histories,
     CombinedHistory,
     AcerCheckpoint,
 )
-from keras_pipeline.tf_model import build_single_model, build_dual_model
+from keras_pipeline.models.model import build_single_model, build_dual_model
 
 
 def test_build_optimizer():

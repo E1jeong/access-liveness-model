@@ -9,7 +9,7 @@ if str(PROJECT_ROOT) not in sys.path:
 import torch
 from pytorch_pipeline.model import get_anti_spoof_model
 from pytorch_pipeline.dataset import get_data_loaders
-from utils import calculate_validation_metrics
+from common.utils import calculate_validation_metrics
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = get_anti_spoof_model().to(device)

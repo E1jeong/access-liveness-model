@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from torchvision.ops.misc import SqueezeExcitation
 
-from classes import CLASS_NAMES
+from common.classes import CLASS_NAMES
 from pytorch_pipeline.model import (
     get_anti_spoof_model,
     SingleInputMobileNetV3,

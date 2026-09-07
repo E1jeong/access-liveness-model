@@ -20,10 +20,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from classes import CLASS_NAMES
-from keras_pipeline.efficientnet_lite import EfficientNetLite0
-from keras_pipeline.mobilefacenet import MobileFaceNet
-from keras_pipeline.spec import MODEL_INPUT_SIGNATURES, RGB_MEAN, RGB_STD
+from common.classes import CLASS_NAMES
+from keras_pipeline.models.efficientnet_lite import EfficientNetLite0
+from keras_pipeline.models.mobilefacenet import MobileFaceNet
+from keras_pipeline.data.spec import MODEL_INPUT_SIGNATURES, RGB_MEAN, RGB_STD
 
 
 SUPPORTED_BACKBONES = ("mobilenetv2", "efficientnet_lite0", "mobilefacenet")

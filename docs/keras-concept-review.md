@@ -166,7 +166,7 @@
   - **APCER (보안 실패)**: 가짜(Spoof)를 진짜(Live)로 통과시킨 비율 = $\frac{\text{뚫린 공격 수}}{\text{전체 공격 수}}$
   - **BPCER (사용성 실패)**: 진짜(Live)를 가짜(Spoof)로 오인 거부한 비율 = $\frac{\text{거부된 정상인 수}}{\text{전체 정상인 수}}$
   - **ACER**: 위 둘의 단순 평균 = $\frac{\text{APCER} + \text{BPCER}}{2}$
-- **근거 상태**: `확인됨` (`utils.py:386-395`)
+- **근거 상태**: `확인됨` (`common/utils.py:386-395`)
 
 ---
 

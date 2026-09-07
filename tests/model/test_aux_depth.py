@@ -3,11 +3,11 @@ import numpy as np
 import pytest
 import tensorflow as tf
 
-from keras_pipeline.depth_generator import generate_pseudo_depth_map
-from keras_pipeline.tf_model import (
+from keras_pipeline.data.depth_generator import generate_pseudo_depth_map
+from keras_pipeline.models.model import (
     build_single_model, build_dual_model, extract_deploy_model
 )
-from keras_pipeline.tf_dataset import make_single_dataset, make_dataset
+from keras_pipeline.data.dataset import make_single_dataset, make_dataset
 
 
 def test_depth_generator_shapes_and_values():

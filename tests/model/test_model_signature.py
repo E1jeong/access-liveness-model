@@ -1,7 +1,7 @@
 import pytest
 
-from classes import CLASS_NAMES
-from keras_pipeline.model_signature import (
+from common.classes import CLASS_NAMES
+from keras_pipeline.contracts.model_signature import (
     MODEL_INPUT_SIGNATURES,
     validate_keras_model_signature,
     validate_tflite_model_signature,

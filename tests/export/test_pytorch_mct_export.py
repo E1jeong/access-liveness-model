@@ -4,7 +4,7 @@ import json
 import pytest
 import tensorflow as tf
 
-from classes import CLASS_NAMES
+from common.classes import CLASS_NAMES
 from pytorch_pipeline.convert_to_tflite import convert_pytorch_to_tflite
 
 def test_pytorch_mct_tflite_export_and_manifest():

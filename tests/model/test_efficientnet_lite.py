@@ -2,10 +2,10 @@ import numpy as np
 import pytest
 import tensorflow as tf
 
-from classes import CLASS_NAMES
-from keras_pipeline.efficientnet_lite import EfficientNetLite0
-from keras_pipeline.tf_model import build_dual_model, build_single_model
-from keras_pipeline.export_validator import build_npu_export_model, validate_npu_export_parity
+from common.classes import CLASS_NAMES
+from keras_pipeline.models.efficientnet_lite import EfficientNetLite0
+from keras_pipeline.models.model import build_dual_model, build_single_model
+from keras_pipeline.export.validator import build_npu_export_model, validate_npu_export_parity
 
 
 def test_efficientnet_lite_backbone_shapes():

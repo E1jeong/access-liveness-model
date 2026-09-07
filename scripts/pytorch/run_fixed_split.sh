@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PyTorch 고정 train/validation/test 기준 학습 + Sony MCT 변환 + validation 평가.
-# test split은 설정 확정 후 evaluate_tflite.py --split test로 별도 실행한다.
+# test split은 설정 확정 후 common.evaluate_tflite --split test로 별도 실행한다.
 set -e
 cd "$(dirname "$0")/../.."
 
@@ -44,7 +44,7 @@ echo "  Conv1 축소      : $REDUCTION"
 echo "  캘리브레이션 수 : $CALIBRATION_SAMPLES"
 echo "========================================="
 
-.venv/bin/python validate_fixed_splits.py --data-dir "$DATA_DIR"
+.venv/bin/python -m common.validate_fixed_splits --data-dir "$DATA_DIR"
 
 ./scripts/pytorch/run_pytorch_train.sh \
   --data-dir "$DATA_DIR" \
@@ -63,7 +63,7 @@ echo "========================================="
   --calib-samples "$CALIBRATION_SAMPLES" \
   --dataset-dir "$DATA_DIR/train"
 
-.venv/bin/python evaluate_tflite.py \
+.venv/bin/python -m common.evaluate_tflite \
   --data-dir "$DATA_DIR" \
   --split validation \
   --model-type "$MODEL_TYPE" \

@@ -107,3 +107,6 @@ Useful training switches:
 - `--classifier-units 0` reverts to the old linear-head style for ablation.
 - `--no-gray-imagenet-init` disables RGB-to-gray (IR) ImageNet weight transfer.
 - `--label-smoothing 0.1` sets the label smoothing factor (default: 0.1) to prevent Softmax overconfidence and improve INT8 quantization stability.
+- `--aux-supcon` adds the training-only supervised contrastive head. Defaults are
+  `--supcon-loss-weight 0.1 --supcon-temperature 0.1 --projection-dim 128`;
+  conversion strips this head and preserves the deployment logits contract.

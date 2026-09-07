@@ -23,6 +23,10 @@ AUX_DEPTH=""
 DEPTH_LOSS_WEIGHT="0.5"
 AUX_BINARY_PAD=""
 BINARY_PAD_LOSS_WEIGHT="0.2"
+AUX_SUPCON=""
+SUPCON_LOSS_WEIGHT="0.1"
+SUPCON_TEMPERATURE="0.1"
+PROJECTION_DIM=128
 LOSS_TYPE="ce"
 FOCAL_GAMMA="2.0"
 FOCAL_ALPHA="0.25"
@@ -49,6 +53,10 @@ while [[ "$#" -gt 0 ]]; do
     --depth-loss-weight) DEPTH_LOSS_WEIGHT="$2"; shift ;;
     --aux-binary-pad) AUX_BINARY_PAD="--aux-binary-pad" ;;
     --binary-pad-loss-weight) BINARY_PAD_LOSS_WEIGHT="$2"; shift ;;
+    --aux-supcon) AUX_SUPCON="--aux-supcon" ;;
+    --supcon-loss-weight) SUPCON_LOSS_WEIGHT="$2"; shift ;;
+    --supcon-temperature) SUPCON_TEMPERATURE="$2"; shift ;;
+    --projection-dim) PROJECTION_DIM="$2"; shift ;;
     --loss|--loss-type) LOSS_TYPE="$2"; shift ;;
     --focal-gamma) FOCAL_GAMMA="$2"; shift ;;
     --focal-alpha) FOCAL_ALPHA="$2"; shift ;;
@@ -113,6 +121,7 @@ echo "========================================="
   --freeze-backbone-epochs "$FREEZE_BACKBONE_EPOCHS" \
   ${AUX_DEPTH:+$AUX_DEPTH --depth-loss-weight "$DEPTH_LOSS_WEIGHT"} \
   ${AUX_BINARY_PAD:+$AUX_BINARY_PAD --binary-pad-loss-weight "$BINARY_PAD_LOSS_WEIGHT"} \
+  ${AUX_SUPCON:+$AUX_SUPCON --supcon-loss-weight "$SUPCON_LOSS_WEIGHT" --supcon-temperature "$SUPCON_TEMPERATURE" --projection-dim "$PROJECTION_DIM"} \
   "${TRAIN_EXTRA[@]}" \
   $FORCE
 ./scripts/keras/run_keras_convert.sh \

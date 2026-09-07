@@ -6,6 +6,7 @@
 Multi-Task Auxiliary 3D Depth 학습 지원:
   - `aux_depth=True` 시 12-Class `logits` 외에 14x14 `depth_output` 헤드가 함께 생성된다.
   - `aux_binary_pad=True` 시 Phase 2 bona-fide/spoof용 `pad_output` head가 함께 생성된다.
+  - `aux_supcon=True` 시 학습 전용 L2 정규화 projection head가 함께 생성된다.
   - `extract_deploy_model(model)`을 호출하면 보조 헤드를 제거한 순수 배포용 단일 출력 모델을 얻을 수 있다.
 """
 import argparse
@@ -105,12 +106,21 @@ def _build_binary_pad_head(features):
     return layers.Dense(1, name="pad_output")(features)
 
 
-def _build_training_outputs(logits, depth_out=None, pad_out=None):
+def _build_supcon_head(features, projection_dim):
+    """학습 전용 SupCon projection head."""
+    x = layers.Dense(projection_dim, activation="relu", name="supcon_projection_hidden")(features)
+    x = layers.Dense(projection_dim, use_bias=False, name="supcon_projection")(x)
+    return layers.UnitNormalization(axis=-1, name="supcon_output")(x)
+
+
+def _build_training_outputs(logits, depth_out=None, pad_out=None, supcon_out=None):
     outputs = [logits]
     if depth_out is not None:
         outputs.append(depth_out)
     if pad_out is not None:
         outputs.append(pad_out)
+    if supcon_out is not None:
+        outputs.append(supcon_out)
     return outputs[0] if len(outputs) == 1 else outputs
 
 
@@ -145,7 +155,7 @@ def build_dual_model(
     rgb_weights="imagenet", dropout=0.2, classifier_units=1024, gray_imagenet_init=True,
     rgb_input_mobilenet_range=False, average_pool_op=False, fixed_batch_size=None,
     classifier_as_conv=False, conv1_reduction="sum", backbone="mobilenetv2",
-    aux_depth=False, aux_binary_pad=False,
+    aux_depth=False, aux_binary_pad=False, aux_supcon=False, projection_dim=128,
 ):
     if backbone == "mobilefacenet":
         raise ValueError("MobileFaceNet은 crop_ir 단일 입력만 지원합니다")
@@ -172,8 +182,9 @@ def build_dual_model(
         logits = _build_classifier_head(fused_features, classifier_units, dropout, classifier_as_conv)
         depth_out = _build_depth_head(ir_raw, prefix="dual_ir")
         pad_out = _build_binary_pad_head(fused_features) if aux_binary_pad else None
+        supcon_out = _build_supcon_head(fused_features, projection_dim) if aux_supcon else None
         return keras.Model(
-            [rgb_input, ir_input], _build_training_outputs(logits, depth_out, pad_out),
+            [rgb_input, ir_input], _build_training_outputs(logits, depth_out, pad_out, supcon_out),
             name=f"dual_{backbone}",
         )
     else:
@@ -182,8 +193,9 @@ def build_dual_model(
         fused_features = layers.Concatenate(name="fused_features")([rgb_features, ir_features])
         logits = _build_classifier_head(fused_features, classifier_units, dropout, classifier_as_conv)
         pad_out = _build_binary_pad_head(fused_features) if aux_binary_pad else None
+        supcon_out = _build_supcon_head(fused_features, projection_dim) if aux_supcon else None
         return keras.Model(
-            [rgb_input, ir_input], _build_training_outputs(logits, pad_out=pad_out),
+            [rgb_input, ir_input], _build_training_outputs(logits, pad_out=pad_out, supcon_out=supcon_out),
             name=f"dual_{backbone}",
         )
 
@@ -192,7 +204,7 @@ def build_single_model(
     input_type="crop_rgb", rgb_weights="imagenet", dropout=0.2, classifier_units=1024,
     gray_imagenet_init=True, rgb_input_mobilenet_range=False, average_pool_op=False,
     fixed_batch_size=None, classifier_as_conv=False, conv1_reduction="sum", backbone="mobilenetv2",
-    aux_depth=False, aux_binary_pad=False,
+    aux_depth=False, aux_binary_pad=False, aux_supcon=False, projection_dim=128,
 ):
     if input_type not in ("crop_rgb", "crop_ir"):
         raise ValueError(f"Unknown input_type: {input_type}")
@@ -223,16 +235,18 @@ def build_single_model(
         logits = _build_classifier_head(features, classifier_units, dropout, classifier_as_conv)
         depth_out = _build_depth_head(raw_features, prefix=input_type)
         pad_out = _build_binary_pad_head(features) if aux_binary_pad else None
+        supcon_out = _build_supcon_head(features, projection_dim) if aux_supcon else None
         return keras.Model(
-            model_input, _build_training_outputs(logits, depth_out, pad_out),
+            model_input, _build_training_outputs(logits, depth_out, pad_out, supcon_out),
             name=f"single_{input_type}_{backbone}",
         )
     else:
         features = _features_for_head(backbone_model, backbone_input, backbone, average_pool_op, input_type)
         logits = _build_classifier_head(features, classifier_units, dropout, classifier_as_conv)
         pad_out = _build_binary_pad_head(features) if aux_binary_pad else None
+        supcon_out = _build_supcon_head(features, projection_dim) if aux_supcon else None
         return keras.Model(
-            model_input, _build_training_outputs(logits, pad_out=pad_out),
+            model_input, _build_training_outputs(logits, pad_out=pad_out, supcon_out=supcon_out),
             name=f"single_{input_type}_{backbone}",
         )
 
@@ -253,6 +267,8 @@ def parse_args():
     parser.add_argument("--conv1-reduction", choices=["mean", "sum"], default="sum")
     parser.add_argument("--aux-depth", action="store_true", help="3D Depth 보조 헤드 생성 여부")
     parser.add_argument("--aux-binary-pad", action="store_true", help="Phase 2 binary PAD 보조 헤드 생성 여부")
+    parser.add_argument("--aux-supcon", action="store_true", help="SupCon projection head 생성 여부")
+    parser.add_argument("--projection-dim", type=int, default=128)
     return parser.parse_args()
 
 
@@ -264,6 +280,7 @@ if __name__ == "__main__":
     builder = build_dual_model if args.model_type == "dual" else build_single_model
     kwargs = dict(rgb_weights=weights, dropout=args.dropout, classifier_units=args.classifier_units,
                   gray_imagenet_init=not args.no_gray_imagenet_init, conv1_reduction=args.conv1_reduction,
-                  backbone=args.backbone, aux_depth=args.aux_depth, aux_binary_pad=args.aux_binary_pad)
+                  backbone=args.backbone, aux_depth=args.aux_depth, aux_binary_pad=args.aux_binary_pad,
+                  aux_supcon=args.aux_supcon, projection_dim=args.projection_dim)
     model = builder(**kwargs) if args.model_type == "dual" else builder(input_type=args.model_type, **kwargs)
     model.summary()

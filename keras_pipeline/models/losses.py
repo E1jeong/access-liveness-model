@@ -69,3 +69,44 @@ def build_binary_pad_loss():
         return core_loss(tf.expand_dims(spoof_targets, axis=-1), y_pred)
 
     return loss_fn
+
+
+def build_supcon_loss(temperature: float = 0.1):
+    """Bona-fide embeddings를 모으고 spoof embeddings를 negative로 쓰는 SupCon loss."""
+    if temperature <= 0:
+        raise ValueError("temperature는 0보다 커야 합니다.")
+    bona_fide_indices = tf.constant(BONA_FIDE_CLASS_INDICES, dtype=tf.int32)
+
+    def loss_fn(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
+        labels = tf.cast(tf.reshape(y_true, [-1]), tf.int32)
+        embeddings = tf.math.l2_normalize(tf.cast(y_pred, tf.float32), axis=-1)
+        logits = tf.matmul(embeddings, embeddings, transpose_b=True) / temperature
+
+        batch_size = tf.shape(labels)[0]
+        not_self = tf.logical_not(tf.eye(batch_size, dtype=tf.bool))
+        bona_fide = tf.reduce_any(
+            tf.equal(tf.expand_dims(labels, axis=-1), bona_fide_indices), axis=-1
+        )
+        positive_mask = tf.logical_and(
+            tf.logical_and(bona_fide[:, None], bona_fide[None, :]), not_self
+        )
+
+        masked_logits = tf.where(
+            not_self, logits, tf.cast(-1e9, logits.dtype)
+        )
+        log_prob = logits - tf.reduce_logsumexp(masked_logits, axis=1, keepdims=True)
+        positive_count = tf.reduce_sum(tf.cast(positive_mask, tf.float32), axis=1)
+        mean_positive_log_prob = tf.math.divide_no_nan(
+            tf.reduce_sum(
+                tf.where(positive_mask, log_prob, tf.zeros_like(log_prob)), axis=1
+            ),
+            positive_count,
+        )
+        valid_anchor = tf.logical_and(bona_fide, positive_count > 0)
+        valid_anchor_f = tf.cast(valid_anchor, tf.float32)
+        return tf.math.divide_no_nan(
+            -tf.reduce_sum(mean_positive_log_prob * valid_anchor_f),
+            tf.reduce_sum(valid_anchor_f),
+        )
+
+    return loss_fn

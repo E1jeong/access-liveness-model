@@ -42,7 +42,7 @@ from keras_pipeline.data.dataset import (
 from keras_pipeline.models.model import (
     SUPPORTED_BACKBONES, build_dual_model, build_single_model, extract_deploy_model
 )
-from keras_pipeline.models.losses import build_binary_pad_loss, build_classification_loss
+from keras_pipeline.models.losses import build_binary_pad_loss, build_classification_loss, build_supcon_loss
 from keras_pipeline.training.run_metadata import make_run_id, write_run_metadata
 from keras_pipeline.training.artifact_paths import (
     keras_checkpoint_path,
@@ -290,6 +290,10 @@ def parse_args():
         default=0.2,
         help="binary PAD 보조 손실 가중치 (기본값: 0.2)",
     )
+    parser.add_argument("--aux-supcon", action="store_true", help="SupCon 보조 학습 활성화")
+    parser.add_argument("--supcon-loss-weight", type=float, default=0.1)
+    parser.add_argument("--supcon-temperature", type=float, default=0.1)
+    parser.add_argument("--projection-dim", type=int, default=128)
     parser.add_argument(
         "--loss-type",
         "--loss",
@@ -325,6 +329,12 @@ def main():
         )
     if args.binary_pad_loss_weight < 0:
         raise ValueError("--binary-pad-loss-weight는 0 이상이어야 합니다.")
+    if args.supcon_loss_weight < 0:
+        raise ValueError("--supcon-loss-weight는 0 이상이어야 합니다.")
+    if args.supcon_temperature <= 0:
+        raise ValueError("--supcon-temperature는 0보다 커야 합니다.")
+    if args.projection_dim <= 0:
+        raise ValueError("--projection-dim은 0보다 커야 합니다.")
 
     if args.backbone == "mobilefacenet":
         if args.model_type != "crop_ir":
@@ -351,19 +361,20 @@ def main():
     print(f" - loss_type: {args.loss_type} (gamma={args.focal_gamma}, alpha={args.focal_alpha}, label_smoothing={args.label_smoothing})")
     print(f" - aux_depth: {args.aux_depth} (depth_loss_weight={args.depth_loss_weight})")
     print(f" - aux_binary_pad: {args.aux_binary_pad} (binary_pad_loss_weight={args.binary_pad_loss_weight})")
+    print(f" - aux_supcon: {args.aux_supcon} (weight={args.supcon_loss_weight}, temperature={args.supcon_temperature}, projection_dim={args.projection_dim})")
 
     if args.model_type == "dual":
         train_ds = make_dataset(
             train_items, batch_size=args.batch_size, shuffle=True, seed=args.seed,
             augment=True, repeat=True, aux_depth=args.aux_depth,
-            aux_binary_pad=args.aux_binary_pad
+            aux_binary_pad=args.aux_binary_pad, aux_supcon=args.aux_supcon
         )
         val_ds = make_dataset(val_items, batch_size=args.batch_size, shuffle=False, seed=args.seed).cache()
     else:
         train_ds = make_single_dataset(
             train_items, input_type=args.model_type, batch_size=args.batch_size, shuffle=True, seed=args.seed,
             augment=True, repeat=True, aux_depth=args.aux_depth,
-            aux_binary_pad=args.aux_binary_pad
+            aux_binary_pad=args.aux_binary_pad, aux_supcon=args.aux_supcon
         )
         val_ds = make_single_dataset(val_items, input_type=args.model_type, batch_size=args.batch_size, shuffle=False, seed=args.seed).cache()
 
@@ -380,6 +391,8 @@ def main():
             backbone=args.backbone,
             aux_depth=args.aux_depth,
             aux_binary_pad=args.aux_binary_pad,
+            aux_supcon=args.aux_supcon,
+            projection_dim=args.projection_dim,
         )
     else:
         model = build_single_model(
@@ -392,6 +405,8 @@ def main():
             backbone=args.backbone,
             aux_depth=args.aux_depth,
             aux_binary_pad=args.aux_binary_pad,
+            aux_supcon=args.aux_supcon,
+            projection_dim=args.projection_dim,
         )
 
     # 손실 함수 구성
@@ -402,7 +417,7 @@ def main():
         focal_alpha=args.focal_alpha,
     )
 
-    if args.aux_depth or args.aux_binary_pad:
+    if args.aux_depth or args.aux_binary_pad or args.aux_supcon:
         loss_dict = {"logits": cls_loss_fn}
         loss_weights_dict = {"logits": 1.0}
         if args.aux_depth:
@@ -411,6 +426,9 @@ def main():
         if args.aux_binary_pad:
             loss_dict["pad_output"] = build_binary_pad_loss()
             loss_weights_dict["pad_output"] = args.binary_pad_loss_weight
+        if args.aux_supcon:
+            loss_dict["supcon_output"] = build_supcon_loss(args.supcon_temperature)
+            loss_weights_dict["supcon_output"] = args.supcon_loss_weight
         metrics_dict = {"logits": [tf.keras.metrics.SparseCategoricalAccuracy(name="acc")]}
     else:
         loss_dict = cls_loss_fn

@@ -11,6 +11,7 @@ resize 구현과 ColorJitter 연산 순서가 달라 픽셀 단위 결과까지 
 Multi-Task Auxiliary 지도학습 지원:
   - `aux_depth=True` 시 14x14 크기의 3D 깊이 지도(`depth_output`)를 타겟 딕셔너리로 함께 반환한다.
   - `aux_binary_pad=True` 시 같은 12-class label을 `pad_output`에도 전달한다.
+  - `aux_supcon=True` 시 같은 label을 학습 전용 `supcon_output`에도 전달한다.
     binary target 변환은 loss에서 Phase 2 policy로 수행한다.
 """
 import os
@@ -199,7 +200,7 @@ def _sample_augmentation_params(index, seed, augment):
 
 
 def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, repeat=False,
-                 aux_depth=False, aux_binary_pad=False):
+                 aux_depth=False, aux_binary_pad=False, aux_supcon=False):
     """dual(RGB+IR) 모델용 tf.data 데이터셋을 만든다."""
     items = list(items)
     if not items:
@@ -263,6 +264,8 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, rep
             targets = {"logits": outputs[2], "depth_output": outputs[3]}
             if aux_binary_pad:
                 targets["pad_output"] = outputs[2]
+            if aux_supcon:
+                targets["supcon_output"] = outputs[2]
             return (outputs[0], outputs[1]), targets
         else:
             outputs = tf.py_function(
@@ -275,8 +278,13 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, rep
             outputs[0].set_shape((224, 224, 3))
             outputs[1].set_shape((224, 224, 1))
             outputs[2].set_shape(())
-            if aux_binary_pad:
-                return (outputs[0], outputs[1]), {"logits": outputs[2], "pad_output": outputs[2]}
+            if aux_binary_pad or aux_supcon:
+                targets = {"logits": outputs[2]}
+                if aux_binary_pad:
+                    targets["pad_output"] = outputs[2]
+                if aux_supcon:
+                    targets["supcon_output"] = outputs[2]
+                return (outputs[0], outputs[1]), targets
             return (outputs[0], outputs[1]), outputs[2]
 
     ds = ds.map(map_fn, num_parallel_calls=tf.data.AUTOTUNE)
@@ -284,7 +292,8 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, rep
 
 
 def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=False, seed=42,
-                        augment=False, repeat=False, aux_depth=False, aux_binary_pad=False):
+                        augment=False, repeat=False, aux_depth=False, aux_binary_pad=False,
+                        aux_supcon=False):
     """crop_rgb / crop_ir 단일 입력 모델용 데이터셋."""
     items = list(items)
     if not items:
@@ -351,6 +360,8 @@ def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=Fals
             targets = {"logits": outputs[1], "depth_output": outputs[2]}
             if aux_binary_pad:
                 targets["pad_output"] = outputs[1]
+            if aux_supcon:
+                targets["supcon_output"] = outputs[1]
             return outputs[0], targets
         else:
             outputs = tf.py_function(
@@ -365,8 +376,13 @@ def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=Fals
             else:
                 outputs[0].set_shape((224, 224, 1))
             outputs[1].set_shape(())
-            if aux_binary_pad:
-                return outputs[0], {"logits": outputs[1], "pad_output": outputs[1]}
+            if aux_binary_pad or aux_supcon:
+                targets = {"logits": outputs[1]}
+                if aux_binary_pad:
+                    targets["pad_output"] = outputs[1]
+                if aux_supcon:
+                    targets["supcon_output"] = outputs[1]
+                return outputs[0], targets
             return outputs[0], outputs[1]
 
     ds = ds.map(map_fn, num_parallel_calls=tf.data.AUTOTUNE)

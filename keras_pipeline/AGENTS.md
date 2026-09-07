@@ -11,8 +11,8 @@
 - Source entry points:
   - Model definitions: `models/model.py` (`build_single_model`, `build_dual_model`, `extract_deploy_model`), `models/mobilefacenet.py`, `models/efficientnet_lite.py`
   - 3D Depth supervision: `data/depth_generator.py` (`generate_pseudo_depth_map`, `_build_base_templates`)
-  - Losses: `models/losses.py` (`build_classification_loss` for CrossEntropy and Focal Loss)
-  - Training loop: `training/train.py` (cosine decay, `AcerCheckpoint`, fixed-split evaluation, `--aux-depth`, `--loss focal`)
+  - Losses: `models/losses.py` (CrossEntropy, Focal Loss, binary PAD, and SupCon)
+  - Training loop: `training/train.py` (cosine decay, `AcerCheckpoint`, fixed-split evaluation, auxiliary heads, `--loss focal`)
   - Quantization & export: `export/converter.py` (Full INT8 and NPU-friendly INT8)
   - Graph inspection & sidecars: `export/validator.py` (`inspect_tflite_graph`, `generate_sidecar_manifest`)
 

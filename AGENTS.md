@@ -8,7 +8,6 @@
 - **Machine Topology**:
   - **Company PC (WSL CPU)**: Code/doc editing, Git operations, and fast unit tests (`uv run pytest tests/dataset tests/metrics`). Never run training here.
   - **Sub GPU machine (`sub`, GTX 1660 Ti)**: The sole authoritative environment for training, dataset processing, and INT8 quantization via managed `uv` virtual environments (`.venv` for PyTorch, `.venv-tf` for Keras).
-- Before multi-step or resumed implementation, ground the wiki context against live code, propose `step → verify` checkpoints, and confirm them before editing.
 - Report to the user in Korean; keep code, identifiers, paths, and commands in English.
 - Read the nearest module `AGENTS.md` before changing a pipeline module; this root guide remains in force everywhere.
 

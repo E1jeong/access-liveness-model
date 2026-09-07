@@ -1,11 +1,15 @@
 import os
-import cv2
 import h5py
 import numpy as np
-from skimage import data
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
+from calibration import (
+    CALIBRATION_SAMPLES,
+    collect_live_face_paths,
+    load_normalized_face_image,
+    select_stratified_face_paths,
+)
 
 # Dynamic path resolution relative to repository root
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -13,6 +17,8 @@ REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
 WEIGHTS_PATH = os.path.join(REPO_ROOT, "model", "recognition", "mobilenet_emb256.h5")
 OUT_DIR = os.path.join(REPO_ROOT, "model", "recognition", "tflite")
 OUT_PATH = os.path.join(OUT_DIR, "mobilenet_emore_npu_int8.tflite")
+DATASET_ROOT = os.path.join(REPO_ROOT, "dataset", "raw")
+EXPECTED_INT8_OPERATOR_COUNT = 31
 os.makedirs(OUT_DIR, exist_ok=True)
 
 if not os.path.exists(WEIGHTS_PATH):
@@ -83,22 +89,60 @@ for layer in base.layers:
 
 print("Weights loaded into NPU-compliant model.")
 
-# Calibration dataset
-calib_samples = []
-base_imgs = [data.astronaut(), data.chelsea(), data.rocket(), data.coffee(), data.camera(), data.page(), data.cat()]
-for b_img in base_imgs:
-    if len(b_img.shape) == 2:
-        b_img = cv2.cvtColor(b_img, cv2.COLOR_GRAY2RGB)
-    for scale in [1.0, 0.85, 0.7, 0.55]:
-        h, w = b_img.shape[:2]
-        ch, cw = int(h * scale), int(w * scale)
-        crop = b_img[(h - ch) // 2:(h - ch) // 2 + ch, (w - cw) // 2:(w - cw) // 2 + cw]
-        norm = ((cv2.resize(crop, (112, 112)).astype(np.float32) - 127.5) / 128.0)[None, ...]
-        calib_samples.append(norm)
+# Calibration dataset: real live faces from both fixed training splits.
+samples_by_subject = collect_live_face_paths(DATASET_ROOT)
+calibration_paths, selected_by_subject = select_stratified_face_paths(
+    samples_by_subject,
+    CALIBRATION_SAMPLES,
+)
+print(
+    f"Selected {len(calibration_paths)} calibration images from "
+    f"{len(selected_by_subject)} live subjects."
+)
 
 def rep_gen():
-    for s in calib_samples:
-        yield [s]
+    for image_path in calibration_paths:
+        yield [load_normalized_face_image(image_path)]
+
+
+def verify_int8_operator_graph(tflite_model):
+    """Reject an export that deviates from the 31-node all-INT8 NPU contract."""
+    interpreter = tf.lite.Interpreter(model_content=tflite_model)
+    op_details = interpreter._get_ops_details()
+    tensor_dtypes = {
+        tensor["index"]: tensor["dtype"]
+        for tensor in interpreter.get_tensor_details()
+    }
+    floating_point_ops = []
+    for op_index, op in enumerate(op_details):
+        tensor_indices = [
+            index
+            for index in (*op["inputs"], *op["outputs"])
+            if index >= 0
+        ]
+        # INT32 bias and shape tensors are required by otherwise quantized TFLite
+        # operators. A floating-point tensor is the actual fallback indicator.
+        if any(np.issubdtype(tensor_dtypes[index], np.floating) for index in tensor_indices):
+            floating_point_ops.append((op_index, op["op_name"]))
+
+    io_dtypes = [
+        detail["dtype"]
+        for detail in (*interpreter.get_input_details(), *interpreter.get_output_details())
+    ]
+    if (
+        len(op_details) != EXPECTED_INT8_OPERATOR_COUNT
+        or floating_point_ops
+        or any(dtype != np.int8 for dtype in io_dtypes)
+    ):
+        raise RuntimeError(
+            "Recognition INT8 export contract failed: "
+            f"expected {EXPECTED_INT8_OPERATOR_COUNT}/{EXPECTED_INT8_OPERATOR_COUNT} "
+            f"INT8 operators, found {len(op_details) - len(floating_point_ops)}/{len(op_details)}; "
+            f"floating-point={floating_point_ops}, io_dtypes={io_dtypes}"
+        )
+    print(
+        f"Verified {len(op_details)}/{len(op_details)} TFLite operators use INT8 tensors."
+    )
 
 converter = tf.lite.TFLiteConverter.from_keras_model(m)
 converter.optimizations = [tf.lite.Optimize.DEFAULT]
@@ -108,6 +152,7 @@ converter.inference_input_type = tf.int8
 converter.inference_output_type = tf.int8
 
 tflite_int8 = converter.convert()
+verify_int8_operator_graph(tflite_int8)
 with open(OUT_PATH, "wb") as f_out:
     f_out.write(tflite_int8)
 

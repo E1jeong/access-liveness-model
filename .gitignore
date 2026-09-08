@@ -152,7 +152,7 @@ cython_debug/
 .codex/
 
 # Local data & model weights for AI/ML projects
-dataset/
+/dataset/
 *.pth
 *.tflite
 *.png

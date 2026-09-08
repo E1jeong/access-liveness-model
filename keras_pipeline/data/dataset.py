@@ -61,7 +61,8 @@ def _apply_ir_glare(ir, strength, center_x, center_y, sigma):
 
 def load_sample(rgb_path, ir_path, augment=False, flip=0, angle=0.0, brightness_f=1.0, contrast_f=1.0, sat_f=1.0,
                 label=None, moire_strength=0.0, moire_frequency=0.0, moire_angle=0.0, moire_phase=0.0,
-                glare_strength=0.0, glare_x=0.5, glare_y=0.5, glare_sigma=0.15):
+                glare_strength=0.0, glare_x=0.5, glare_y=0.5, glare_sigma=0.15,
+                ir_brightness_f=1.0):
     """이미지를 불러와 정규화한다. augment=True이면 학습용 데이터 증강을 적용한다."""
     rgb = cv2.imread(rgb_path)
     if rgb is None:
@@ -93,6 +94,10 @@ def load_sample(rgb_path, ir_path, augment=False, flip=0, angle=0.0, brightness_
         rgb_f = np.clip(gray + sat_f * (rgb_f - gray), 0, 255)
         rgb = rgb_f.astype(np.uint8)
 
+        if ir_brightness_f != 1.0:
+            ir_f = ir.astype(np.float32)
+            ir = np.clip(ir_f * ir_brightness_f, 0, 255).astype(np.uint8)
+
         if label == DISPLAY_LABEL:
             rgb = _apply_rgb_moire(rgb, moire_strength, moire_frequency, moire_angle, moire_phase)
             ir = _apply_ir_glare(ir, glare_strength, glare_x, glare_y, glare_sigma)
@@ -109,7 +114,8 @@ def load_sample(rgb_path, ir_path, augment=False, flip=0, angle=0.0, brightness_
 
 def load_single_sample(path, input_type="crop_rgb", augment=False, flip=0, angle=0.0, brightness_f=1.0, contrast_f=1.0, sat_f=1.0,
                        label=None, moire_strength=0.0, moire_frequency=0.0, moire_angle=0.0, moire_phase=0.0,
-                       glare_strength=0.0, glare_x=0.5, glare_y=0.5, glare_sigma=0.15):
+                       glare_strength=0.0, glare_x=0.5, glare_y=0.5, glare_sigma=0.15,
+                       ir_brightness_f=1.0):
     """단일 이미지(RGB 혹은 IR)를 불러와 정규화하고 필요시 증강한다."""
     if input_type == "crop_rgb":
         rgb = cv2.imread(path)
@@ -154,8 +160,12 @@ def load_single_sample(path, input_type="crop_rgb", augment=False, flip=0, angle
 
         ir = cv2.resize(ir, IMAGE_SIZE, interpolation=cv2.INTER_AREA)
 
-        if augment and label == DISPLAY_LABEL:
-            ir = _apply_ir_glare(ir, glare_strength, glare_x, glare_y, glare_sigma)
+        if augment:
+            if ir_brightness_f != 1.0:
+                ir_f = ir.astype(np.float32)
+                ir = np.clip(ir_f * ir_brightness_f, 0, 255).astype(np.uint8)
+            if label == DISPLAY_LABEL:
+                ir = _apply_ir_glare(ir, glare_strength, glare_x, glare_y, glare_sigma)
 
         ir = ir.astype(np.float32) / 255.0
         ir = np.expand_dims(ir, axis=-1)
@@ -180,6 +190,7 @@ def _sample_augmentation_params(index, seed, augment):
         glare_x_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 10], minval=0.25, maxval=0.75, dtype=tf.float32)
         glare_y_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 11], minval=0.25, maxval=0.75, dtype=tf.float32)
         glare_sigma_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 12], minval=0.10, maxval=0.22, dtype=tf.float32)
+        ir_brightness_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 13], minval=0.85, maxval=1.15, dtype=tf.float32)
     else:
         flip_val = tf.constant(0, dtype=tf.int32)
         angle_val = tf.constant(0.0, dtype=tf.float32)
@@ -194,9 +205,11 @@ def _sample_augmentation_params(index, seed, augment):
         glare_x_val = tf.constant(0.5, dtype=tf.float32)
         glare_y_val = tf.constant(0.5, dtype=tf.float32)
         glare_sigma_val = tf.constant(0.15, dtype=tf.float32)
+        ir_brightness_val = tf.constant(1.0, dtype=tf.float32)
     return (flip_val, angle_val, brightness_val, contrast_val, sat_val,
             moire_strength_val, moire_frequency_val, moire_angle_val, moire_phase_val,
-            glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val)
+            glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val,
+            ir_brightness_val)
 
 
 def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, repeat=False,
@@ -226,10 +239,11 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, rep
         rgb_path, ir_path, label = element
         (flip_val, angle_val, brightness_val, contrast_val, sat_val,
          moire_strength_val, moire_frequency_val, moire_angle_val, moire_phase_val,
-         glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val) = _sample_augmentation_params(index, seed, augment)
+         glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val,
+         ir_brightness_val) = _sample_augmentation_params(index, seed, augment)
 
         def _py_fn(r_path, i_path, lbl, flp, ang, brt, cnt, sat, moire_str, moire_freq, moire_ang, moire_ph,
-                   glare_str, glare_x, glare_y, glare_sig):
+                   glare_str, glare_x, glare_y, glare_sig, ir_brt):
             r_path_str = r_path.numpy().decode('utf-8')
             i_path_str = i_path.numpy().decode('utf-8')
             lbl_val = int(lbl.numpy())
@@ -242,7 +256,8 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, rep
                 label=lbl_val, moire_strength=float(moire_str.numpy()), moire_frequency=float(moire_freq.numpy()),
                 moire_angle=float(moire_ang.numpy()), moire_phase=float(moire_ph.numpy()),
                 glare_strength=float(glare_str.numpy()), glare_x=float(glare_x.numpy()),
-                glare_y=float(glare_y.numpy()), glare_sigma=float(glare_sig.numpy())
+                glare_y=float(glare_y.numpy()), glare_sigma=float(glare_sig.numpy()),
+                ir_brightness_f=float(ir_brt.numpy())
             )
             if aux_depth:
                 depth = generate_pseudo_depth_map(lbl_val, size=(14, 14), flip=flp_int, angle=ang_flt)
@@ -254,7 +269,7 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, rep
                 _py_fn,
                 inp=[rgb_path, ir_path, label, flip_val, angle_val, brightness_val, contrast_val, sat_val,
                      moire_strength_val, moire_frequency_val, moire_angle_val, moire_phase_val,
-                     glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val],
+                     glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val, ir_brightness_val],
                 Tout=[tf.float32, tf.float32, tf.int32, tf.float32]
             )
             outputs[0].set_shape((224, 224, 3))
@@ -272,7 +287,7 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, rep
                 _py_fn,
                 inp=[rgb_path, ir_path, label, flip_val, angle_val, brightness_val, contrast_val, sat_val,
                      moire_strength_val, moire_frequency_val, moire_angle_val, moire_phase_val,
-                     glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val],
+                     glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val, ir_brightness_val],
                 Tout=[tf.float32, tf.float32, tf.int32]
             )
             outputs[0].set_shape((224, 224, 3))
@@ -321,10 +336,11 @@ def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=Fals
         path, label = element
         (flip_val, angle_val, brightness_val, contrast_val, sat_val,
          moire_strength_val, moire_frequency_val, moire_angle_val, moire_phase_val,
-         glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val) = _sample_augmentation_params(index, seed, augment)
+         glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val,
+         ir_brightness_val) = _sample_augmentation_params(index, seed, augment)
 
         def _py_fn(p, lbl, flp, ang, brt, cnt, sat, moire_str, moire_freq, moire_ang, moire_ph,
-                   glare_str, glare_x, glare_y, glare_sig):
+                   glare_str, glare_x, glare_y, glare_sig, ir_brt):
             p_str = p.numpy().decode('utf-8')
             lbl_val = int(lbl.numpy())
             flp_int = int(flp.numpy())
@@ -336,7 +352,8 @@ def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=Fals
                 label=lbl_val, moire_strength=float(moire_str.numpy()), moire_frequency=float(moire_freq.numpy()),
                 moire_angle=float(moire_ang.numpy()), moire_phase=float(moire_ph.numpy()),
                 glare_strength=float(glare_str.numpy()), glare_x=float(glare_x.numpy()),
-                glare_y=float(glare_y.numpy()), glare_sigma=float(glare_sig.numpy())
+                glare_y=float(glare_y.numpy()), glare_sigma=float(glare_sig.numpy()),
+                ir_brightness_f=float(ir_brt.numpy())
             )
             if aux_depth:
                 depth = generate_pseudo_depth_map(lbl_val, size=(14, 14), flip=flp_int, angle=ang_flt)
@@ -348,7 +365,7 @@ def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=Fals
                 _py_fn,
                 inp=[path, label, flip_val, angle_val, brightness_val, contrast_val, sat_val,
                      moire_strength_val, moire_frequency_val, moire_angle_val, moire_phase_val,
-                     glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val],
+                     glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val, ir_brightness_val],
                 Tout=[tf.float32, tf.int32, tf.float32]
             )
             if input_type == "crop_rgb":
@@ -368,7 +385,7 @@ def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=Fals
                 _py_fn,
                 inp=[path, label, flip_val, angle_val, brightness_val, contrast_val, sat_val,
                      moire_strength_val, moire_frequency_val, moire_angle_val, moire_phase_val,
-                     glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val],
+                     glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val, ir_brightness_val],
                 Tout=[tf.float32, tf.int32]
             )
             if input_type == "crop_rgb":

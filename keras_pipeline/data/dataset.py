@@ -35,11 +35,17 @@ from common.classes import CLASS_MAPPING
 DISPLAY_LABEL = CLASS_MAPPING["display"]
 
 
+def _moire_luminance_stripe(height, width, frequency, angle, phase):
+    """패널 격자와 센서 샘플링이 간섭해 생기는 휘도 줄무늬."""
+    x, y = np.meshgrid(np.arange(width, dtype=np.float32), np.arange(height, dtype=np.float32))
+    return np.sin(2.0 * np.pi * frequency * (x * np.cos(angle) + y * np.sin(angle)) + phase)
+
+
 def _apply_rgb_moire(rgb, strength, frequency, angle, phase):
     """RGB display 재촬영 때의 서브픽셀-센서 간섭 줄무늬를 합성한다."""
     height, width = rgb.shape[:2]
+    stripe = _moire_luminance_stripe(height, width, frequency, angle, phase)
     x, y = np.meshgrid(np.arange(width, dtype=np.float32), np.arange(height, dtype=np.float32))
-    stripe = np.sin(2.0 * np.pi * frequency * (x * np.cos(angle) + y * np.sin(angle)) + phase)
     channel_phase = np.asarray([0.0, 2.0 * np.pi / 3.0, 4.0 * np.pi / 3.0], dtype=np.float32)
     interference = np.sin(
         2.0 * np.pi * frequency * (x[..., np.newaxis] * np.cos(angle) + y[..., np.newaxis] * np.sin(angle))
@@ -48,6 +54,13 @@ def _apply_rgb_moire(rgb, strength, frequency, angle, phase):
     # 공통 휘도 줄무늬와 RGB 서브픽셀 위상차를 함께 넣어 재촬영 모아레를 근사한다.
     overlay = 0.6 * stripe[..., np.newaxis] + 0.4 * interference
     return np.clip(rgb.astype(np.float32) + 255.0 * strength * overlay, 0, 255).astype(np.uint8)
+
+
+def _apply_ir_moire(ir, strength, frequency, angle, phase):
+    """IR display 재촬영 때의 패널 격자-센서 간섭 줄무늬를 합성한다. RGB 서브픽셀 위상차는 쓰지 않는다."""
+    height, width = ir.shape[:2]
+    stripe = _moire_luminance_stripe(height, width, frequency, angle, phase)
+    return np.clip(ir.astype(np.float32) + 255.0 * strength * stripe, 0, 255).astype(np.uint8)
 
 
 def _apply_ir_glare(ir, strength, center_x, center_y, sigma):
@@ -100,6 +113,7 @@ def load_sample(rgb_path, ir_path, augment=False, flip=0, angle=0.0, brightness_
 
         if label == DISPLAY_LABEL:
             rgb = _apply_rgb_moire(rgb, moire_strength, moire_frequency, moire_angle, moire_phase)
+            ir = _apply_ir_moire(ir, moire_strength, moire_frequency, moire_angle, moire_phase)
             ir = _apply_ir_glare(ir, glare_strength, glare_x, glare_y, glare_sigma)
 
     rgb = rgb.astype(np.float32) / 255.0
@@ -165,6 +179,7 @@ def load_single_sample(path, input_type="crop_rgb", augment=False, flip=0, angle
                 ir_f = ir.astype(np.float32)
                 ir = np.clip(ir_f * ir_brightness_f, 0, 255).astype(np.uint8)
             if label == DISPLAY_LABEL:
+                ir = _apply_ir_moire(ir, moire_strength, moire_frequency, moire_angle, moire_phase)
                 ir = _apply_ir_glare(ir, glare_strength, glare_x, glare_y, glare_sigma)
 
         ir = ir.astype(np.float32) / 255.0

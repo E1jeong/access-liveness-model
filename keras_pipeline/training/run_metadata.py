@@ -43,7 +43,7 @@ def split_hashes(data_dir):
     return hashes
 
 
-# 학습 종료 직후 tf_train.main()이 호출한다.
+# 학습 종료 직후 training/train.py의 main()이 호출한다.
 def write_run_metadata(path, run_id, config, data_dir, best_checkpoint, best_metrics):
     metadata = {
         "run_id": run_id,

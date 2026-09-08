@@ -8,7 +8,7 @@
   1) 지표 방향 self-check (APCER가 뒤집혀 있으면 즉시 중단)
   2) 고정 split(train/validation/test) 누수 검증 + 파일 목록 수집
   3) tf.data 파이프라인 구성 (train은 증강+셔플, validation은 고정+캐시)
-  4) MobileNetV2 / EfficientNet-Lite0 / MobileFaceNet 기반 모델 생성
+  4) MobileNetV2 / EfficientNet-Lite0 기반 모델 생성
      (Multi-Task Auxiliary 3D Depth 지원: --aux-depth)
   5) compile → fit → AcerCheckpoint 저장
   6) 학습곡선 PNG와 run metadata JSON 저장
@@ -132,7 +132,7 @@ def _set_backbone_trainable(model, trainable=True):
     count = 0
     for layer in model.layers:
         if isinstance(layer, tf.keras.Model) or any(
-            b in layer.name for b in ("mobilenetv2", "efficientnet", "mobilefacenet")
+            b in layer.name for b in ("mobilenetv2", "efficientnet")
         ):
             layer.trainable = trainable
             count += 1
@@ -222,7 +222,7 @@ def parse_args():
         "--backbone",
         choices=SUPPORTED_BACKBONES,
         default="mobilenetv2",
-        help="특징 추출 백본 (mobilenetv2, efficientnet_lite0, mobilefacenet)",
+        help="특징 추출 백본 (mobilenetv2, efficientnet_lite0)",
     )
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=32)
@@ -335,12 +335,6 @@ def main():
         raise ValueError("--supcon-temperature는 0보다 커야 합니다.")
     if args.projection_dim <= 0:
         raise ValueError("--projection-dim은 0보다 커야 합니다.")
-
-    if args.backbone == "mobilefacenet":
-        if args.model_type != "crop_ir":
-            raise ValueError("MobileFaceNet은 crop_ir 단일 입력만 지원합니다")
-        if args.rgb_weights != "none":
-            raise ValueError("MobileFaceNet은 scratch 학습만 지원하므로 --rgb-weights none을 사용해야 합니다")
 
     tf.keras.utils.set_random_seed(args.seed)
 

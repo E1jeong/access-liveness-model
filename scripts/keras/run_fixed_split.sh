@@ -30,7 +30,6 @@ PROJECTION_DIM=128
 LOSS_TYPE="ce"
 FOCAL_GAMMA="2.0"
 FOCAL_ALPHA="0.25"
-TRAIN_EXTRA=()
 
 while [[ "$#" -gt 0 ]]; do
   case $1 in
@@ -72,17 +71,11 @@ case "$MODEL_TYPE" in
 esac
 
 case "$BACKBONE" in
-  mobilenetv2|efficientnet_lite0|mobilefacenet) ;;
-  *) echo "사용법: $0 --backbone [mobilenetv2|efficientnet_lite0|mobilefacenet]"; exit 1 ;;
+  mobilenetv2|efficientnet_lite0) ;;
+  *) echo "사용법: $0 --backbone [mobilenetv2|efficientnet_lite0]"; exit 1 ;;
 esac
 
-if [[ "$BACKBONE" == "mobilefacenet" ]]; then
-  if [[ "$MODEL_TYPE" != "crop_ir" ]]; then
-    echo "MobileFaceNet은 --model-type crop_ir만 지원합니다"; exit 1
-  fi
-  PREFIX="best_crop_ir_mobilefacenet_fixed"
-  TRAIN_EXTRA=(--rgb-weights none)
-elif [[ "$BACKBONE" != "mobilenetv2" ]]; then
+if [[ "$BACKBONE" != "mobilenetv2" ]]; then
   if [[ "$MODEL_TYPE" == "dual" ]]; then PREFIX="best_model_${BACKBONE}_fixed"; else PREFIX="best_${MODEL_TYPE}_${BACKBONE}_fixed"; fi
 fi
 
@@ -122,7 +115,6 @@ echo "========================================="
   ${AUX_DEPTH:+$AUX_DEPTH --depth-loss-weight "$DEPTH_LOSS_WEIGHT"} \
   ${AUX_BINARY_PAD:+$AUX_BINARY_PAD --binary-pad-loss-weight "$BINARY_PAD_LOSS_WEIGHT"} \
   ${AUX_SUPCON:+$AUX_SUPCON --supcon-loss-weight "$SUPCON_LOSS_WEIGHT" --supcon-temperature "$SUPCON_TEMPERATURE" --projection-dim "$PROJECTION_DIM"} \
-  "${TRAIN_EXTRA[@]}" \
   $FORCE
 ./scripts/keras/run_keras_convert.sh \
   --data-dir "$DATA_DIR" \

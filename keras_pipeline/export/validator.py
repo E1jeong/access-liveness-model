@@ -22,7 +22,7 @@ from keras_pipeline.contracts.model_signature import validate_tflite_model_signa
 from keras_pipeline.data.dataset import RGB_MEAN, RGB_STD
 
 
-# tf_model._rgb_current_norm_to_mobilenet_range와 같은 식의 numpy 판.
+# models/model.py의 _rgb_current_norm_to_mobilenet_range와 같은 식의 numpy 판.
 # export 모델에는 이 변환을 하던 Lambda 층이 없으므로(앱이 직접 [-1,1]로 넣는 계약),
 # 검증·캘리브레이션 입력을 만들 때 파이썬 쪽에서 대신 적용해 준다.
 def _rgb_imagenet_norm_to_mobilenet_range(rgb):
@@ -34,7 +34,7 @@ def _rgb_imagenet_norm_to_mobilenet_range(rgb):
 # 백본은 Model 안에 Model이 들어 있는 중첩 구조라, 바깥 층 이름(rgb_mobilenetv2)으로
 # 찾은 뒤 그 안의 하위 층을 이름으로 하나씩 짝지어 복사해야 한다.
 #
-# tf_model의 ImageNet 이식과 달리 여기서는 shape이 안 맞으면 조용히 건너뛰지 않고
+# models/model.py의 ImageNet 이식과 달리 여기서는 shape이 안 맞으면 조용히 건너뛰지 않고
 # 전부 예외로 던진다. 이식은 "안 되면 랜덤으로 두면 되는" 최적화지만, 이쪽은
 # 한 층이라도 빠지면 학습 결과가 반영되지 않은 모델이 배포되기 때문이다.
 def _copy_nested_weights(source_model, target_model, layer_name):
@@ -173,18 +173,13 @@ def build_npu_export_model(trained_model, model_type):
         trained_dense = None
         classifier_units = 0
 
-    if "mobilefacenet" in trained_model.name or any("mobilefacenet" in layer.name for layer in trained_model.layers):
-        backbone = "mobilefacenet"
-    elif "efficientnet_lite0" in trained_model.name or any("efficientnet_lite0" in layer.name for layer in trained_model.layers):
+    if "efficientnet_lite0" in trained_model.name or any("efficientnet_lite0" in layer.name for layer in trained_model.layers):
         backbone = "efficientnet_lite0"
     else:
         backbone = "mobilenetv2"
 
-    if backbone == "mobilefacenet" and model_type != "crop_ir":
-        raise ValueError("MobileFaceNet은 crop_ir 단일 입력만 지원합니다")
-
     if model_type == "dual":
-        # 함수 안에서 import하는 이유: tf_model이 이 모듈을 다시 참조하는 순환 import를 피한다.
+        # NPU export 모델을 조립할 때 모델 빌더를 가져온다.
         from keras_pipeline.models.model import build_dual_model
         export_model = build_dual_model(
             # ImageNet을 다시 받을 필요가 없다 — 어차피 학습 가중치로 전부 덮어쓴다.
@@ -228,7 +223,7 @@ def build_npu_export_model(trained_model, model_type):
         export_dense_conv.set_weights([conv_w, dense_b])
 
     # ③ logits(Dense)를 logits_conv(1x1 Conv2D)로 이식한다.
-    #    (1024, 10) → (1, 1, 1024, 10). 이 층은 classifier_units=0이어도 항상 존재한다.
+    #    (1024, 12) → (1, 1, 1024, 12). 이 층은 classifier_units=0이어도 항상 존재한다.
     trained_logits = trained_model.get_layer("logits")
     export_logits_conv = export_model.get_layer("logits_conv")
     logits_w, logits_b = trained_logits.get_weights()

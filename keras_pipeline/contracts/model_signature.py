@@ -7,7 +7,7 @@ spec.py의 MODEL_INPUT_SIGNATURES에 적힌 계약(입력 개수·이름·shape,
     입력 개수  : 정확히 2개
     입력 이름  : {a_rgb, b_ir}
     입력 shape : (batch, 224, 224, 3), (batch, 224, 224, 1)
-    출력       : 1개, (batch, 10)
+    출력       : 1개, (batch, 12)
 
 왜 필요한가: 입력 개수·이름·shape가 계약과 다른 모델을 배포 전에 거부하기 위해서다.
 이 검사는 입력을 이름으로 대조하므로 리스트 순서 자체는 검사하지 않는다. 입력 순서는
@@ -104,7 +104,7 @@ def _validate_outputs(outputs, model_type, tflite=False):
         )
 
 
-# 진입점 1: 변환 '전'. convert_keras_to_tflite.main()이 .keras를 로드한 직후 호출한다.
+# 진입점 1: 변환 '전'. export/converter.py의 main()이 .keras를 로드한 직후 호출한다.
 # 여기서 걸리면 애초에 잘못 학습된 모델이므로 변환을 시작하지 않는다.
 def validate_keras_model_signature(model, model_type):
     """불러온 Keras 모델의 서명을 TFLite 변환 전에 검사한다."""

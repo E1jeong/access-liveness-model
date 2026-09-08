@@ -63,22 +63,9 @@ automatically. Final test evaluation must be requested explicitly:
   model/keras/best_model_fixed_npu_int8.tflite
 ```
 
-MobileFaceNet is an independent single-IR candidate. It keeps the ten-class
-`crop_ir` input/output contract, starts from scratch (no external face
-checkpoint), and writes backbone-specific artifacts so it cannot overwrite the
-MobileNetV2 baseline:
-
-```bash
-./scripts/keras/run_fixed_split.sh \
-  --model-type crop_ir --backbone mobilefacenet \
-  --epochs 30 --batch-size 16 --learning-rate 2e-4
-```
-
-`--backbone` defaults to `mobilenetv2`; `efficientnet_lite0` and
-`mobilefacenet` artifacts include their backbone name in every checkpoint,
+`--backbone` defaults to `mobilenetv2`; `efficientnet_lite0`
+artifacts include their backbone name in every checkpoint,
 TFLite, calibration manifest, learning-curve, and run-metadata filename.
-MobileFaceNet rejects RGB and dual input types, and its ReLU6 replacement for
-PReLU is required for the NPU INT8 experiment.
 
 The generated files go under `model/keras/` by default.
 
@@ -91,7 +78,7 @@ The generated files go under `model/keras/` by default.
 
 Android `model_spec.json` must match this export: RGB and IR both use `mean=[0.5]`, `std=[0.5]`. The standard float/int8 exports use RGB ImageNet mean/std instead.
 
-Current target-board status is model-specific. The current ten-class fixed-split `crop_ir` NPU-friendly INT8 model (`single_1_input` slot) has basic user-confirmed Android loading, `Ready`, and `Backend NNAPI`; full delegate partition and extended performance measurement remain pending. Older paired six-class RGB fold3 and IR fold4 NPU-friendly INT8 models remain historical verified baselines. `dual` retraining is currently on hold per user decision. Treat `Backend CPU` as fallback, not NPU acceleration.
+Current target-board status is model-specific. The current twelve-class fixed-split `crop_ir` NPU-friendly INT8 model (`single_1_input` slot) has user-confirmed Android loading and stable operation. The prior combined candidate was observed at sustained 6.7–8 FPS; complete current-artifact delegate partition and latency measurements remain separate checks. Older paired six-class RGB fold3 and IR fold4 NPU-friendly INT8 models remain historical verified baselines. `dual` retraining is currently on hold per user decision. `Backend CPU` denotes an explicitly configured CPU slot; NNAPI setup/warmup failure rejects the slot without CPU fallback.
 
 For the first MobileNetV2 ImageNet-weighted run, TensorFlow may need internet
 access to download RGB backbone weights. If that is not available, run training

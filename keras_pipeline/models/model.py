@@ -1,7 +1,7 @@
 """Keras 안티스푸핑 모델 정의.
 
 `--model-type`은 Android 입력 계약(dual/crop_rgb/crop_ir), `--backbone`은
-특징 추출기(MobileNetV2/EfficientNet-Lite0/MobileFaceNet)를 뜻한다.
+특징 추출기(MobileNetV2/EfficientNet-Lite0)를 뜻한다.
 
 Multi-Task Auxiliary 3D Depth 학습 지원:
   - `aux_depth=True` 시 12-Class `logits` 외에 14x14 `depth_output` 헤드가 함께 생성된다.
@@ -23,11 +23,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from common.classes import CLASS_NAMES
 from keras_pipeline.models.efficientnet_lite import EfficientNetLite0
-from keras_pipeline.models.mobilefacenet import MobileFaceNet
 from keras_pipeline.data.spec import MODEL_INPUT_SIGNATURES, RGB_MEAN, RGB_STD
 
 
-SUPPORTED_BACKBONES = ("mobilenetv2", "efficientnet_lite0", "mobilefacenet")
+SUPPORTED_BACKBONES = ("mobilenetv2", "efficientnet_lite0")
 IMAGENET_BACKBONES = ("mobilenetv2", "efficientnet_lite0")
 
 
@@ -69,8 +68,6 @@ def _make_backbone(backbone, input_shape, weights, pooling, name=None):
         return base
     if backbone == "efficientnet_lite0":
         return EfficientNetLite0(input_shape=input_shape, weights=weights, pooling=pooling, name=name)
-    if backbone == "mobilefacenet":
-        return MobileFaceNet(input_shape=input_shape, weights=weights, pooling=pooling, name=name)
     raise ValueError(f"Unknown backbone: {backbone}")
 
 
@@ -129,12 +126,9 @@ def _rgb_current_norm_to_mobilenet_range(x):
     return raw_0_1 * 2.0 - 1.0
 
 
-def _features_for_head(backbone_model, inputs, backbone, average_pool_op, prefix):
+def _features_for_head(backbone_model, inputs, average_pool_op, prefix):
     features = backbone_model(inputs)
     if not average_pool_op:
-        return features
-    if backbone == "mobilefacenet":
-        # GDConv이 이미 1x1 공간 위치를 만든다. export 경로에서는 4D를 보존한다.
         return features
     channels = 1280
     features = layers.AveragePooling2D(pool_size=(7, 7), name=f"{prefix}_average_pool")(features)
@@ -157,8 +151,6 @@ def build_dual_model(
     classifier_as_conv=False, conv1_reduction="sum", backbone="mobilenetv2",
     aux_depth=False, aux_binary_pad=False, aux_supcon=False, projection_dim=128,
 ):
-    if backbone == "mobilefacenet":
-        raise ValueError("MobileFaceNet은 crop_ir 단일 입력만 지원합니다")
     rgb_name, rgb_shape = MODEL_INPUT_SIGNATURES["dual"][0]
     ir_name, ir_shape = MODEL_INPUT_SIGNATURES["dual"][1]
     rgb_input = keras.Input(batch_size=fixed_batch_size, shape=rgb_shape, name=rgb_name)
@@ -188,8 +180,8 @@ def build_dual_model(
             name=f"dual_{backbone}",
         )
     else:
-        rgb_features = _features_for_head(rgb_backbone, rgb_preprocessed, backbone, average_pool_op, "rgb")
-        ir_features = _features_for_head(ir_backbone, ir_input, backbone, average_pool_op, "ir")
+        rgb_features = _features_for_head(rgb_backbone, rgb_preprocessed, average_pool_op, "rgb")
+        ir_features = _features_for_head(ir_backbone, ir_input, average_pool_op, "ir")
         fused_features = layers.Concatenate(name="fused_features")([rgb_features, ir_features])
         logits = _build_classifier_head(fused_features, classifier_units, dropout, classifier_as_conv)
         pad_out = _build_binary_pad_head(fused_features) if aux_binary_pad else None
@@ -208,10 +200,6 @@ def build_single_model(
 ):
     if input_type not in ("crop_rgb", "crop_ir"):
         raise ValueError(f"Unknown input_type: {input_type}")
-    if backbone == "mobilefacenet" and input_type != "crop_ir":
-        raise ValueError("MobileFaceNet은 crop_ir 단일 입력만 지원합니다")
-    if backbone == "mobilefacenet" and rgb_weights is not None:
-        raise ValueError("MobileFaceNet은 scratch 학습만 지원하므로 --rgb-weights none을 사용해야 합니다")
 
     input_name, input_shape = MODEL_INPUT_SIGNATURES[input_type][0]
     model_input = keras.Input(batch_size=fixed_batch_size, shape=input_shape, name=input_name)
@@ -241,7 +229,7 @@ def build_single_model(
             name=f"single_{input_type}_{backbone}",
         )
     else:
-        features = _features_for_head(backbone_model, backbone_input, backbone, average_pool_op, input_type)
+        features = _features_for_head(backbone_model, backbone_input, average_pool_op, input_type)
         logits = _build_classifier_head(features, classifier_units, dropout, classifier_as_conv)
         pad_out = _build_binary_pad_head(features) if aux_binary_pad else None
         supcon_out = _build_supcon_head(features, projection_dim) if aux_supcon else None
@@ -275,8 +263,6 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     weights = None if args.rgb_weights == "none" else args.rgb_weights
-    if args.backbone == "mobilefacenet":
-        weights = None
     builder = build_dual_model if args.model_type == "dual" else build_single_model
     kwargs = dict(rgb_weights=weights, dropout=args.dropout, classifier_units=args.classifier_units,
                   gray_imagenet_init=not args.no_gray_imagenet_init, conv1_reduction=args.conv1_reduction,

@@ -155,7 +155,7 @@ def validate_fixed_split_coverage(data_dir="dataset/raw"):
     Group K-Fold 계약과 동일하게 전체 subject 정렬 순서에서 연속 두 폴더를
     같은 물리 인물로 본다.
 
-    학습 시작 직전에 tf_train.main()이 호출한다. 같은 인물/같은 프레임이 train과
+    학습 시작 직전에 training/train.py의 main()이 호출한다. 같은 인물/같은 프레임이 train과
     validation에 동시에 있으면 검증 지표가 부풀려져 실제 성능보다 좋아 보인다.
     그런 결과로 모델을 선택하면 현장에서 그대로 실패하므로, 아래 네 겹으로 검사하고
     하나라도 걸리면 예외를 던져 학습 자체를 막는다.
@@ -431,7 +431,7 @@ def calculate_validation_metrics(labels, preds):
     학습(AcerCheckpoint)과 TFLite 평가(evaluate_tflite.py)가 같은 이 함수를 쓴다
     → 두 단계의 숫자를 그대로 비교할 수 있다.
 
-    10-클래스 분류 결과를 live vs spoof 2진 관점으로 눌러서 보는 것이 핵심이다.
+    12-클래스 분류 결과를 live vs spoof 2진 관점으로 눌러서 보는 것이 핵심이다.
       APCER = 스푸핑을 live(0)로 통과시킨 비율          ← 보안 사고에 직결
       BPCER = 진짜 사람을 spoof로 거부한 비율            ← 사용성 저하
       ACER  = 두 값의 단순 평균 (현재 체크포인트 선택 기준, 낮을수록 좋음)

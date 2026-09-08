@@ -32,15 +32,14 @@ from keras_pipeline.models.model import _rgb_current_norm_to_mobilenet_range, ex
 from keras_pipeline.training.artifact_paths import (
     keras_checkpoint_path,
     tflite_path as artifact_tflite_path,
-    sidecar_manifest_path,
-    calibration_manifest_path,
     check_no_overwrite,
 )
-from keras_pipeline.export.validator import (
-    _copy_nested_weights,
+from keras_pipeline.export.npu_model import (
     _rgb_imagenet_norm_to_mobilenet_range,
     validate_npu_export_parity,
     build_npu_export_model,
+)
+from keras_pipeline.export.validator import (
     inspect_tflite,
     write_tflite_sidecar_manifest,
 )

@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from tensorflow import keras
 
-from keras_pipeline.export.converter import (
+from keras_pipeline.export.npu_model import (
     _copy_nested_weights,
     build_npu_export_model,
     validate_npu_export_parity,

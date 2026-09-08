@@ -3,7 +3,7 @@
 ## Scope
 
 - Own production training, validation, evaluation, and TFLite INT8 quantization for the `access-liveness-model` project.
-- Implement dataset loading (`data/dataset.py`), pseudo 3D depth generation (`data/depth_generator.py`), model architectures (`models/model.py`, `models/efficientnet_lite.py`), training loops with ACER checkpointing (`training/train.py`), TFLite export (`export/converter.py`), and sidecar manifest validation (`export/validator.py`).
+- Implement dataset loading (`data/dataset.py`), pseudo 3D depth generation (`data/depth_generator.py`), model architectures (`models/model.py`, `models/efficientnet_lite.py`), training loops with ACER checkpointing (`training/train.py`), TFLite conversion (`export/converter.py`), NPU export reconstruction (`export/npu_model.py`), and sidecar manifest validation (`export/validator.py`).
 
 ## Orient First
 
@@ -13,7 +13,7 @@
   - 3D Depth supervision: `data/depth_generator.py` (`generate_pseudo_depth_map`, `_build_base_templates`)
   - Losses: `models/losses.py` (CrossEntropy, Focal Loss, binary PAD, and SupCon)
   - Training loop: `training/train.py` (cosine decay, `AcerCheckpoint`, fixed-split evaluation, auxiliary heads, `--loss focal`)
-  - Quantization & export: `export/converter.py` (Full INT8 and NPU-friendly INT8)
+  - Quantization & export: `export/converter.py` (Full INT8 conversion), `export/npu_model.py` (NPU graph reconstruction and parity)
   - Graph inspection & sidecars: `export/validator.py` (`inspect_tflite`, `write_tflite_sidecar_manifest`)
 
 ## Boundary & Architecture Constraints

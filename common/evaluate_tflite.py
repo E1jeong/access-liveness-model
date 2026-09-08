@@ -231,7 +231,7 @@ def evaluate(model_path, data_dir, split, model_type, max_samples=None):
 
 def evaluate_keras_model(model_path, data_dir, split, model_type, max_samples=None, npu_export=False):
     import tensorflow as tf
-    from keras_pipeline.export.converter import build_npu_export_model
+    from keras_pipeline.export.npu_model import build_npu_export_model
     from keras_pipeline.contracts.model_signature import validate_keras_model_signature
     from keras_pipeline.data.dataset import load_sample, RGB_MEAN, RGB_STD
     from keras_pipeline.models.model import _rgb_current_norm_to_mobilenet_range

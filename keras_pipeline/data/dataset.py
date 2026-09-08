@@ -212,6 +212,29 @@ def _sample_augmentation_params(index, seed, augment):
             ir_brightness_val)
 
 
+def _build_targets(label, depth, aux_depth, aux_binary_pad, aux_supcon):
+    """Build the label structure expected by the enabled training heads."""
+    if not (aux_depth or aux_binary_pad or aux_supcon):
+        return label
+
+    targets = {"logits": label}
+    if aux_depth:
+        targets["depth_output"] = depth
+    if aux_binary_pad:
+        targets["pad_output"] = label
+    if aux_supcon:
+        targets["supcon_output"] = label
+    return targets
+
+
+def _run_py_function(callback, inputs, output_types, output_shapes):
+    """Run an OpenCV loader in tf.data and restore its static output shapes."""
+    outputs = tf.py_function(callback, inp=inputs, Tout=output_types)
+    for output, shape in zip(outputs, output_shapes):
+        output.set_shape(shape)
+    return outputs
+
+
 def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, repeat=False,
                  aux_depth=False, aux_binary_pad=False, aux_supcon=False):
     """dual(RGB+IR) 모델용 tf.data 데이터셋을 만든다."""
@@ -264,43 +287,30 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, rep
                 return rgb, ir, np.int32(lbl_val), depth
             return rgb, ir, np.int32(lbl_val)
 
+        augmentation_values = (
+            flip_val, angle_val, brightness_val, contrast_val, sat_val,
+            moire_strength_val, moire_frequency_val, moire_angle_val, moire_phase_val,
+            glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val, ir_brightness_val,
+        )
+        output_types = [tf.float32, tf.float32, tf.int32]
         if aux_depth:
-            outputs = tf.py_function(
-                _py_fn,
-                inp=[rgb_path, ir_path, label, flip_val, angle_val, brightness_val, contrast_val, sat_val,
-                     moire_strength_val, moire_frequency_val, moire_angle_val, moire_phase_val,
-                     glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val, ir_brightness_val],
-                Tout=[tf.float32, tf.float32, tf.int32, tf.float32]
-            )
-            outputs[0].set_shape((224, 224, 3))
-            outputs[1].set_shape((224, 224, 1))
-            outputs[2].set_shape(())
-            outputs[3].set_shape((14, 14, 1))
-            targets = {"logits": outputs[2], "depth_output": outputs[3]}
-            if aux_binary_pad:
-                targets["pad_output"] = outputs[2]
-            if aux_supcon:
-                targets["supcon_output"] = outputs[2]
-            return (outputs[0], outputs[1]), targets
-        else:
-            outputs = tf.py_function(
-                _py_fn,
-                inp=[rgb_path, ir_path, label, flip_val, angle_val, brightness_val, contrast_val, sat_val,
-                     moire_strength_val, moire_frequency_val, moire_angle_val, moire_phase_val,
-                     glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val, ir_brightness_val],
-                Tout=[tf.float32, tf.float32, tf.int32]
-            )
-            outputs[0].set_shape((224, 224, 3))
-            outputs[1].set_shape((224, 224, 1))
-            outputs[2].set_shape(())
-            if aux_binary_pad or aux_supcon:
-                targets = {"logits": outputs[2]}
-                if aux_binary_pad:
-                    targets["pad_output"] = outputs[2]
-                if aux_supcon:
-                    targets["supcon_output"] = outputs[2]
-                return (outputs[0], outputs[1]), targets
-            return (outputs[0], outputs[1]), outputs[2]
+            output_types.append(tf.float32)
+        output_shapes = [(224, 224, 3), (224, 224, 1), ()]
+        if aux_depth:
+            output_shapes.append((14, 14, 1))
+        outputs = _run_py_function(
+            _py_fn,
+            [rgb_path, ir_path, label, *augmentation_values],
+            output_types,
+            output_shapes,
+        )
+        depth = None
+        if aux_depth:
+            depth = outputs[3]
+        targets = _build_targets(
+            outputs[2], depth, aux_depth, aux_binary_pad, aux_supcon
+        )
+        return (outputs[0], outputs[1]), targets
 
     ds = ds.map(map_fn, num_parallel_calls=tf.data.AUTOTUNE)
     return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
@@ -360,47 +370,31 @@ def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=Fals
                 return img, np.int32(lbl_val), depth
             return img, np.int32(lbl_val)
 
+        augmentation_values = (
+            flip_val, angle_val, brightness_val, contrast_val, sat_val,
+            moire_strength_val, moire_frequency_val, moire_angle_val, moire_phase_val,
+            glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val, ir_brightness_val,
+        )
+        output_types = [tf.float32, tf.int32]
         if aux_depth:
-            outputs = tf.py_function(
-                _py_fn,
-                inp=[path, label, flip_val, angle_val, brightness_val, contrast_val, sat_val,
-                     moire_strength_val, moire_frequency_val, moire_angle_val, moire_phase_val,
-                     glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val, ir_brightness_val],
-                Tout=[tf.float32, tf.int32, tf.float32]
-            )
-            if input_type == "crop_rgb":
-                outputs[0].set_shape((224, 224, 3))
-            else:
-                outputs[0].set_shape((224, 224, 1))
-            outputs[1].set_shape(())
-            outputs[2].set_shape((14, 14, 1))
-            targets = {"logits": outputs[1], "depth_output": outputs[2]}
-            if aux_binary_pad:
-                targets["pad_output"] = outputs[1]
-            if aux_supcon:
-                targets["supcon_output"] = outputs[1]
-            return outputs[0], targets
-        else:
-            outputs = tf.py_function(
-                _py_fn,
-                inp=[path, label, flip_val, angle_val, brightness_val, contrast_val, sat_val,
-                     moire_strength_val, moire_frequency_val, moire_angle_val, moire_phase_val,
-                     glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val, ir_brightness_val],
-                Tout=[tf.float32, tf.int32]
-            )
-            if input_type == "crop_rgb":
-                outputs[0].set_shape((224, 224, 3))
-            else:
-                outputs[0].set_shape((224, 224, 1))
-            outputs[1].set_shape(())
-            if aux_binary_pad or aux_supcon:
-                targets = {"logits": outputs[1]}
-                if aux_binary_pad:
-                    targets["pad_output"] = outputs[1]
-                if aux_supcon:
-                    targets["supcon_output"] = outputs[1]
-                return outputs[0], targets
-            return outputs[0], outputs[1]
+            output_types.append(tf.float32)
+        channels = 3 if input_type == "crop_rgb" else 1
+        output_shapes = [(224, 224, channels), ()]
+        if aux_depth:
+            output_shapes.append((14, 14, 1))
+        outputs = _run_py_function(
+            _py_fn,
+            [path, label, *augmentation_values],
+            output_types,
+            output_shapes,
+        )
+        depth = None
+        if aux_depth:
+            depth = outputs[2]
+        targets = _build_targets(
+            outputs[1], depth, aux_depth, aux_binary_pad, aux_supcon
+        )
+        return outputs[0], targets
 
     ds = ds.map(map_fn, num_parallel_calls=tf.data.AUTOTUNE)
     return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)

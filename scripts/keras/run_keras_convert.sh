@@ -12,5 +12,10 @@ cd "$(dirname "$0")/../.."
 
 source scripts/keras/_keras_env.sh "변환됩니다"
 
+CONVERT_PYTHON=".venv-tf/bin/python"
+if [[ -f ".venv-convert/bin/python" ]]; then
+  CONVERT_PYTHON=".venv-convert/bin/python"
+fi
+
 echo "=== TFLite 변환 시작 ==="
-CUDA_VISIBLE_DEVICES="" .venv-tf/bin/python -m keras_pipeline.export.converter "$@"
+CUDA_VISIBLE_DEVICES="" "$CONVERT_PYTHON" -m keras_pipeline.export.converter "$@"

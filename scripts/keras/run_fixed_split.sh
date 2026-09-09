@@ -135,7 +135,12 @@ echo "========================================="
   --float --int8 --npu-int8 \
   $FORCE
 
-.venv-tf/bin/python -m common.evaluate_tflite \
+EVAL_PYTHON=".venv-tf/bin/python"
+if [[ -f ".venv-convert/bin/python" ]]; then
+  EVAL_PYTHON=".venv-convert/bin/python"
+fi
+
+"$EVAL_PYTHON" -m common.evaluate_tflite \
   --data-dir "$DATA_DIR" \
   --split validation \
   --model-type "$MODEL_TYPE" \

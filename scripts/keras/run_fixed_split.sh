@@ -21,6 +21,8 @@ EMA_MOMENTUM="0.99"
 FREEZE_BACKBONE_EPOCHS=0
 AUX_DEPTH=""
 DEPTH_LOSS_WEIGHT="0.5"
+AUX_RESIDUAL=""
+RESIDUAL_LOSS_WEIGHT="0.1"
 AUX_BINARY_PAD=""
 BINARY_PAD_LOSS_WEIGHT="0.2"
 AUX_SUPCON=""
@@ -50,6 +52,8 @@ while [[ "$#" -gt 0 ]]; do
     --freeze-backbone-epochs) FREEZE_BACKBONE_EPOCHS="$2"; shift ;;
     --aux-depth) AUX_DEPTH="--aux-depth" ;;
     --depth-loss-weight) DEPTH_LOSS_WEIGHT="$2"; shift ;;
+    --aux-residual) AUX_RESIDUAL="--aux-residual" ;;
+    --residual-loss-weight) RESIDUAL_LOSS_WEIGHT="$2"; shift ;;
     --aux-binary-pad) AUX_BINARY_PAD="--aux-binary-pad" ;;
     --binary-pad-loss-weight) BINARY_PAD_LOSS_WEIGHT="$2"; shift ;;
     --aux-supcon) AUX_SUPCON="--aux-supcon" ;;
@@ -113,6 +117,7 @@ echo "========================================="
   ${USE_EMA:+$USE_EMA --ema-momentum "$EMA_MOMENTUM"} \
   --freeze-backbone-epochs "$FREEZE_BACKBONE_EPOCHS" \
   ${AUX_DEPTH:+$AUX_DEPTH --depth-loss-weight "$DEPTH_LOSS_WEIGHT"} \
+  ${AUX_RESIDUAL:+$AUX_RESIDUAL --residual-loss-weight "$RESIDUAL_LOSS_WEIGHT"} \
   ${AUX_BINARY_PAD:+$AUX_BINARY_PAD --binary-pad-loss-weight "$BINARY_PAD_LOSS_WEIGHT"} \
   ${AUX_SUPCON:+$AUX_SUPCON --supcon-loss-weight "$SUPCON_LOSS_WEIGHT" --supcon-temperature "$SUPCON_TEMPERATURE" --projection-dim "$PROJECTION_DIM"} \
   $FORCE

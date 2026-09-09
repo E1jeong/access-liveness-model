@@ -10,6 +10,7 @@ resize 구현과 ColorJitter 연산 순서가 달라 픽셀 단위 결과까지 
 
 Multi-Task Auxiliary 지도학습 지원:
   - `aux_depth=True` 시 14x14 크기의 3D 깊이 지도(`depth_output`)를 타겟 딕셔너리로 함께 반환한다.
+  - `aux_residual=True` 시 IR 입력의 14x14 고주파 잔차 지도(`residual_output`)를 함께 반환한다.
   - `aux_binary_pad=True` 시 같은 12-class label을 `pad_output`에도 전달한다.
   - `aux_supcon=True` 시 같은 label을 학습 전용 `supcon_output`에도 전달한다.
     binary target 변환은 loss에서 Phase 2 policy로 수행한다.
@@ -27,7 +28,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from keras_pipeline.data.depth_generator import generate_pseudo_depth_map
+from keras_pipeline.data.depth_generator import (
+    generate_high_frequency_residual_map,
+    generate_pseudo_depth_map,
+)
 from keras_pipeline.data.spec import IMAGE_SIZE, RGB_MEAN, RGB_STD, IR_MEAN, IR_STD
 from common.classes import CLASS_MAPPING
 
@@ -227,14 +231,16 @@ def _sample_augmentation_params(index, seed, augment):
             ir_brightness_val)
 
 
-def _build_targets(label, depth, aux_depth, aux_binary_pad, aux_supcon):
+def _build_targets(label, depth, residual, aux_depth, aux_residual, aux_binary_pad, aux_supcon):
     """Build the label structure expected by the enabled training heads."""
-    if not (aux_depth or aux_binary_pad or aux_supcon):
+    if not (aux_depth or aux_residual or aux_binary_pad or aux_supcon):
         return label
 
     targets = {"logits": label}
     if aux_depth:
         targets["depth_output"] = depth
+    if aux_residual:
+        targets["residual_output"] = residual
     if aux_binary_pad:
         targets["pad_output"] = label
     if aux_supcon:
@@ -251,7 +257,7 @@ def _run_py_function(callback, inputs, output_types, output_shapes):
 
 
 def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, repeat=False,
-                 aux_depth=False, aux_binary_pad=False, aux_supcon=False):
+                 aux_depth=False, aux_binary_pad=False, aux_supcon=False, aux_residual=False):
     """dual(RGB+IR) 모델용 tf.data 데이터셋을 만든다."""
     items = list(items)
     if not items:
@@ -297,10 +303,14 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, rep
                 glare_y=float(glare_y.numpy()), glare_sigma=float(glare_sig.numpy()),
                 ir_brightness_f=float(ir_brt.numpy())
             )
+            outputs = [rgb, ir, np.int32(lbl_val)]
             if aux_depth:
                 depth = generate_pseudo_depth_map(lbl_val, size=(14, 14), flip=flp_int, angle=ang_flt)
-                return rgb, ir, np.int32(lbl_val), depth
-            return rgb, ir, np.int32(lbl_val)
+                outputs.append(depth)
+            if aux_residual:
+                ir_0_1 = ir * IR_STD + IR_MEAN
+                outputs.append(generate_high_frequency_residual_map(ir_0_1))
+            return tuple(outputs)
 
         augmentation_values = (
             flip_val, angle_val, brightness_val, contrast_val, sat_val,
@@ -310,8 +320,12 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, rep
         output_types = [tf.float32, tf.float32, tf.int32]
         if aux_depth:
             output_types.append(tf.float32)
+        if aux_residual:
+            output_types.append(tf.float32)
         output_shapes = [(224, 224, 3), (224, 224, 1), ()]
         if aux_depth:
+            output_shapes.append((14, 14, 1))
+        if aux_residual:
             output_shapes.append((14, 14, 1))
         outputs = _run_py_function(
             _py_fn,
@@ -319,11 +333,15 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, rep
             output_types,
             output_shapes,
         )
-        depth = None
+        depth = residual = None
+        output_index = 3
         if aux_depth:
-            depth = outputs[3]
+            depth = outputs[output_index]
+            output_index += 1
+        if aux_residual:
+            residual = outputs[output_index]
         targets = _build_targets(
-            outputs[2], depth, aux_depth, aux_binary_pad, aux_supcon
+            outputs[2], depth, residual, aux_depth, aux_residual, aux_binary_pad, aux_supcon
         )
         return (outputs[0], outputs[1]), targets
 
@@ -333,11 +351,13 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, rep
 
 def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=False, seed=42,
                         augment=False, repeat=False, aux_depth=False, aux_binary_pad=False,
-                        aux_supcon=False):
+                        aux_supcon=False, aux_residual=False):
     """crop_rgb / crop_ir 단일 입력 모델용 데이터셋."""
     items = list(items)
     if not items:
         raise ValueError("Dataset items list cannot be empty.")
+    if aux_residual and input_type != "crop_ir":
+        raise ValueError("High-frequency residual supervision is supported only for IR inputs.")
     if shuffle:
         random.Random(seed).shuffle(items)
 
@@ -380,10 +400,14 @@ def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=Fals
                 glare_y=float(glare_y.numpy()), glare_sigma=float(glare_sig.numpy()),
                 ir_brightness_f=float(ir_brt.numpy())
             )
+            outputs = [img, np.int32(lbl_val)]
             if aux_depth:
                 depth = generate_pseudo_depth_map(lbl_val, size=(14, 14), flip=flp_int, angle=ang_flt)
-                return img, np.int32(lbl_val), depth
-            return img, np.int32(lbl_val)
+                outputs.append(depth)
+            if aux_residual:
+                ir_0_1 = img * IR_STD + IR_MEAN
+                outputs.append(generate_high_frequency_residual_map(ir_0_1))
+            return tuple(outputs)
 
         augmentation_values = (
             flip_val, angle_val, brightness_val, contrast_val, sat_val,
@@ -393,9 +417,13 @@ def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=Fals
         output_types = [tf.float32, tf.int32]
         if aux_depth:
             output_types.append(tf.float32)
+        if aux_residual:
+            output_types.append(tf.float32)
         channels = 3 if input_type == "crop_rgb" else 1
         output_shapes = [(224, 224, channels), ()]
         if aux_depth:
+            output_shapes.append((14, 14, 1))
+        if aux_residual:
             output_shapes.append((14, 14, 1))
         outputs = _run_py_function(
             _py_fn,
@@ -403,11 +431,15 @@ def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=Fals
             output_types,
             output_shapes,
         )
-        depth = None
+        depth = residual = None
+        output_index = 2
         if aux_depth:
-            depth = outputs[2]
+            depth = outputs[output_index]
+            output_index += 1
+        if aux_residual:
+            residual = outputs[output_index]
         targets = _build_targets(
-            outputs[1], depth, aux_depth, aux_binary_pad, aux_supcon
+            outputs[1], depth, residual, aux_depth, aux_residual, aux_binary_pad, aux_supcon
         )
         return outputs[0], targets
 

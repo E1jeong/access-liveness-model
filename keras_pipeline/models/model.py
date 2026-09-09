@@ -5,6 +5,7 @@
 
 Multi-Task Auxiliary 3D Depth 학습 지원:
   - `aux_depth=True` 시 12-Class `logits` 외에 14x14 `depth_output` 헤드가 함께 생성된다.
+  - `aux_residual=True` 시 IR 고주파 에너지를 예측하는 14x14 `residual_output` 헤드가 함께 생성된다.
   - `aux_binary_pad=True` 시 Phase 2 bona-fide/spoof용 `pad_output` head가 함께 생성된다.
   - `aux_supcon=True` 시 학습 전용 L2 정규화 projection head가 함께 생성된다.
   - `extract_deploy_model(model)`을 호출하면 보조 헤드를 제거한 순수 배포용 단일 출력 모델을 얻을 수 있다.
@@ -98,6 +99,19 @@ def _build_depth_head(spatial_features, prefix="aux"):
     return depth_out
 
 
+def _build_residual_head(spatial_features, prefix="aux"):
+    """Predict a 14x14 normalized high-frequency energy map from 7x7 features."""
+    x = layers.UpSampling2D(
+        size=(2, 2), interpolation="bilinear", name=f"{prefix}_residual_upsample"
+    )(spatial_features)
+    x = layers.Conv2D(
+        64, 3, padding="same", activation="relu", name=f"{prefix}_residual_conv1"
+    )(x)
+    return layers.Conv2D(
+        1, 3, padding="same", activation="sigmoid", name="residual_output"
+    )(x)
+
+
 def _build_binary_pad_head(features):
     """학습 전용 Phase 2 bona-fide/spoof logits head."""
     return layers.Dense(1, name="pad_output")(features)
@@ -110,10 +124,14 @@ def _build_supcon_head(features, projection_dim):
     return layers.UnitNormalization(axis=-1, name="supcon_output")(x)
 
 
-def _build_training_outputs(logits, depth_out=None, pad_out=None, supcon_out=None):
+def _build_training_outputs(
+    logits, depth_out=None, residual_out=None, pad_out=None, supcon_out=None
+):
     outputs = [logits]
     if depth_out is not None:
         outputs.append(depth_out)
+    if residual_out is not None:
+        outputs.append(residual_out)
     if pad_out is not None:
         outputs.append(pad_out)
     if supcon_out is not None:
@@ -149,7 +167,7 @@ def build_dual_model(
     rgb_weights="imagenet", dropout=0.2, classifier_units=1024, gray_imagenet_init=True,
     rgb_input_mobilenet_range=False, average_pool_op=False, fixed_batch_size=None,
     classifier_as_conv=False, conv1_reduction="sum", backbone="mobilenetv2",
-    aux_depth=False, aux_binary_pad=False, aux_supcon=False, projection_dim=128,
+    aux_depth=False, aux_binary_pad=False, aux_supcon=False, projection_dim=128, aux_residual=False,
 ):
     rgb_name, rgb_shape = MODEL_INPUT_SIGNATURES["dual"][0]
     ir_name, ir_shape = MODEL_INPUT_SIGNATURES["dual"][1]
@@ -159,24 +177,26 @@ def build_dual_model(
         _rgb_current_norm_to_mobilenet_range, name="rgb_to_mobilenet_range"
     )(rgb_input)
     
-    pooling = None if (average_pool_op or aux_depth) else "avg"
+    pooling = None if (average_pool_op or aux_depth or aux_residual) else "avg"
     rgb_backbone = _make_backbone(backbone, rgb_shape, rgb_weights, pooling, f"rgb_{backbone}")
     ir_backbone = _make_backbone(backbone, ir_shape, None, pooling, f"ir_{backbone}")
     if rgb_weights is not None and gray_imagenet_init:
         _transfer_imagenet_weights_to_gray_backbone(rgb_backbone, ir_backbone, "IR", conv1_reduction)
     
-    if aux_depth:
+    if aux_depth or aux_residual:
         rgb_raw = rgb_backbone(rgb_preprocessed)
         ir_raw = ir_backbone(ir_input)
         rgb_features = layers.GlobalAveragePooling2D(name="rgb_gap")(rgb_raw)
         ir_features = layers.GlobalAveragePooling2D(name="ir_gap")(ir_raw)
         fused_features = layers.Concatenate(name="fused_features")([rgb_features, ir_features])
         logits = _build_classifier_head(fused_features, classifier_units, dropout, classifier_as_conv)
-        depth_out = _build_depth_head(ir_raw, prefix="dual_ir")
+        depth_out = _build_depth_head(ir_raw, prefix="dual_ir") if aux_depth else None
+        residual_out = _build_residual_head(ir_raw, prefix="dual_ir") if aux_residual else None
         pad_out = _build_binary_pad_head(fused_features) if aux_binary_pad else None
         supcon_out = _build_supcon_head(fused_features, projection_dim) if aux_supcon else None
         return keras.Model(
-            [rgb_input, ir_input], _build_training_outputs(logits, depth_out, pad_out, supcon_out),
+            [rgb_input, ir_input],
+            _build_training_outputs(logits, depth_out, residual_out, pad_out, supcon_out),
             name=f"dual_{backbone}",
         )
     else:
@@ -196,15 +216,17 @@ def build_single_model(
     input_type="crop_rgb", rgb_weights="imagenet", dropout=0.2, classifier_units=1024,
     gray_imagenet_init=True, rgb_input_mobilenet_range=False, average_pool_op=False,
     fixed_batch_size=None, classifier_as_conv=False, conv1_reduction="sum", backbone="mobilenetv2",
-    aux_depth=False, aux_binary_pad=False, aux_supcon=False, projection_dim=128,
+    aux_depth=False, aux_binary_pad=False, aux_supcon=False, projection_dim=128, aux_residual=False,
 ):
     if input_type not in ("crop_rgb", "crop_ir"):
         raise ValueError(f"Unknown input_type: {input_type}")
+    if aux_residual and input_type != "crop_ir":
+        raise ValueError("High-frequency residual supervision is supported only for IR inputs.")
 
     input_name, input_shape = MODEL_INPUT_SIGNATURES[input_type][0]
     model_input = keras.Input(batch_size=fixed_batch_size, shape=input_shape, name=input_name)
     
-    pooling = None if (average_pool_op or aux_depth) else "avg"
+    pooling = None if (average_pool_op or aux_depth or aux_residual) else "avg"
     if input_type == "crop_rgb":
         backbone_input = model_input if rgb_input_mobilenet_range else layers.Lambda(
             _rgb_current_norm_to_mobilenet_range, name="rgb_to_mobilenet_range"
@@ -217,15 +239,17 @@ def build_single_model(
             source = _make_backbone(backbone, (input_shape[0], input_shape[1], 3), rgb_weights, None, f"temp_rgb_{backbone}")
             _transfer_imagenet_weights_to_gray_backbone(source, backbone_model, "IR", conv1_reduction)
 
-    if aux_depth:
+    if aux_depth or aux_residual:
         raw_features = backbone_model(backbone_input)
         features = layers.GlobalAveragePooling2D(name=f"{input_type}_gap")(raw_features)
         logits = _build_classifier_head(features, classifier_units, dropout, classifier_as_conv)
-        depth_out = _build_depth_head(raw_features, prefix=input_type)
+        depth_out = _build_depth_head(raw_features, prefix=input_type) if aux_depth else None
+        residual_out = _build_residual_head(raw_features, prefix=input_type) if aux_residual else None
         pad_out = _build_binary_pad_head(features) if aux_binary_pad else None
         supcon_out = _build_supcon_head(features, projection_dim) if aux_supcon else None
         return keras.Model(
-            model_input, _build_training_outputs(logits, depth_out, pad_out, supcon_out),
+            model_input,
+            _build_training_outputs(logits, depth_out, residual_out, pad_out, supcon_out),
             name=f"single_{input_type}_{backbone}",
         )
     else:
@@ -254,6 +278,7 @@ def parse_args():
     parser.add_argument("--backbone", choices=SUPPORTED_BACKBONES, default="mobilenetv2")
     parser.add_argument("--conv1-reduction", choices=["mean", "sum"], default="sum")
     parser.add_argument("--aux-depth", action="store_true", help="3D Depth 보조 헤드 생성 여부")
+    parser.add_argument("--aux-residual", action="store_true", help="IR 고주파 잔차 지도 보조 헤드 생성 여부")
     parser.add_argument("--aux-binary-pad", action="store_true", help="Phase 2 binary PAD 보조 헤드 생성 여부")
     parser.add_argument("--aux-supcon", action="store_true", help="SupCon projection head 생성 여부")
     parser.add_argument("--projection-dim", type=int, default=128)
@@ -267,6 +292,7 @@ if __name__ == "__main__":
     kwargs = dict(rgb_weights=weights, dropout=args.dropout, classifier_units=args.classifier_units,
                   gray_imagenet_init=not args.no_gray_imagenet_init, conv1_reduction=args.conv1_reduction,
                   backbone=args.backbone, aux_depth=args.aux_depth, aux_binary_pad=args.aux_binary_pad,
-                  aux_supcon=args.aux_supcon, projection_dim=args.projection_dim)
+                  aux_supcon=args.aux_supcon, aux_residual=args.aux_residual,
+                  projection_dim=args.projection_dim)
     model = builder(**kwargs) if args.model_type == "dual" else builder(input_type=args.model_type, **kwargs)
     model.summary()

@@ -97,3 +97,6 @@ Useful training switches:
 - `--aux-supcon` adds the training-only supervised contrastive head. Defaults are
   `--supcon-loss-weight 0.1 --supcon-temperature 0.1 --projection-dim 128`;
   conversion strips this head and preserves the deployment logits contract.
+- `--aux-residual` adds a training-only 14x14 high-frequency IR residual-map head.
+  The default is `--residual-loss-weight 0.1`; conversion strips this head and
+  preserves the deployment logits contract. It supports `crop_ir` and dual inputs.

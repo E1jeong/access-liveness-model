@@ -1,7 +1,8 @@
-"""3D 깊이 지도(Pseudo Depth Map) 실시간 생성 모듈.
+"""보조 학습용 3D 깊이 지도와 IR 고주파 잔차 지도 생성 모듈.
 
 출입통제 안티스푸핑 모델의 Multi-Task Auxiliary 지도학습을 위해
 입력 이미지 및 라벨에 대응하는 14x14 크기의 3D 깊이 지도를 메모리 상에서 실시간 생성합니다.
+IR 고주파 잔차 지도는 클래스와 무관하게 입력 영상으로부터 생성합니다.
 
 깊이 지도 규칙 (ISO/IEC PAD 물리 모델 기반):
   1) live (0): 코를 정점으로 하는 3D 볼록 타원 곡면 (0.0 ~ 1.0)
@@ -11,6 +12,24 @@
 """
 import cv2
 import numpy as np
+
+
+HIGH_FREQUENCY_RESIDUAL_SCALE = 0.1
+
+
+def generate_high_frequency_residual_map(image, size=(14, 14)):
+    """Generate an absolute high-pass energy map from a [0, 1] IR image."""
+    image = np.asarray(image, dtype=np.float32)
+    if image.ndim == 3 and image.shape[-1] == 1:
+        image = image[..., 0]
+    if image.ndim != 2:
+        raise ValueError("High-frequency residual supervision requires a single-channel IR image.")
+
+    low_frequency = cv2.GaussianBlur(image, (0, 0), sigmaX=1.0, sigmaY=1.0)
+    residual = np.abs(image - low_frequency) / HIGH_FREQUENCY_RESIDUAL_SCALE
+    residual = cv2.resize(residual, size, interpolation=cv2.INTER_AREA)
+    residual = np.clip(residual, 0.0, 1.0).astype(np.float32)
+    return residual[..., np.newaxis]
 
 
 # 14x14 기본 템플릿 사전 생성 (학습 시 CPU 오버헤드 극소화)

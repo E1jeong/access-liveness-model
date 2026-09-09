@@ -280,6 +280,17 @@ def parse_args():
         help="3D Depth 보조 손실 가중치 (기본값: 0.5)",
     )
     parser.add_argument(
+        "--aux-residual",
+        action="store_true",
+        help="IR 고주파 잔차 지도 보조 학습 활성화",
+    )
+    parser.add_argument(
+        "--residual-loss-weight",
+        type=float,
+        default=0.1,
+        help="고주파 잔차 지도 보조 손실 가중치 (기본값: 0.1)",
+    )
+    parser.add_argument(
         "--aux-binary-pad",
         action="store_true",
         help="Phase 2 bona-fide/spoof 보조 지도학습 활성화",
@@ -329,6 +340,10 @@ def main():
         )
     if args.binary_pad_loss_weight < 0:
         raise ValueError("--binary-pad-loss-weight는 0 이상이어야 합니다.")
+    if args.residual_loss_weight < 0:
+        raise ValueError("--residual-loss-weight는 0 이상이어야 합니다.")
+    if args.aux_residual and args.model_type == "crop_rgb":
+        raise ValueError("--aux-residual은 IR 입력(crop_ir 또는 dual)에서만 사용할 수 있습니다.")
     if args.supcon_loss_weight < 0:
         raise ValueError("--supcon-loss-weight는 0 이상이어야 합니다.")
     if args.supcon_temperature <= 0:
@@ -354,6 +369,7 @@ def main():
     print(f" - freeze_backbone_epochs: {args.freeze_backbone_epochs}")
     print(f" - loss_type: {args.loss_type} (gamma={args.focal_gamma}, alpha={args.focal_alpha}, label_smoothing={args.label_smoothing})")
     print(f" - aux_depth: {args.aux_depth} (depth_loss_weight={args.depth_loss_weight})")
+    print(f" - aux_residual: {args.aux_residual} (residual_loss_weight={args.residual_loss_weight})")
     print(f" - aux_binary_pad: {args.aux_binary_pad} (binary_pad_loss_weight={args.binary_pad_loss_weight})")
     print(f" - aux_supcon: {args.aux_supcon} (weight={args.supcon_loss_weight}, temperature={args.supcon_temperature}, projection_dim={args.projection_dim})")
 
@@ -361,14 +377,16 @@ def main():
         train_ds = make_dataset(
             train_items, batch_size=args.batch_size, shuffle=True, seed=args.seed,
             augment=True, repeat=True, aux_depth=args.aux_depth,
-            aux_binary_pad=args.aux_binary_pad, aux_supcon=args.aux_supcon
+            aux_residual=args.aux_residual, aux_binary_pad=args.aux_binary_pad,
+            aux_supcon=args.aux_supcon
         )
         val_ds = make_dataset(val_items, batch_size=args.batch_size, shuffle=False, seed=args.seed).cache()
     else:
         train_ds = make_single_dataset(
             train_items, input_type=args.model_type, batch_size=args.batch_size, shuffle=True, seed=args.seed,
             augment=True, repeat=True, aux_depth=args.aux_depth,
-            aux_binary_pad=args.aux_binary_pad, aux_supcon=args.aux_supcon
+            aux_residual=args.aux_residual, aux_binary_pad=args.aux_binary_pad,
+            aux_supcon=args.aux_supcon
         )
         val_ds = make_single_dataset(val_items, input_type=args.model_type, batch_size=args.batch_size, shuffle=False, seed=args.seed).cache()
 
@@ -384,6 +402,7 @@ def main():
             conv1_reduction=args.conv1_reduction,
             backbone=args.backbone,
             aux_depth=args.aux_depth,
+            aux_residual=args.aux_residual,
             aux_binary_pad=args.aux_binary_pad,
             aux_supcon=args.aux_supcon,
             projection_dim=args.projection_dim,
@@ -398,6 +417,7 @@ def main():
             conv1_reduction=args.conv1_reduction,
             backbone=args.backbone,
             aux_depth=args.aux_depth,
+            aux_residual=args.aux_residual,
             aux_binary_pad=args.aux_binary_pad,
             aux_supcon=args.aux_supcon,
             projection_dim=args.projection_dim,
@@ -411,12 +431,15 @@ def main():
         focal_alpha=args.focal_alpha,
     )
 
-    if args.aux_depth or args.aux_binary_pad or args.aux_supcon:
+    if args.aux_depth or args.aux_residual or args.aux_binary_pad or args.aux_supcon:
         loss_dict = {"logits": cls_loss_fn}
         loss_weights_dict = {"logits": 1.0}
         if args.aux_depth:
             loss_dict["depth_output"] = tf.keras.losses.MeanSquaredError()
             loss_weights_dict["depth_output"] = args.depth_loss_weight
+        if args.aux_residual:
+            loss_dict["residual_output"] = tf.keras.losses.MeanSquaredError()
+            loss_weights_dict["residual_output"] = args.residual_loss_weight
         if args.aux_binary_pad:
             loss_dict["pad_output"] = build_binary_pad_loss()
             loss_weights_dict["pad_output"] = args.binary_pad_loss_weight

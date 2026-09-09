@@ -116,9 +116,11 @@ def load_sample(rgb_path, ir_path, augment=False, flip=0, angle=0.0, brightness_
             ir = np.clip(ir_f * ir_brightness_f, 0, 255).astype(np.uint8)
 
         if label == DISPLAY_LABEL:
-            rgb = _apply_rgb_moire(rgb, moire_strength, moire_frequency, moire_angle, moire_phase)
-            ir = _apply_ir_moire(ir, moire_strength, moire_frequency, moire_angle, moire_phase)
-            ir = _apply_ir_glare(ir, glare_strength, glare_x, glare_y, glare_sigma)
+            if moire_strength > 0.0:
+                rgb = _apply_rgb_moire(rgb, moire_strength, moire_frequency, moire_angle, moire_phase)
+                ir = _apply_ir_moire(ir, moire_strength, moire_frequency, moire_angle, moire_phase)
+            if glare_strength > 0.0:
+                ir = _apply_ir_glare(ir, glare_strength, glare_x, glare_y, glare_sigma)
 
     rgb = rgb.astype(np.float32) / 255.0
     rgb = (rgb - RGB_MEAN) / RGB_STD
@@ -183,8 +185,10 @@ def load_single_sample(path, input_type="crop_rgb", augment=False, flip=0, angle
                 ir_f = ir.astype(np.float32)
                 ir = np.clip(ir_f * ir_brightness_f, 0, 255).astype(np.uint8)
             if label == DISPLAY_LABEL:
-                ir = _apply_ir_moire(ir, moire_strength, moire_frequency, moire_angle, moire_phase)
-                ir = _apply_ir_glare(ir, glare_strength, glare_x, glare_y, glare_sigma)
+                if moire_strength > 0.0:
+                    ir = _apply_ir_moire(ir, moire_strength, moire_frequency, moire_angle, moire_phase)
+                if glare_strength > 0.0:
+                    ir = _apply_ir_glare(ir, glare_strength, glare_x, glare_y, glare_sigma)
 
         ir = ir.astype(np.float32) / 255.0
         ir = np.expand_dims(ir, axis=-1)
@@ -192,7 +196,7 @@ def load_single_sample(path, input_type="crop_rgb", augment=False, flip=0, angle
         return ir.astype(np.float32)
 
 
-def _sample_augmentation_params(index, seed, augment):
+def _sample_augmentation_params(index, seed, augment, augment_display_artifacts=False):
     """tf.data map 함수 내에서 index와 seed 기반의 결정론적 증강 파라미터를 추출한다."""
     if augment:
         seed_tensor = tf.stack([index, tf.cast(seed, tf.int64)])
@@ -201,14 +205,24 @@ def _sample_augmentation_params(index, seed, augment):
         brightness_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 2], minval=0.7, maxval=1.3, dtype=tf.float32)
         contrast_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 3], minval=0.7, maxval=1.3, dtype=tf.float32)
         sat_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 4], minval=0.8, maxval=1.2, dtype=tf.float32)
-        moire_strength_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 5], minval=0.08, maxval=0.18, dtype=tf.float32)
-        moire_frequency_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 6], minval=0.04, maxval=0.10, dtype=tf.float32)
-        moire_angle_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 7], minval=0.0, maxval=np.pi, dtype=tf.float32)
-        moire_phase_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 8], minval=0.0, maxval=2.0 * np.pi, dtype=tf.float32)
-        glare_strength_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 9], minval=0.35, maxval=0.70, dtype=tf.float32)
-        glare_x_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 10], minval=0.25, maxval=0.75, dtype=tf.float32)
-        glare_y_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 11], minval=0.25, maxval=0.75, dtype=tf.float32)
-        glare_sigma_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 12], minval=0.10, maxval=0.22, dtype=tf.float32)
+        if augment_display_artifacts:
+            moire_strength_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 5], minval=0.08, maxval=0.18, dtype=tf.float32)
+            moire_frequency_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 6], minval=0.04, maxval=0.10, dtype=tf.float32)
+            moire_angle_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 7], minval=0.0, maxval=np.pi, dtype=tf.float32)
+            moire_phase_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 8], minval=0.0, maxval=2.0 * np.pi, dtype=tf.float32)
+            glare_strength_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 9], minval=0.35, maxval=0.70, dtype=tf.float32)
+            glare_x_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 10], minval=0.25, maxval=0.75, dtype=tf.float32)
+            glare_y_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 11], minval=0.25, maxval=0.75, dtype=tf.float32)
+            glare_sigma_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 12], minval=0.10, maxval=0.22, dtype=tf.float32)
+        else:
+            moire_strength_val = tf.constant(0.0, dtype=tf.float32)
+            moire_frequency_val = tf.constant(0.0, dtype=tf.float32)
+            moire_angle_val = tf.constant(0.0, dtype=tf.float32)
+            moire_phase_val = tf.constant(0.0, dtype=tf.float32)
+            glare_strength_val = tf.constant(0.0, dtype=tf.float32)
+            glare_x_val = tf.constant(0.5, dtype=tf.float32)
+            glare_y_val = tf.constant(0.5, dtype=tf.float32)
+            glare_sigma_val = tf.constant(0.15, dtype=tf.float32)
         ir_brightness_val = tf.random.stateless_uniform([], seed=seed_tensor + [0, 13], minval=0.85, maxval=1.15, dtype=tf.float32)
     else:
         flip_val = tf.constant(0, dtype=tf.int32)
@@ -257,7 +271,8 @@ def _run_py_function(callback, inputs, output_types, output_shapes):
 
 
 def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, repeat=False,
-                 aux_depth=False, aux_binary_pad=False, aux_supcon=False, aux_residual=False):
+                 aux_depth=False, aux_binary_pad=False, aux_supcon=False, aux_residual=False,
+                 augment_display_artifacts=False):
     """dual(RGB+IR) 모델용 tf.data 데이터셋을 만든다."""
     items = list(items)
     if not items:
@@ -284,7 +299,9 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, rep
         (flip_val, angle_val, brightness_val, contrast_val, sat_val,
          moire_strength_val, moire_frequency_val, moire_angle_val, moire_phase_val,
          glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val,
-         ir_brightness_val) = _sample_augmentation_params(index, seed, augment)
+         ir_brightness_val) = _sample_augmentation_params(
+             index, seed, augment, augment_display_artifacts=augment_display_artifacts
+         )
 
         def _py_fn(r_path, i_path, lbl, flp, ang, brt, cnt, sat, moire_str, moire_freq, moire_ang, moire_ph,
                    glare_str, glare_x, glare_y, glare_sig, ir_brt):
@@ -351,7 +368,7 @@ def make_dataset(items, batch_size=8, shuffle=False, seed=42, augment=False, rep
 
 def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=False, seed=42,
                         augment=False, repeat=False, aux_depth=False, aux_binary_pad=False,
-                        aux_supcon=False, aux_residual=False):
+                        aux_supcon=False, aux_residual=False, augment_display_artifacts=False):
     """crop_rgb / crop_ir 단일 입력 모델용 데이터셋."""
     items = list(items)
     if not items:
@@ -382,7 +399,9 @@ def make_single_dataset(items, input_type="crop_rgb", batch_size=8, shuffle=Fals
         (flip_val, angle_val, brightness_val, contrast_val, sat_val,
          moire_strength_val, moire_frequency_val, moire_angle_val, moire_phase_val,
          glare_strength_val, glare_x_val, glare_y_val, glare_sigma_val,
-         ir_brightness_val) = _sample_augmentation_params(index, seed, augment)
+         ir_brightness_val) = _sample_augmentation_params(
+             index, seed, augment, augment_display_artifacts=augment_display_artifacts
+         )
 
         def _py_fn(p, lbl, flp, ang, brt, cnt, sat, moire_str, moire_freq, moire_ang, moire_ph,
                    glare_str, glare_x, glare_y, glare_sig, ir_brt):

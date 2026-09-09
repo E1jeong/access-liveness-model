@@ -32,6 +32,7 @@ PROJECTION_DIM=128
 LOSS_TYPE="ce"
 FOCAL_GAMMA="2.0"
 FOCAL_ALPHA="0.25"
+AUGMENT_DISPLAY_ARTIFACTS=""
 
 while [[ "$#" -gt 0 ]]; do
   case $1 in
@@ -60,6 +61,8 @@ while [[ "$#" -gt 0 ]]; do
     --supcon-loss-weight) SUPCON_LOSS_WEIGHT="$2"; shift ;;
     --supcon-temperature) SUPCON_TEMPERATURE="$2"; shift ;;
     --projection-dim) PROJECTION_DIM="$2"; shift ;;
+    --augment-display-artifacts) AUGMENT_DISPLAY_ARTIFACTS="--augment-display-artifacts" ;;
+    --no-augment-display-artifacts) AUGMENT_DISPLAY_ARTIFACTS="--no-augment-display-artifacts" ;;
     --loss|--loss-type) LOSS_TYPE="$2"; shift ;;
     --focal-gamma) FOCAL_GAMMA="$2"; shift ;;
     --focal-alpha) FOCAL_ALPHA="$2"; shift ;;
@@ -95,8 +98,9 @@ echo "  학습률          : $LEARNING_RATE"
 echo "  옵티마이저      : $OPTIMIZER (weight_decay: $WEIGHT_DECAY)"
 echo "  손실 함수       : $LOSS_TYPE (gamma: $FOCAL_GAMMA, alpha: $FOCAL_ALPHA)"
 echo "  EMA 가중치      : ${USE_EMA:-비활성화} (momentum: $EMA_MOMENTUM)"
-echo "  백본 워밍업 에폭: $FREEZE_BACKBONE_EPOCHS"
-echo "  강제 덮어쓰기   : ${FORCE:-사용 안 함}"
+  echo "  백본 워밍업 에폭: $FREEZE_BACKBONE_EPOCHS"
+  echo "  디스플레이 증강 : ${AUGMENT_DISPLAY_ARTIFACTS:-비활성화 (기본값)}"
+  echo "  강제 덮어쓰기   : ${FORCE:-사용 안 함}"
 echo "========================================="
 
 .venv-tf/bin/python -m common.validate_fixed_splits --data-dir "$DATA_DIR"
@@ -120,6 +124,7 @@ echo "========================================="
   ${AUX_RESIDUAL:+$AUX_RESIDUAL --residual-loss-weight "$RESIDUAL_LOSS_WEIGHT"} \
   ${AUX_BINARY_PAD:+$AUX_BINARY_PAD --binary-pad-loss-weight "$BINARY_PAD_LOSS_WEIGHT"} \
   ${AUX_SUPCON:+$AUX_SUPCON --supcon-loss-weight "$SUPCON_LOSS_WEIGHT" --supcon-temperature "$SUPCON_TEMPERATURE" --projection-dim "$PROJECTION_DIM"} \
+  ${AUGMENT_DISPLAY_ARTIFACTS} \
   $FORCE
 ./scripts/keras/run_keras_convert.sh \
   --data-dir "$DATA_DIR" \

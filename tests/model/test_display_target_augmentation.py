@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 
 from common.classes import CLASS_MAPPING
-from keras_pipeline.data.dataset import load_sample, load_single_sample
+from keras_pipeline.data.dataset import load_sample, load_single_sample, make_single_dataset
 
 
 DISPLAY_PARAMS = {
@@ -63,3 +63,29 @@ def test_ir_display_applies_moire_then_glare(tmp_path):
     assert not np.array_equal(both, moire_only)
     assert not np.array_equal(both, glare_only)
     np.testing.assert_array_equal(both, crop_ir_both)
+
+
+def test_dataset_display_artifacts_option(tmp_path):
+    """make_single_dataset에서 augment_display_artifacts 플래그가 동작해야 한다."""
+    rgb_path, ir_path = _write_blank_pair(tmp_path)
+    label = CLASS_MAPPING["display"]
+    items = [(rgb_path, ir_path, label)]
+
+    # 기본값 (augment_display_artifacts=False): 모아레/글레어가 적용되지 않아야 함
+    ds_disabled = make_single_dataset(
+        items, input_type="crop_ir", batch_size=1, shuffle=False, seed=42,
+        augment=True, augment_display_artifacts=False,
+    )
+    # 활성화 (augment_display_artifacts=True): 모아레/글레어가 적용되어야 함
+    ds_enabled = make_single_dataset(
+        items, input_type="crop_ir", batch_size=1, shuffle=False, seed=42,
+        augment=True, augment_display_artifacts=True,
+    )
+
+    batch_disabled = next(iter(ds_disabled))
+    batch_enabled = next(iter(ds_enabled))
+
+    ir_disabled = batch_disabled[0].numpy()
+    ir_enabled = batch_enabled[0].numpy()
+
+    assert not np.array_equal(ir_disabled, ir_enabled)

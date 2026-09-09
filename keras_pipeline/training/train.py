@@ -306,6 +306,12 @@ def parse_args():
     parser.add_argument("--supcon-temperature", type=float, default=0.1)
     parser.add_argument("--projection-dim", type=int, default=128)
     parser.add_argument(
+        "--augment-display-artifacts",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="display 클래스에 Moiré 줄무늬 및 IR 글레어 합성 증강 적용 여부 (기본값: False)",
+    )
+    parser.add_argument(
         "--loss-type",
         "--loss",
         dest="loss_type",
@@ -372,13 +378,15 @@ def main():
     print(f" - aux_residual: {args.aux_residual} (residual_loss_weight={args.residual_loss_weight})")
     print(f" - aux_binary_pad: {args.aux_binary_pad} (binary_pad_loss_weight={args.binary_pad_loss_weight})")
     print(f" - aux_supcon: {args.aux_supcon} (weight={args.supcon_loss_weight}, temperature={args.supcon_temperature}, projection_dim={args.projection_dim})")
+    print(f" - augment_display_artifacts: {args.augment_display_artifacts}")
 
     if args.model_type == "dual":
         train_ds = make_dataset(
             train_items, batch_size=args.batch_size, shuffle=True, seed=args.seed,
             augment=True, repeat=True, aux_depth=args.aux_depth,
             aux_residual=args.aux_residual, aux_binary_pad=args.aux_binary_pad,
-            aux_supcon=args.aux_supcon
+            aux_supcon=args.aux_supcon,
+            augment_display_artifacts=args.augment_display_artifacts,
         )
         val_ds = make_dataset(val_items, batch_size=args.batch_size, shuffle=False, seed=args.seed).cache()
     else:
@@ -386,7 +394,8 @@ def main():
             train_items, input_type=args.model_type, batch_size=args.batch_size, shuffle=True, seed=args.seed,
             augment=True, repeat=True, aux_depth=args.aux_depth,
             aux_residual=args.aux_residual, aux_binary_pad=args.aux_binary_pad,
-            aux_supcon=args.aux_supcon
+            aux_supcon=args.aux_supcon,
+            augment_display_artifacts=args.augment_display_artifacts,
         )
         val_ds = make_single_dataset(val_items, input_type=args.model_type, batch_size=args.batch_size, shuffle=False, seed=args.seed).cache()
 

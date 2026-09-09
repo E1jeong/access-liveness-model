@@ -23,11 +23,11 @@ def test_residual_option_preserves_existing_positional_argument_order():
     ]
     assert single_model_params[-5:] == expected_model_tail
     assert dual_model_params[-5:] == expected_model_tail
-    assert dual_dataset_params[-4:] == [
-        "aux_depth", "aux_binary_pad", "aux_supcon", "aux_residual"
+    assert dual_dataset_params[-5:] == [
+        "aux_depth", "aux_binary_pad", "aux_supcon", "aux_residual", "augment_display_artifacts"
     ]
-    assert single_dataset_params[-4:] == [
-        "aux_depth", "aux_binary_pad", "aux_supcon", "aux_residual"
+    assert single_dataset_params[-5:] == [
+        "aux_depth", "aux_binary_pad", "aux_supcon", "aux_residual", "augment_display_artifacts"
     ]
 
 

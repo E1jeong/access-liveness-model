@@ -1,7 +1,7 @@
 """NPU-friendly Keras export model construction and parity validation."""
 import numpy as np
 
-from keras_pipeline.data.dataset import RGB_MEAN, RGB_STD
+from keras_pipeline.data.spec import RGB_MEAN, RGB_STD
 
 
 def _rgb_imagenet_norm_to_mobilenet_range(rgb):

@@ -40,7 +40,7 @@ from keras_pipeline.data.dataset import (
     make_dataset, make_single_dataset
 )
 from keras_pipeline.models.model import (
-    SUPPORTED_BACKBONES, build_dual_model, build_single_model, extract_deploy_model
+    SUPPORTED_BACKBONES, build_dual_model, build_single_model
 )
 from keras_pipeline.models.losses import build_binary_pad_loss, build_classification_loss, build_supcon_loss
 from keras_pipeline.training.run_metadata import make_run_id, write_run_metadata

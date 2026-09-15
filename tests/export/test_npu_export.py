@@ -7,7 +7,7 @@ from keras_pipeline.export.npu_model import (
     build_npu_export_model,
     validate_npu_export_parity,
 )
-from keras_pipeline.data.dataset import RGB_MEAN, RGB_STD
+from keras_pipeline.data.spec import RGB_MEAN, RGB_STD
 from keras_pipeline.models.model import build_single_mobilenetv2
 
 

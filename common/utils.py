@@ -1,5 +1,4 @@
 import os
-import random
 import numpy as np
 import hashlib
 import json
@@ -84,30 +83,6 @@ def _group_subject_dirs(subdirs, category):
     return groups
 
 
-def _split_kfold_subjects(subdirs, k_folds, fold_idx, seed, category):
-    groups = _group_subject_dirs(subdirs, category)
-
-    # 그룹 키 정렬 리스트 생성 (일관성 보장)
-    group_keys = sorted(list(groups.keys()))
-    # 그룹 키들을 셔플합니다.
-    random.Random(seed).shuffle(group_keys)
-
-    # 그룹 키들을 k_folds로 나눕니다.
-    folds_keys = [group_keys[i::k_folds] for i in range(k_folds)]
-
-    # 각 fold의 실제 subdir 목록을 만듭니다.
-    folds = []
-    for f_keys in folds_keys:
-        fold_subdirs = []
-        for k in f_keys:
-            fold_subdirs.extend(groups[k])
-        folds.append(fold_subdirs)
-        
-    val_subdirs = folds[fold_idx]
-    train_subdirs = [sd for i, fold in enumerate(folds) if i != fold_idx for sd in fold]
-    return train_subdirs, val_subdirs, folds
-
-
 def collect_split_items(data_dir="dataset/raw", split="train"):
     """고정 split 하나에서 (cropRGB, cropIR, label) 항목을 수집한다.
 
@@ -151,9 +126,8 @@ def collect_split_items(data_dir="dataset/raw", split="train"):
 def validate_fixed_split_coverage(data_dir="dataset/raw"):
     """고정 split의 완전성과 subject/frame/content/metadata 누수를 검사한다.
 
-    live는 high/medium의 동일 번호를 같은 인물로 본다. spoof 클래스는 기존
-    Group K-Fold 계약과 동일하게 전체 subject 정렬 순서에서 연속 두 폴더를
-    같은 물리 인물로 본다.
+    live는 high/medium의 동일 번호를 같은 인물로 본다. spoof 클래스는
+    전체 subject 정렬 순서에서 연속 두 폴더를 같은 물리 인물로 본다.
 
     학습 시작 직전에 training/train.py의 main()이 호출한다. 같은 인물/같은 프레임이 train과
     validation에 동시에 있으면 검증 지표가 부풀려져 실제 성능보다 좋아 보인다.
@@ -354,26 +328,6 @@ def validate_fixed_split_coverage(data_dir="dataset/raw"):
             print(f"[Metadata Info] Attack Medium '{attack_val}' is shared across splits: {sorted(splits_dict.keys())}")
 
     return {split: len(items) for split, items in split_items.items()}
-
-
-def validate_kfold_coverage(data_dir="dataset/raw", k_folds=5, seed=42):
-    for category in CLASS_MAPPING.keys():
-        cat_path = os.path.join(data_dir, category)
-        if not os.path.exists(cat_path):
-            continue
-
-        subdirs = _sort_subject_dirs(cat_path, category)
-        if len(subdirs) < k_folds:
-            raise ValueError(
-                f"{category} 클래스의 subject 폴더 수({len(subdirs)})가 K({k_folds})보다 적습니다."
-            )
-
-        _, _, folds = _split_kfold_subjects(subdirs, k_folds, 0, seed, category)
-        seen = [sd for fold in folds for sd in fold]
-        assert len(seen) == len(set(seen)), \
-            f"{category} 클래스의 fold validation subject가 서로 겹칩니다."
-        assert set(seen) == set(subdirs), \
-            f"{category} 클래스의 fold validation subject가 전체 subject를 덮지 못합니다."
 
 
 def gather_frame_items(cat_path, subdirs_list, label):

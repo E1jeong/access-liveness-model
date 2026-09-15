@@ -13,11 +13,11 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-from pytorch_pipeline.dataset import get_data_loaders, get_fixed_split_loaders
+from pytorch_pipeline.dataset import get_fixed_split_loaders
 from pytorch_pipeline.model import get_anti_spoof_model
 from common.classes import CLASS_NAMES
 from common.utils import (
-    validate_kfold_coverage, validate_fixed_split_coverage,
+    validate_fixed_split_coverage,
     calculate_validation_metrics
 )
 
@@ -180,29 +180,20 @@ def train_model(args):
 
     criterion = nn.CrossEntropyLoss()
 
-    if args.split_mode == "fixed":
-        print(f"\n[고정 split 학습 모드] model_type={args.model_type}, conv1_reduction={args.conv1_reduction}")
-        train_fixed_split(args, device, criterion)
-    else:
-        print(f"\n[K-Fold 교차검증 모드] 총 {args.folds}개 fold")
-        validate_kfold_coverage(args.data_dir, k_folds=args.folds, seed=args.seed)
-        # K-fold loop if explicitly requested
+    print(f"\n[고정 split 학습 모드] model_type={args.model_type}, conv1_reduction={args.conv1_reduction}")
+    train_fixed_split(args, device, criterion)
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train PyTorch Anti-Spoofing Model")
     parser.add_argument("--model-type", choices=["crop_ir", "crop_rgb", "dual"], default="crop_ir", help="Model variant")
     parser.add_argument("--conv1-reduction", choices=["sum", "mean"], default="sum", help="IR Conv1 ImageNet reduction method")
-    parser.add_argument("--split-mode", choices=["fixed", "kfold"], default="fixed", help="Dataset split strategy")
     parser.add_argument("--data-dir", default="dataset/raw", help="Path to raw dataset")
     parser.add_argument("--epochs", type=int, default=10, help="Training epochs")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size (32 standard for 10-class balance)")
     parser.add_argument("--learning-rate", type=float, default=2e-4, help="Learning rate (scaled for batch 32)")
     parser.add_argument("--output-dir", default="model/pytorch", help="Directory to save PyTorch checkpoints")
     parser.add_argument("--save-name", default=None, help="Custom filename for best checkpoint")
-    parser.add_argument("--folds", type=int, default=5, help="Number of folds (for K-Fold mode)")
-    parser.add_argument("--max-folds", type=int, default=None)
-    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-workers", type=int, default=4)
     return parser.parse_args()
 

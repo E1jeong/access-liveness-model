@@ -9,7 +9,7 @@ if str(PROJECT_ROOT) not in sys.path:
 import argparse
 import numpy as np
 import torch
-from pytorch_pipeline.dataset import get_data_loaders
+from pytorch_pipeline.dataset import get_fixed_split_loaders
 from common.classes import CLASS_NAMES
 from common.utils import calculate_validation_metrics
 
@@ -61,11 +61,9 @@ def verify_tflite_quantization(tflite_path):
 
     # 2. Calibration / Validation 데이터 로드
     print("[*] 검증용 데이터셋 로드 중...")
-    _, val_loader = get_data_loaders(
+    _, val_loader = get_fixed_split_loaders(
         "dataset/raw",
         batch_size=1,  # TFLite는 일반적으로 배치 크기 1로 추론하므로 1로 설정
-        k_folds=5,
-        fold_idx=0,
         num_workers=1
     )
 

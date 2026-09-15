@@ -1,5 +1,4 @@
 import sys
-import os
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -12,11 +11,7 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 import random
-from common.classes import CLASS_MAPPING
-from common.utils import (
-    _sort_subject_dirs, _split_kfold_subjects,
-    gather_frame_items, validate_kfold_coverage, collect_split_items
-)
+from common.utils import collect_split_items
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -125,62 +120,5 @@ def get_fixed_split_loaders(data_dir="dataset/raw", batch_size=8, num_workers=4)
     print(f" - Train 프레임: {len(train_dataset)}장 (배치 크기: {batch_size})")
     print(f" - Validation 프레임: {len(val_dataset)}장")
     print(f" - DataLoader num_workers: {num_workers}, pin_memory: True")
-
-    return train_loader, val_loader
-
-
-def get_data_loaders(data_dir="dataset/raw", batch_size=8, k_folds=5, fold_idx=0, seed=42, num_workers=4):
-    """
-    K-Fold 교차 검증용 train/val DataLoader를 생성합니다.
-    """
-    train_transform_rgb, val_transform_rgb, transform_ir = _get_default_transforms()
-
-    if k_folds < 2:
-        raise ValueError("k_folds는 2 이상이어야 합니다.")
-    if fold_idx < 0 or fold_idx >= k_folds:
-        raise ValueError(f"fold_idx는 0 이상 {k_folds - 1} 이하이어야 합니다.")
-
-    train_items = []
-    val_items = []
-
-    for category, label in CLASS_MAPPING.items():
-        cat_path = os.path.join(data_dir, category)
-        if not os.path.exists(cat_path):
-            raise FileNotFoundError(f"{cat_path} 디렉토리가 존재하지 않습니다.")
-
-        subdirs = _sort_subject_dirs(cat_path, category)
-        if len(subdirs) < k_folds:
-            raise ValueError(
-                f"{category} 클래스의 subject 폴더 수({len(subdirs)})가 K({k_folds})보다 적습니다."
-            )
-
-        train_subdirs, val_subdirs, _ = _split_kfold_subjects(subdirs, k_folds, fold_idx, seed, category)
-        train_items.extend(gather_frame_items(cat_path, train_subdirs, label))
-        val_items.extend(gather_frame_items(cat_path, val_subdirs, label))
-
-    train_rgb_paths = {item[0] for item in train_items}
-    val_rgb_paths = {item[0] for item in val_items}
-    assert train_rgb_paths.isdisjoint(val_rgb_paths), "train/val rgb_path가 겹칩니다."
-
-    train_dataset = DualInputDataset(
-        train_items, transform_rgb=train_transform_rgb, transform_ir=transform_ir, augment=True
-    )
-    val_dataset = DualInputDataset(
-        val_items, transform_rgb=val_transform_rgb, transform_ir=transform_ir, augment=False
-    )
-
-    train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True,
-        num_workers=num_workers, pin_memory=True, persistent_workers=num_workers > 0
-    )
-    val_loader = DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False,
-        num_workers=num_workers, pin_memory=True, persistent_workers=num_workers > 0
-    )
-
-    print(f"[K-Fold 데이터셋 구성 완료]")
-    print(f" - K-fold: {k_folds}개 중 fold {fold_idx}")
-    print(f" - 학습용 데이터 수: {len(train_dataset)}장 (배치 크기: {batch_size})")
-    print(f" - 검증용 데이터 수: {len(val_dataset)}장")
 
     return train_loader, val_loader

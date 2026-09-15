@@ -12,7 +12,7 @@
   - Model definitions: `model.py` (`SingleInputMobileNetV3`, `DualInputMobileNetV3`, `replace_hardswish_with_relu`, `disable_se_blocks`)
   - Training loop: `train.py`
   - Sony MCT / TFLite export: `convert_to_tflite.py` (PTQ/QAT via ONNX -> onnx2tf)
-  - Verification & setup: `verify_setup.py`, `verify_quantization.py`, `verify_raw_pth.py`
+  - Verification & setup: `verify_setup.py`, `verify_quantization.py`
 
 ## Boundary & Architecture Constraints
 

@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 from pytorch_pipeline.dataset import get_fixed_split_loaders
 from pytorch_pipeline.model import get_anti_spoof_model
-from common.classes import CLASS_NAMES
+from common.classes import ATTACK_CLASS_INDICES, CLASS_NAMES
 from common.utils import (
     validate_fixed_split_coverage,
     calculate_validation_metrics
@@ -26,11 +26,11 @@ sys.stderr.reconfigure(encoding='utf-8')
 
 
 def run_apcer_self_check():
-    labels = list(range(1, len(CLASS_NAMES)))
+    labels = list(ATTACK_CLASS_INDICES)
     preds = [0] * len(labels)
     _, _, apcer, _, _ = calculate_validation_metrics(labels, preds)
     assert apcer == 1.0, f"APCER self-check failed: {apcer}"
-    print("[APCER 점검 완료] spoof 샘플을 모두 live로 예측하면 APCER=1.0")
+    print("[APCER 점검 완료] attack 샘플을 모두 live로 예측하면 APCER=1.0")
 
 
 def _forward_batch(model, model_type, images_rgb, images_ir):

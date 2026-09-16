@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from common.classes import CLASS_NAMES
+from common.classes import ATTACK_CLASS_INDICES, BONA_FIDE_CLASS_INDICES, CLASS_NAMES
 from common.utils import calculate_validation_metrics
 
 
@@ -9,24 +9,45 @@ def _metrics(labels, preds):
     return calculate_validation_metrics(labels, preds)[2:]
 
 
-def test_all_spoof_predicted_as_live_is_full_apcer():
-    spoof_labels = list(range(1, len(CLASS_NAMES)))
-    apcer, bpcer, acer = _metrics(spoof_labels, [0] * len(spoof_labels))
+@pytest.mark.parametrize("bona_fide_prediction", BONA_FIDE_CLASS_INDICES)
+def test_all_attacks_predicted_as_bona_fide_is_full_apcer(bona_fide_prediction):
+    attack_labels = list(ATTACK_CLASS_INDICES)
+    apcer, bpcer, acer = _metrics(
+        attack_labels, [bona_fide_prediction] * len(attack_labels)
+    )
 
     assert (apcer, bpcer, acer) == (1.0, 0.0, 0.5)
 
 
-def test_all_live_predicted_as_spoof_is_full_bpcer():
-    apcer, bpcer, acer = _metrics([0, 0, 0], [1, 2, 5])
+def test_all_bona_fide_predicted_as_attack_is_full_bpcer():
+    apcer, bpcer, acer = _metrics(BONA_FIDE_CLASS_INDICES, [1, 2, 5])
 
     assert (apcer, bpcer, acer) == (0.0, 1.0, 0.5)
 
 
-def test_spoof_subtype_misclassification_is_not_an_apcer_error():
-    spoof_labels = list(range(1, len(CLASS_NAMES)))
-    apcer, bpcer, acer = _metrics(spoof_labels, spoof_labels[1:] + spoof_labels[:1])
+def test_attack_subtype_misclassification_is_not_an_apcer_error():
+    attack_labels = list(ATTACK_CLASS_INDICES)
+    apcer, bpcer, acer = _metrics(
+        attack_labels, attack_labels[1:] + attack_labels[:1]
+    )
 
     assert (apcer, bpcer, acer) == (0.0, 0.0, 0.0)
+
+
+def test_bona_fide_subtype_misclassification_is_not_a_bpcer_error():
+    bona_fide_labels = list(BONA_FIDE_CLASS_INDICES)
+    apcer, bpcer, acer = _metrics(
+        bona_fide_labels, bona_fide_labels[1:] + bona_fide_labels[:1]
+    )
+
+    assert (apcer, bpcer, acer) == (0.0, 0.0, 0.0)
+
+
+@pytest.mark.parametrize("dental_prediction", BONA_FIDE_CLASS_INDICES[1:])
+def test_masked_print_predicted_as_dental_is_an_apcer_error(dental_prediction):
+    apcer, bpcer, acer = _metrics([1], [dental_prediction])
+
+    assert (apcer, bpcer, acer) == (1.0, 0.0, 0.5)
 
 
 def test_perfect_predictions_have_zero_pad_errors():

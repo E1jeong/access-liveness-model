@@ -30,7 +30,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from common.classes import CLASS_NAMES
+from common.classes import ATTACK_CLASS_INDICES, CLASS_NAMES
 from common.utils import (
     calculate_validation_metrics,
     collect_split_items,
@@ -53,11 +53,11 @@ from keras_pipeline.training.artifact_paths import (
 
 
 def _run_apcer_self_check():
-    labels = list(range(1, len(CLASS_NAMES)))
+    labels = list(ATTACK_CLASS_INDICES)
     preds = [0] * len(labels)
     _, _, apcer, _, _ = calculate_validation_metrics(labels, preds)
     assert apcer == 1.0, f"APCER self-check failed: {apcer}"
-    print("[APCER self-check passed] all-spoof-as-live gives APCER=1.0")
+    print("[APCER self-check passed] all-attacks-as-live gives APCER=1.0")
 
 
 def _save_learning_curves(history, val_acers, output_dir, model_type, backbone):

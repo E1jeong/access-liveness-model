@@ -2,7 +2,7 @@ import os
 import numpy as np
 import hashlib
 import json
-from common.classes import CLASS_NAMES, CLASS_MAPPING
+from common.classes import BONA_FIDE_CLASS_INDICES, CLASS_NAMES, CLASS_MAPPING
 
 FIXED_SPLITS = ("train", "validation", "test")
 
@@ -385,19 +385,21 @@ def calculate_validation_metrics(labels, preds):
     학습(AcerCheckpoint)과 TFLite 평가(evaluate_tflite.py)가 같은 이 함수를 쓴다
     → 두 단계의 숫자를 그대로 비교할 수 있다.
 
-    12-클래스 분류 결과를 live vs spoof 2진 관점으로 눌러서 보는 것이 핵심이다.
-      APCER = 스푸핑을 live(0)로 통과시킨 비율          ← 보안 사고에 직결
-      BPCER = 진짜 사람을 spoof로 거부한 비율            ← 사용성 저하
+    12-클래스 분류 결과를 bona-fide vs attack 2진 관점으로 눌러서 본다.
+      bona-fide = live, dental_white, dental_black
+      attack    = 나머지 9개 클래스
+      APCER = 공격을 bona-fide로 통과시킨 비율          ← 보안 사고에 직결
+      BPCER = bona-fide를 attack으로 거부한 비율            ← 사용성 저하
       ACER  = 두 값의 단순 평균 (현재 체크포인트 선택 기준, 낮을수록 좋음)
 
-    구체 예) 검증셋에 live 100장, spoof 900장이 있고 spoof 중 9장을 live로,
-    live 중 5장을 spoof로 틀렸다면
+    구체 예) 검증셋에 bona-fide 100장, attack 900장이 있고 attack 중 9장을
+    bona-fide로, bona-fide 중 5장을 attack으로 틀렸다면
       APCER = 9/900 = 0.01, BPCER = 5/100 = 0.05, ACER = (0.01+0.05)/2 = 0.03.
     같은 상황에서 accuracy는 986/1000 = 0.986으로 아주 좋아 보이지만,
     ACER는 BPCER 쪽 문제를 그대로 드러낸다. 이것이 accuracy 대신 ACER로 모델을 고르는 이유다.
 
-    스푸핑 종류(print/mask/...)를 서로 혼동하는 것은 APCER/BPCER에 영향을 주지 않는다.
-    "spoof를 다른 spoof로 분류"해도 결국 거부되기 때문. 그 세부는 혼동행렬로 본다.
+    같은 pass 집합 또는 attack 집합 안에서 세부 클래스를 혼동하는 것은
+    APCER/BPCER에 영향을 주지 않는다. 그 세부는 혼동행렬로 본다.
     """
     num_classes = len(CLASS_NAMES)
     labels = np.asarray(labels, dtype=np.int64)
@@ -425,18 +427,18 @@ def calculate_validation_metrics(labels, preds):
         correct = confusion_matrix[class_idx, class_idx]
         recalls.append(float(correct / total) if total > 0 else 0.0)
 
-    # 인덱스 0 = live, 1 이상 = 전부 spoof (common/classes.py의 CLASS_NAMES 순서에 의존).
-    live_mask = labels == 0
-    spoof_mask = labels != 0
-    total_live = int(live_mask.sum())
-    total_spoof = int(spoof_mask.sum())
-    # 정답은 spoof인데 live로 예측 → 공격 통과
-    apcer_errors = int(((preds == 0) & spoof_mask).sum())
-    # 정답은 live인데 spoof(어떤 종류든)로 예측 → 정상 사용자 거부
-    bpcer_errors = int(((preds != 0) & live_mask).sum())
+    bona_fide_labels = np.isin(labels, BONA_FIDE_CLASS_INDICES)
+    bona_fide_preds = np.isin(preds, BONA_FIDE_CLASS_INDICES)
+    attack_labels = ~bona_fide_labels
+    total_bona_fide = int(bona_fide_labels.sum())
+    total_attacks = int(attack_labels.sum())
+    # 정답은 attack인데 pass 집합으로 예측 → 공격 통과
+    apcer_errors = int((bona_fide_preds & attack_labels).sum())
+    # 정답은 bona-fide인데 attack으로 예측 → 정상 사용자 거부
+    bpcer_errors = int(((~bona_fide_preds) & bona_fide_labels).sum())
 
-    apcer = apcer_errors / total_spoof if total_spoof > 0 else 0.0
-    bpcer = bpcer_errors / total_live if total_live > 0 else 0.0
-    # 단순 평균이라 클래스 불균형(spoof 9 : live 1)의 영향을 받지 않는다.
+    apcer = apcer_errors / total_attacks if total_attacks > 0 else 0.0
+    bpcer = bpcer_errors / total_bona_fide if total_bona_fide > 0 else 0.0
+    # 단순 평균이라 bona-fide/attack 샘플 수 불균형의 영향을 받지 않는다.
     acer = (apcer + bpcer) / 2.0
     return confusion_matrix, recalls, apcer, bpcer, acer

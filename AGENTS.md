@@ -32,6 +32,7 @@
 - **Class Names SSOT**: `common/classes.py:CLASS_NAMES` is the sole source of truth for the 12-class order.
 - **Shell Wrapper Mandate**: Never invoke bare `python` for Keras on the GPU server. Always run through `scripts/keras/*.sh` so `_keras_env.sh` sets `LD_LIBRARY_PATH` for `libcudnn.so.9`.
 - **NNAPI No-Fallback Policy**: Android runtime rejects a model slot on NNAPI setup/warmup failure; it must not fall back to CPU. Ensure all exported TFLite models conform strictly to NPU operators.
+- **Android Export Contract**: The downstream Android SDK deploys only `crop_ir` as IR `single_1_input` (`ir@0`, one channel) or `dual` as RGB+IR `dual_2_input` (distinct `rgb`/`ir` indices `0`/`1`, three/one channels), both with one `[1,12]` output. `crop_rgb` may remain a training experiment but is not a standalone Android deployment form; paired one-input and five-input artifacts are historical only.
 - **User Concept Review Ownership**: `docs/keras-concept-review.md` tracks the user's comprehension. Never edit `이해 상태` on the user's behalf; update it only when explicitly requested by the user.
 - **Artifact Separation**: Store generated `.tflite`, `.keras`, and `.pth` only in gitignored `model/`. Never commit model weights or raw image datasets to Git.
 

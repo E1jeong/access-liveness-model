@@ -26,6 +26,15 @@ import tensorflow as tf
 for _gpu in tf.config.list_physical_devices('GPU'):
     tf.config.experimental.set_memory_growth(_gpu, True)
 
+# Apple Silicon Metal GPU Grappler optimizer bug workaround:
+# tensorflow-metal's custom graph optimizer drops/corrupts ReLU in Dense layers.
+# Disabling the meta optimizer restores standard mathematical operations without slowing down GPU compute.
+if sys.platform == "darwin":
+    try:
+        tf.config.optimizer.set_experimental_options({"disable_meta_optimizer": True})
+    except Exception as _e:
+        pass
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))

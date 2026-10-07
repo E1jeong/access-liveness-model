@@ -140,9 +140,6 @@ echo "========================================="
   $FORCE
 
 EVAL_PYTHON=".venv-tf/bin/python"
-if [[ -f ".venv-convert/bin/python" ]]; then
-  EVAL_PYTHON=".venv-convert/bin/python"
-fi
 
 "$EVAL_PYTHON" -m common.evaluate_tflite \
   --data-dir "$DATA_DIR" \

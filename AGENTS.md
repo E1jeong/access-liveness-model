@@ -8,10 +8,7 @@
 - **Machine Topology**:
   - **Company PC (WSL CPU)**: Code/doc editing, Git operations, and fast unit tests (`uv run pytest tests/dataset tests/metrics`). Never run training here.
   - **Sub GPU machine (`sub`, GTX 1660 Ti)**: The sole authoritative environment for training, dataset processing, and INT8 quantization via managed `uv` virtual environments (`.venv` for PyTorch, `.venv-tf` for Keras TF 2.21).
-  - **Mac Studio (`mac`, Apple Silicon M4 Max)**: High-speed Metal GPU training & export node. Uses a dual-venv topology to navigate Apple Silicon compatibility:
-    - `.venv-tf` (TensorFlow 2.16.1 + `tensorflow-metal 1.1.0`): Dedicated to Apple Silicon GPU-accelerated training. Never upgrade TF here as `libmetal_plugin.dylib` crashes on TF ≥ 2.17 ABI.
-    - `.venv-convert` (TensorFlow 2.21.0 + LiteRT 2.1.6, `requirements/mac-convert.lock`): Dedicated to Keras 3 TFLite export, INT8 quantization, and validation evaluation.
-    - Shell wrappers (`run_keras_convert.sh`, `run_fixed_split.sh`) automatically detect `.venv-convert` for export/evaluation without manual environment switching.
+  - **Mac Studio (`mac`, Apple Silicon M4 Max)**: High-speed Metal GPU training & export node. Uses a unified `.venv-tf` environment (TensorFlow 2.18.0 + `tensorflow-metal 1.2.0` + LiteRT 2.3.0, `requirements/mac-tf.lock`): supports Metal GPU-accelerated training, Keras 3 TFLite export, INT8 quantization, and validation evaluation in a single environment. Grappler meta-optimizer is disabled on Darwin to guarantee numerical parity with TFLite.
 - Report to the user in Korean; keep code, identifiers, paths, and commands in English.
 - Read the nearest module `AGENTS.md` before changing a pipeline module; this root guide remains in force everywhere.
 

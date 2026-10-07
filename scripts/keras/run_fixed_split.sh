@@ -33,6 +33,7 @@ LOSS_TYPE="ce"
 FOCAL_GAMMA="2.0"
 FOCAL_ALPHA="0.25"
 AUGMENT_DISPLAY_ARTIFACTS=""
+LABEL_SMOOTHING="0.1"
 
 while [[ "$#" -gt 0 ]]; do
   case $1 in
@@ -64,6 +65,7 @@ while [[ "$#" -gt 0 ]]; do
     --augment-display-artifacts) AUGMENT_DISPLAY_ARTIFACTS="--augment-display-artifacts" ;;
     --no-augment-display-artifacts) AUGMENT_DISPLAY_ARTIFACTS="--no-augment-display-artifacts" ;;
     --loss|--loss-type) LOSS_TYPE="$2"; shift ;;
+    --label-smoothing) LABEL_SMOOTHING="$2"; shift ;;
     --focal-gamma) FOCAL_GAMMA="$2"; shift ;;
     --focal-alpha) FOCAL_ALPHA="$2"; shift ;;
     *) echo "알 수 없는 인자: $1"; exit 1 ;;
@@ -97,7 +99,8 @@ echo "  배치 크기       : $BATCH_SIZE"
 echo "  학습률          : $LEARNING_RATE"
 echo "  옵티마이저      : $OPTIMIZER (weight_decay: $WEIGHT_DECAY)"
 echo "  손실 함수       : $LOSS_TYPE (gamma: $FOCAL_GAMMA, alpha: $FOCAL_ALPHA)"
-echo "  EMA 가중치      : ${USE_EMA:-비활성화} (momentum: $EMA_MOMENTUM)"
+  echo "  라벨 스무딩     : $LABEL_SMOOTHING"
+  echo "  EMA 가중치      : ${USE_EMA:-비활성화} (momentum: $EMA_MOMENTUM)"
   echo "  백본 워밍업 에폭: $FREEZE_BACKBONE_EPOCHS"
   echo "  디스플레이 증강 : ${AUGMENT_DISPLAY_ARTIFACTS:-비활성화 (기본값)}"
   echo "  강제 덮어쓰기   : ${FORCE:-사용 안 함}"
@@ -118,6 +121,7 @@ echo "========================================="
   --loss-type "$LOSS_TYPE" \
   --focal-gamma "$FOCAL_GAMMA" \
   --focal-alpha "$FOCAL_ALPHA" \
+  --label-smoothing "$LABEL_SMOOTHING" \
   ${USE_EMA:+$USE_EMA --ema-momentum "$EMA_MOMENTUM"} \
   --freeze-backbone-epochs "$FREEZE_BACKBONE_EPOCHS" \
   ${AUX_DEPTH:+$AUX_DEPTH --depth-loss-weight "$DEPTH_LOSS_WEIGHT"} \

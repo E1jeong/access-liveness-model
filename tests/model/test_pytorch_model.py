@@ -40,3 +40,14 @@ def test_pytorch_conv1_reduction():
     first_conv = model_sum.features[0][0]
     assert first_conv.in_channels == 1
     assert first_conv.weight.shape == (16, 1, 3, 3)
+
+
+def test_pytorch_train_rejects_policy_rejected_conv1_mean_reduction(monkeypatch):
+    from pytorch_pipeline.train import parse_args
+
+    monkeypatch.setattr("sys.argv", ["train.py", "--conv1-reduction", "mean"])
+    with pytest.raises(SystemExit):
+        parse_args()
+
+    monkeypatch.setattr("sys.argv", ["train.py"])
+    assert parse_args().conv1_reduction == "sum"

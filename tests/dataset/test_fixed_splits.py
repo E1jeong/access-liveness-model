@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from common.classes import CLASS_NAMES
-from common.utils import collect_split_items, validate_fixed_split_coverage
+from common.utils import collect_split_items, subsample_split_items, validate_fixed_split_coverage
 
 
 SPLIT_SUBJECT_NUMBERS = {
@@ -183,15 +183,51 @@ def test_meta_json_session_or_video_leakage_is_rejected(
 
 def test_meta_json_device_or_attack_medium_sharing_does_not_fail(tmp_path):
     _make_dataset(tmp_path)
-    
+
     meta1 = tmp_path / "train" / "live" / "high" / "live_1" / "1" / "meta.json"
     meta2 = tmp_path / "validation" / "live" / "high" / "live_3" / "1" / "meta.json"
-    
+
     with open(meta1, "w") as f:
         json.dump({"device_id": "shared_device_A", "attack_medium": "print"}, f)
     with open(meta2, "w") as f:
         json.dump({"device_id": "shared_device_A", "attack_medium": "print"}, f)
-    
+
     counts = validate_fixed_split_coverage(tmp_path)
     expected_count = len(CLASS_NAMES) * 2
     assert counts == {"train": expected_count, "validation": expected_count, "test": expected_count}
+
+
+def test_malformed_meta_json_is_rejected(tmp_path):
+    _make_dataset(tmp_path)
+
+    meta = tmp_path / "train" / "live" / "high" / "live_1" / "1" / "meta.json"
+    meta.write_text("{ not valid json", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="meta.json이 손상되었습니다"):
+        validate_fixed_split_coverage(tmp_path)
+
+
+def test_non_object_meta_json_is_rejected(tmp_path):
+    _make_dataset(tmp_path)
+
+    meta = tmp_path / "train" / "live" / "high" / "live_1" / "1" / "meta.json"
+    meta.write_text('["session_1"]', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="meta.json은 JSON object여야 합니다"):
+        validate_fixed_split_coverage(tmp_path)
+
+
+def test_subsample_split_items_is_representative_and_deterministic():
+    items = [
+        (f"rgb-{label}-{index}", f"ir-{label}-{index}", label)
+        for label in range(len(CLASS_NAMES))
+        for index in range(10)
+    ]
+
+    sampled_a = subsample_split_items(items, 24)
+    sampled_b = subsample_split_items(items, 24)
+
+    assert sampled_a == sampled_b
+    assert len(sampled_a) == 24
+    assert {label for _, _, label in sampled_a} == set(range(len(CLASS_NAMES)))
+    assert subsample_split_items(items, len(items)) == items

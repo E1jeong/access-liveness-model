@@ -124,6 +124,7 @@ def evaluate(model_path, data_dir, split, model_type, max_samples=None):
         collect_split_items,
         dequantize_from_tflite,
         quantize_for_tflite,
+        subsample_split_items,
         validate_fixed_split_coverage,
     )
     from common.classes import CLASS_NAMES
@@ -177,11 +178,11 @@ def evaluate(model_path, data_dir, split, model_type, max_samples=None):
     )
 
     all_labels, all_preds, all_logits, latencies_ms = [], [], [], []
-    total = len(eval_items)
     if max_samples is not None:
-        total = min(total, max_samples)
+        eval_items = subsample_split_items(eval_items, max_samples)
+    total = len(eval_items)
     pbar = tqdm(total=total, desc=f"평가 {os.path.basename(model_path)}")
-    for rgb_path, ir_path, label in eval_items[:total]:
+    for rgb_path, ir_path, label in eval_items:
         rgb_hwc, ir_hwc = load_sample(rgb_path, ir_path, augment=False)
         if is_npu_int8:
             rgb_hwc = (rgb_hwc * RGB_STD + RGB_MEAN) * 2.0 - 1.0
@@ -232,14 +233,16 @@ def evaluate_keras_model(model_path, data_dir, split, model_type, max_samples=No
     from keras_pipeline.contracts.model_signature import validate_keras_model_signature
     from keras_pipeline.data.dataset import load_sample
     from keras_pipeline.data.spec import RGB_MEAN, RGB_STD
-    from keras_pipeline.models.model import _rgb_current_norm_to_mobilenet_range
-    from common.utils import collect_split_items, validate_fixed_split_coverage
+    from keras_pipeline.models.model import _rgb_current_norm_to_mobilenet_range, extract_deploy_model
+    from common.utils import collect_split_items, subsample_split_items, validate_fixed_split_coverage
 
     model = tf.keras.models.load_model(
         model_path,
         compile=False,
         custom_objects={"_rgb_current_norm_to_mobilenet_range": _rgb_current_norm_to_mobilenet_range},
     )
+    # 보조 헤드가 붙은 학습 체크포인트도 export 경로와 동일하게 배포용 단일 출력 모델로 추출한다.
+    model = extract_deploy_model(model)
     validate_keras_model_signature(model, model_type)
     name = "npu_export_keras" if npu_export else "keras"
     if npu_export:
@@ -248,7 +251,7 @@ def evaluate_keras_model(model_path, data_dir, split, model_type, max_samples=No
     validate_fixed_split_coverage(data_dir)
     items = collect_split_items(data_dir, split)
     if max_samples is not None:
-        items = items[:max_samples]
+        items = subsample_split_items(items, max_samples)
 
     labels, preds, logits_list, latencies_ms = [], [], [], []
     for rgb_path, ir_path, label in tqdm(items, desc=f"평가 {name}"):

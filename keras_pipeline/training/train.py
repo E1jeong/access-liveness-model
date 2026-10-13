@@ -244,9 +244,9 @@ def parse_args():
     parser.add_argument("--no-gray-imagenet-init", action="store_true")
     parser.add_argument(
         "--conv1-reduction",
-        choices=["mean", "sum"],
+        choices=["sum"],
         default="sum",
-        help="1채널 Conv1 가중치 이식 시 축소 방식 (mean: 평균, sum: 합산)"
+        help="1채널 Conv1 가중치 이식 시 축소 방식 (sum만 허용 — mean은 정책상 거부됨)"
     )
     parser.add_argument(
         "--optimizer",

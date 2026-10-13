@@ -272,6 +272,16 @@ def main():
     # 서명 검사: 배포 모델이 안드로이드/NPU 계약과 일치하는지 확인
     validate_keras_model_signature(model, args.model_type)
 
+    base_name = Path(args.model_path).stem
+    # 산출물 충돌 검사를 캘리브레이션 manifest 기록보다 먼저 수행한다.
+    # 덮어쓰기가 막힐 run이 calibration 산출물만 남기고 죽는 것을 방지.
+    float_path = artifact_tflite_path(args.output_dir, base_name, "float") if args.float else None
+    int8_path = artifact_tflite_path(args.output_dir, base_name, "int8") if args.int8 else None
+    npu_int8_path = artifact_tflite_path(args.output_dir, base_name, "npu_int8") if args.npu_int8 else None
+    for artifact_path in (float_path, int8_path, npu_int8_path):
+        if artifact_path is not None:
+            check_no_overwrite(artifact_path, force=args.force)
+
     calibration_items = None
     if args.int8 or args.npu_int8:
         validate_fixed_split_coverage(args.data_dir)
@@ -291,25 +301,18 @@ def main():
             args.calibration_samples,
         )
 
-    base_name = Path(args.model_path).stem
     if args.float:
-        float_path = artifact_tflite_path(args.output_dir, base_name, "float")
-        check_no_overwrite(float_path, force=args.force)
         convert_float(model, float_path, args.model_type)
         inspect_tflite(float_path, args.model_type)
-        write_tflite_sidecar_manifest(float_path, args.model_type)
+        write_tflite_sidecar_manifest(float_path, args.model_type, npu_int8=False)
     if args.int8:
-        int8_path = artifact_tflite_path(args.output_dir, base_name, "int8")
-        check_no_overwrite(int8_path, force=args.force)
         convert_int8(model, int8_path, calibration_items, args.model_type)
         inspect_tflite(int8_path, args.model_type)
-        write_tflite_sidecar_manifest(int8_path, args.model_type)
+        write_tflite_sidecar_manifest(int8_path, args.model_type, npu_int8=False)
     if args.npu_int8:
-        npu_int8_path = artifact_tflite_path(args.output_dir, base_name, "npu_int8")
-        check_no_overwrite(npu_int8_path, force=args.force)
         convert_int8_npu(model, npu_int8_path, calibration_items, args.model_type)
         inspect_tflite(npu_int8_path, args.model_type)
-        write_tflite_sidecar_manifest(npu_int8_path, args.model_type)
+        write_tflite_sidecar_manifest(npu_int8_path, args.model_type, npu_int8=True)
 
 
 if __name__ == "__main__":

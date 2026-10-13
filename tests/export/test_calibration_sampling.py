@@ -5,6 +5,7 @@ import pytest
 
 from common.classes import CLASS_NAMES
 from keras_pipeline.export import converter
+from keras_pipeline.training.artifact_paths import tflite_path as artifact_tflite_path
 
 
 def _items(counts):
@@ -83,3 +84,35 @@ def test_calibration_manifest_records_train_coverage_and_streaming_memory(tmp_pa
     assert manifest["missing_required_samples"] == 0
     assert manifest["preloaded_sample_bytes"] == 0
     assert manifest["estimated_peak_sample_bytes"] == 224 * 224 * 4 * 4
+
+
+def test_artifact_collision_check_precedes_calibration_manifest(monkeypatch, tmp_path):
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    model_path = tmp_path / "best_crop_ir_fixed.keras"
+    model_path.write_bytes(b"fake checkpoint")
+    # 기존 산출물이 충돌하는 상황을 만든다.
+    colliding = artifact_tflite_path(str(output_dir), model_path.stem, "int8")
+    with open(colliding, "wb") as f:
+        f.write(b"old artifact")
+
+    monkeypatch.setattr(converter.tf.keras.models, "load_model", lambda *a, **k: object())
+    monkeypatch.setattr(converter, "extract_deploy_model", lambda model: model)
+    monkeypatch.setattr(converter, "validate_keras_model_signature", lambda model, model_type: None)
+    manifest_calls = []
+    monkeypatch.setattr(
+        converter, "write_calibration_manifest", lambda *a, **k: manifest_calls.append(a)
+    )
+    monkeypatch.setattr("sys.argv", [
+        "converter.py",
+        "--model-path", str(model_path),
+        "--int8",
+        "--output-dir", str(output_dir),
+        "--model-type", "crop_ir",
+    ])
+
+    with pytest.raises(FileExistsError, match="Artifact already exists"):
+        converter.main()
+
+    assert manifest_calls == []
+    assert list(output_dir.glob("*_calibration_manifest.json")) == []

@@ -22,6 +22,9 @@ IR_STD = np.array([0.5], dtype=np.float32)
 # 출력 클래스 수 — common/classes.py의 CLASS_NAMES가 유일한 클래스 인덱스 출처다.
 NUM_CLASSES = len(CLASS_NAMES)
 
+# 얼굴 크롭 마진 비율 — 단말 캡처와 Android sidecar manifest가 같은 값을 따라야 한다.
+CROP_MARGIN_RATIO = 0.10
+
 # 모델별 입력 텐서 규격 (이름, shape)
 # 접두사 a_/b_는 장식이 아니다: TFLite가 입력을 이름 사전순으로 정렬하므로
 # 이 접두사가 "0번=RGB, 1번=IR"이라는 앱과의 인덱스 계약을 강제한다.

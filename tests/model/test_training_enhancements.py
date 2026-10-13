@@ -9,8 +9,18 @@ from keras_pipeline.training.train import (
     _merge_histories,
     CombinedHistory,
     AcerCheckpoint,
+    parse_args,
 )
 from keras_pipeline.models.model import build_single_model, build_dual_model
+
+
+def test_train_rejects_policy_rejected_conv1_mean_reduction(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["train.py", "--conv1-reduction", "mean"])
+    with pytest.raises(SystemExit):
+        parse_args()
+
+    monkeypatch.setattr("sys.argv", ["train.py"])
+    assert parse_args().conv1_reduction == "sum"
 
 
 def test_build_optimizer():

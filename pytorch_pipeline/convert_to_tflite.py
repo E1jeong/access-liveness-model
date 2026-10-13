@@ -304,7 +304,7 @@ def convert_pytorch_to_tflite(
     with open(float_tflite_path, "wb") as f:
         f.write(float_model_bytes)
     inspect_tflite(float_tflite_path, model_type)
-    write_tflite_sidecar_manifest(float_tflite_path, model_type)
+    write_tflite_sidecar_manifest(float_tflite_path, model_type, npu_int8=False)
 
     # 5-2. INT8 TFLite 캘리브레이션 제너레이터 (NHWC float32)
     def _tf_rep_dataset_gen():
@@ -328,7 +328,7 @@ def convert_pytorch_to_tflite(
     with open(int8_tflite_path, "wb") as f:
         f.write(int8_model_bytes)
     inspect_tflite(int8_tflite_path, model_type)
-    write_tflite_sidecar_manifest(int8_tflite_path, model_type)
+    write_tflite_sidecar_manifest(int8_tflite_path, model_type, npu_int8=False)
 
     # 5-4. NPU-friendly INT8 TFLite
     npu_int8_tflite_path = f"{output_prefix}_npu_int8.tflite"
@@ -336,7 +336,7 @@ def convert_pytorch_to_tflite(
     with open(npu_int8_tflite_path, "wb") as f:
         f.write(int8_model_bytes)
     inspect_tflite(npu_int8_tflite_path, model_type)
-    write_tflite_sidecar_manifest(npu_int8_tflite_path, model_type)
+    write_tflite_sidecar_manifest(npu_int8_tflite_path, model_type, npu_int8=True)
 
     # 임시 디렉터리 정리
     shutil.rmtree(temp_dir, ignore_errors=True)

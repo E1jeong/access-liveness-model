@@ -1,4 +1,5 @@
 import os
+import random
 import numpy as np
 import hashlib
 import json
@@ -118,6 +119,43 @@ def collect_split_items(data_dir="dataset/raw", split="train"):
     return items
 
 
+def subsample_split_items(items, max_samples, seed=42):
+    """평가용으로 클래스 순 정렬 목록에서 대표 subsample을 뽑는다.
+
+    collect_split_items 결과는 클래스별로 뭉쳐 있어서, 앞에서부터 자른 접두사는
+    앞쪽 클래스만 평가하는 셈이 된다. 고정 시드로 라벨 순서와 라벨별 목록을 셔플한 뒤
+    라운드로빈으로 뽑아 모든 클래스가 최대한 균등하게 섞이도록 하고,
+    같은 입력에는 항상 같은 부분집합이 나오게 한다.
+    """
+    if max_samples >= len(items):
+        return list(items)
+
+    rng = random.Random(seed)
+    by_label = {}
+    for item in items:
+        by_label.setdefault(item[2], []).append(item)
+    labels = sorted(by_label)
+    rng.shuffle(labels)
+    for values in by_label.values():
+        rng.shuffle(values)
+
+    selected = []
+    positions = {label: 0 for label in labels}
+    while len(selected) < max_samples:
+        added = False
+        for label in labels:
+            if positions[label] >= len(by_label[label]):
+                continue
+            selected.append(by_label[label][positions[label]])
+            positions[label] += 1
+            added = True
+            if len(selected) == max_samples:
+                break
+        if not added:
+            break
+    return selected
+
+
 def validate_fixed_split_coverage(data_dir="dataset/raw"):
     """고정 split의 완전성과 frame/content/metadata 누수를 검사한다.
 
@@ -221,12 +259,17 @@ def validate_fixed_split_coverage(data_dir="dataset/raw"):
             meta_path = os.path.join(frame_dir, "meta.json")
             # meta.json은 선택 사항이다. 없으면 이 검사만 건너뛴다(1~2번은 이미 통과한 상태).
             if os.path.exists(meta_path):
+                # 단, 존재하는 meta.json이 깨져 있으면 session/video 검사를 우회하는 셈이므로
+                # 조용히 넘기지 않고 검증 자체를 실패시킨다.
                 try:
                     with open(meta_path, 'r', encoding='utf-8') as f:
                         meta_data = json.load(f)
-                except Exception:
-                    # 깨진 meta.json 하나 때문에 전체 검증을 멈추지는 않는다.
-                    continue
+                except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                    raise ValueError(f"meta.json이 손상되었습니다: {meta_path} ({e})") from e
+                if not isinstance(meta_data, dict):
+                    raise ValueError(
+                        f"meta.json은 JSON object여야 합니다: {meta_path} ({type(meta_data).__name__})"
+                    )
 
                 session_val = None
                 video_val = None

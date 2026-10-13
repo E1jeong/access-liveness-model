@@ -187,7 +187,7 @@ def train_model(args):
 def parse_args():
     parser = argparse.ArgumentParser(description="Train PyTorch Anti-Spoofing Model")
     parser.add_argument("--model-type", choices=["crop_ir", "crop_rgb", "dual"], default="crop_ir", help="Model variant")
-    parser.add_argument("--conv1-reduction", choices=["sum", "mean"], default="sum", help="IR Conv1 ImageNet reduction method")
+    parser.add_argument("--conv1-reduction", choices=["sum"], default="sum", help="IR Conv1 ImageNet reduction method (sum only; mean is policy-rejected)")
     parser.add_argument("--data-dir", default="dataset/raw", help="Path to raw dataset")
     parser.add_argument("--epochs", type=int, default=10, help="Training epochs")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size (32 standard for 10-class balance)")

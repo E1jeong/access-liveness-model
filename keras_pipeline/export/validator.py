@@ -6,6 +6,7 @@ import tensorflow as tf
 
 from common.classes import CLASS_NAMES
 from keras_pipeline.contracts.model_signature import validate_tflite_model_signature
+from keras_pipeline.data.spec import CROP_MARGIN_RATIO
 
 
 def inspect_tflite(path, model_type):
@@ -28,14 +29,18 @@ def inspect_tflite(path, model_type):
         )
 
 
-def write_tflite_sidecar_manifest(tflite_path, model_type):
-    """Write the Android input/output contract next to a TFLite artifact."""
+def write_tflite_sidecar_manifest(tflite_path, model_type, npu_int8):
+    """Write the Android input/output contract next to a TFLite artifact.
+
+    ``npu_int8``은 호출부가 변환 모드에서 명시적으로 넘긴다. 파일명에서 유추하면
+    이름을 바꾼 산출물의 normalization 계약이 조용히 틀어진다.
+    """
     interpreter = tf.lite.Interpreter(model_path=tflite_path)
     interpreter.allocate_tensors()
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
 
-    is_npu_int8 = "npu_int8" in os.path.basename(tflite_path)
+    is_npu_int8 = npu_int8
 
     inputs_info = []
     for idx, detail in enumerate(input_details):
@@ -120,7 +125,7 @@ def write_tflite_sidecar_manifest(tflite_path, model_type):
         "inputs": inputs_info,
         "outputs": outputs_info,
         "class_order": CLASS_NAMES,
-        "crop_margin_ratio": 0.10
+        "crop_margin_ratio": CROP_MARGIN_RATIO
     }
 
     manifest_path = tflite_path.replace(".tflite", "_manifest.json")

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -84,28 +85,46 @@ def test_rejects_mixed_legacy_and_conditioned_layout(tmp_path):
         collect_split_items(tmp_path, "train")
 
 
-def test_conditioned_spoof_pair_cannot_cross_splits(tmp_path):
+def test_conditioned_spoof_folder_numbers_are_independent_across_splits(tmp_path):
     _make_conditioned_dataset(tmp_path)
     _write_frame(tmp_path / "validation" / "print" / "indoor" / "print_2")
 
-    with pytest.raises(ValueError, match="print.*여러 split"):
-        validate_fixed_split_coverage(tmp_path)
+    counts = validate_fixed_split_coverage(tmp_path)
+
+    expected_count = 3 + (len(CLASS_NAMES) - 1) * 4
+    assert counts == {
+        "train": expected_count,
+        "validation": expected_count + 1,
+        "test": expected_count,
+    }
 
 
-def test_live_subject_cannot_cross_splits(tmp_path):
+def test_live_folder_numbers_are_independent_across_splits(tmp_path):
     _make_dataset(tmp_path)
     _write_frame(tmp_path / "validation" / "live" / "high" / "live_1")
 
-    with pytest.raises(ValueError, match="live.*여러 split"):
-        validate_fixed_split_coverage(tmp_path)
+    counts = validate_fixed_split_coverage(tmp_path)
+
+    expected_count = len(CLASS_NAMES) * 2
+    assert counts == {
+        "train": expected_count,
+        "validation": expected_count + 1,
+        "test": expected_count,
+    }
 
 
-def test_spoof_physical_subject_pair_cannot_cross_splits(tmp_path):
+def test_legacy_spoof_folder_numbers_are_independent_across_splits(tmp_path):
     _make_dataset(tmp_path)
     _write_frame(tmp_path / "validation" / "print" / "print_2")
 
-    with pytest.raises(ValueError, match="print.*여러 split"):
-        validate_fixed_split_coverage(tmp_path)
+    counts = validate_fixed_split_coverage(tmp_path)
+
+    expected_count = len(CLASS_NAMES) * 2
+    assert counts == {
+        "train": expected_count,
+        "validation": expected_count + 1,
+        "test": expected_count,
+    }
 
 
 def test_missing_required_file_is_rejected(tmp_path):
@@ -117,7 +136,17 @@ def test_missing_required_file_is_rejected(tmp_path):
         validate_fixed_split_coverage(tmp_path)
 
 
-import json
+def test_realpath_leakage_is_rejected(tmp_path):
+    _make_dataset(tmp_path)
+
+    src = tmp_path / "train" / "live" / "high" / "live_1" / "1" / "cropRGB.bmp"
+    dst = tmp_path / "validation" / "live" / "high" / "live_3" / "1" / "cropRGB.bmp"
+    dst.unlink()
+    dst.symlink_to(src)
+
+    with pytest.raises(ValueError, match="동일 프레임 실경로"):
+        validate_fixed_split_coverage(tmp_path)
+
 
 def test_content_hash_leakage_is_rejected(tmp_path):
     _make_dataset(tmp_path)
@@ -131,18 +160,24 @@ def test_content_hash_leakage_is_rejected(tmp_path):
         validate_fixed_split_coverage(tmp_path)
 
 
-def test_meta_json_session_or_video_leakage_is_rejected(tmp_path):
+@pytest.mark.parametrize(
+    ("metadata_key", "error_message"),
+    (("session_id", "Session leakage detected"), ("video_id", "Video leakage detected")),
+)
+def test_meta_json_session_or_video_leakage_is_rejected(
+    tmp_path, metadata_key, error_message
+):
     _make_dataset(tmp_path)
     
     meta1 = tmp_path / "train" / "live" / "high" / "live_1" / "1" / "meta.json"
     meta2 = tmp_path / "validation" / "live" / "high" / "live_3" / "1" / "meta.json"
     
     with open(meta1, "w") as f:
-        json.dump({"session_id": "test_session_123"}, f)
+        json.dump({metadata_key: "shared_capture_123"}, f)
     with open(meta2, "w") as f:
-        json.dump({"session_id": "test_session_123"}, f)
+        json.dump({metadata_key: "shared_capture_123"}, f)
         
-    with pytest.raises(ValueError, match="Session leakage detected"):
+    with pytest.raises(ValueError, match=error_message):
         validate_fixed_split_coverage(tmp_path)
 
 

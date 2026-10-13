@@ -21,7 +21,7 @@
    - TensorFlow/Keras and INT8 export tests require `.venv-tf` on the GPU server.
 2. **Leakage & Determinism Protection**:
    - Any modification to `common/utils.py` or `keras_pipeline/data/dataset.py` must pass `test_fixed_splits.py` and `test_deterministic_augmentation.py`.
-   - Never weaken the 4-tier leakage detection rules (subject ID, canonical realpath, MD5 content hash, and session/video metadata).
+   - Never weaken evidence-based leakage detection: canonical realpath, MD5 content hash, and session/video metadata. Folder numbers are split-local capture IDs, not identity evidence; add identity leakage checks only when an explicit metadata `groupId` contract exists.
 3. **Artifact Regression**:
    - `test_artifact_regression.py` ensures generated TFLite models conform to output shape `[1, 12]`, valid tensor names, and expected quantization scales.
 

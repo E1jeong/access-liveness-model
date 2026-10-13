@@ -9,17 +9,6 @@ LIVE_CONDITIONS = ("high", "medium", "off")
 ENVIRONMENT_CONDITIONS = ("indoor", "outdoor")
 
 
-# subject 폴더 정렬 키. "live_10"에서 뒤쪽 숫자를 뽑아 숫자 순으로 세운다
-# (문자열 정렬이면 live_10 < live_2가 되어 그룹핑 규칙이 어긋난다).
-# 튜플 첫 원소 0/1은 "숫자 해석 성공/실패" 구분 — 형식이 다른 폴더는 뒤로 몰아 이름순 정렬한다.
-def _subject_sort_key(subject):
-    basename = os.path.basename(subject)
-    try:
-        return (0, int(basename.rsplit("_", 1)[1]))
-    except (IndexError, ValueError):
-        return (1, basename)
-
-
 # 한 클래스 폴더 안의 subject 디렉터리 목록을 번호순으로 반환한다.
 # live는 high/medium/off, 나머지 클래스는 indoor/outdoor 조건 폴더를 사용한다.
 # 기존 비-live 평면 구조도 마이그레이션 전까지 허용하지만 새 구조와 섞지는 않는다.
@@ -86,35 +75,6 @@ def _sort_frame_dirs(subject_path):
         return sorted(subdirs)
 
 
-def _group_subject_dirs(subdirs, category):
-    # subdirs는 이미 정렬되어 있는 상태입니다. (_sort_subject_dirs의 리턴값)
-    # subdirs를 동일 인물(Group)로 묶습니다.
-    # 누수 검증에서 "같은 물리 인물"의 단위를 정하는 함수라, 정렬 순서가 바뀌면
-    # spoof 쪽 그룹 구성이 통째로 달라진다는 점에 주의.
-    groups = {}
-    if category == "live":
-        # live의 경우: high/live_1, medium/live_1, off/live_1을 같은 인물로 그룹화
-        for sd in subdirs:
-            basename = os.path.basename(sd)  # 폴더명 예: "live_1"
-            try:
-                group_key = int(basename.split("_")[1])
-            except (IndexError, ValueError):
-                group_key = basename  # 숫자를 읽지 못하면 폴더 이름을 대신 쓴다
-            groups.setdefault(group_key, []).append(sd)
-    else:
-        # 그 외 클래스: indoor/outdoor는 subject 번호를 독립적으로 발급할 수 있으므로
-        # 각 환경 안에서 번호순으로 두 폴더씩 같은 물리 대상을 나타낸다.
-        by_condition = {}
-        for sd in subdirs:
-            condition = os.path.dirname(sd) or "legacy"
-            by_condition.setdefault(condition, []).append(sd)
-        for condition, condition_subjects in sorted(by_condition.items()):
-            for i, sd in enumerate(sorted(condition_subjects, key=_subject_sort_key)):
-                group_key = (condition, i // 2)
-                groups.setdefault(group_key, []).append(sd)
-    return groups
-
-
 def collect_split_items(data_dir="dataset/raw", split="train"):
     """고정 split 하나에서 (cropRGB, cropIR, label) 항목을 수집한다.
 
@@ -159,24 +119,23 @@ def collect_split_items(data_dir="dataset/raw", split="train"):
 
 
 def validate_fixed_split_coverage(data_dir="dataset/raw"):
-    """고정 split의 완전성과 subject/frame/content/metadata 누수를 검사한다.
+    """고정 split의 완전성과 frame/content/metadata 누수를 검사한다.
 
-    live는 high/medium/off의 동일 번호를 같은 인물로 본다. spoof 클래스는
-    각 indoor/outdoor 조건 안에서 연속 두 폴더를 같은 물리 인물로 본다.
+    subject 폴더 번호는 촬영 조건과 split별 독립 ID이며 인물 신원 근거가 아니다.
+    명시적인 metadata groupId 계약이 생기기 전에는 폴더명이나 정렬 순서로 동일 인물을
+    추론하지 않고, 명시적으로 준비된 fixed split 배치를 신뢰한다.
 
-    학습 시작 직전에 training/train.py의 main()이 호출한다. 같은 인물/같은 프레임이 train과
+    학습 시작 직전에 training/train.py의 main()이 호출한다. 같은 프레임이 train과
     validation에 동시에 있으면 검증 지표가 부풀려져 실제 성능보다 좋아 보인다.
-    그런 결과로 모델을 선택하면 현장에서 그대로 실패하므로, 아래 네 겹으로 검사하고
+    그런 결과로 모델을 선택하면 현장에서 그대로 실패하므로, 아래 세 겹으로 검사하고
     하나라도 걸리면 예외를 던져 학습 자체를 막는다.
 
-      1) subject leakage  — 같은 물리 인물이 두 split에 걸쳐 있는가
-      2) realpath leakage — 심볼릭 링크를 풀었을 때 같은 파일을 가리키는가
-      3) content leakage  — 경로가 달라도 파일 내용(MD5)이 같은가 (복사본 탐지)
-      4) metadata leakage — meta.json의 session/video ID가 두 split에 걸쳐 있는가
+      1) realpath leakage — 심볼릭 링크를 풀었을 때 같은 파일을 가리키는가
+      2) content leakage  — 경로가 달라도 파일 내용(MD5)이 같은가 (복사본 탐지)
+      3) metadata leakage — meta.json의 session/video ID가 두 split에 걸쳐 있는가
 
     반환: {split: 프레임 수} — 호출부가 로그로 출력한다.
     """
-    split_subjects = {split: {} for split in FIXED_SPLITS}
     split_items = {}
 
     # 먼저 세 split의 subject 목록과 프레임 목록을 모두 읽어 둔다(검사는 그다음).
@@ -192,46 +151,9 @@ def validate_fixed_split_coverage(data_dir="dataset/raw"):
             subdirs = _sort_subject_dirs(cat_path, category)
             if not subdirs:
                 raise ValueError(f"subject 폴더가 비어 있습니다: {cat_path}")
-            split_subjects[split][category] = subdirs
-
         split_items[split] = collect_split_items(data_dir, split)
 
-    # 1. Subject leakage 검사
-    for category in CLASS_MAPPING:
-        # 그룹핑(특히 spoof의 조건별 "연속 2개 = 동일 인물") 규칙은 정렬 순서에
-        # 의존하므로, split별로 따로 묶으면 안 되고 세 split을 합쳐 한 번에 묶어야 한다.
-        all_subdirs = sorted({
-            subject
-            for split in FIXED_SPLITS
-            for subject in split_subjects[split][category]
-        }, key=_subject_sort_key)
-        groups = _group_subject_dirs(all_subdirs, category)
-        # subject 폴더 → 그룹(물리 인물) 키 역인덱스
-        subject_to_group = {
-            subject: group_key
-            for group_key, subjects in groups.items()
-            for subject in subjects
-        }
-
-        # 그룹별로 "어느 split에 등장했는가"를 모은다.
-        group_splits = {}
-        for split in FIXED_SPLITS:
-            for subject in split_subjects[split][category]:
-                group_key = subject_to_group[subject]
-                group_splits.setdefault(group_key, set()).add(split)
-
-        # 한 그룹이 2개 이상의 split에 걸쳐 있으면 그 인물의 얼굴을 학습에서 이미 본 것이다.
-        overlaps = {
-            group_key: sorted(splits)
-            for group_key, splits in group_splits.items()
-            if len(splits) > 1
-        }
-        if overlaps:
-            raise ValueError(
-                f"{category} 클래스의 동일 물리 subject가 여러 split에 있습니다: {overlaps}"
-            )
-
-    # 2. Realpath leakage 검사
+    # 1. Realpath leakage 검사
     # split을 심볼릭 링크로 구성한 경우, 경로 문자열은 달라도 실체가 같은 파일일 수 있다.
     # realpath로 링크를 모두 풀어 정규화한 뒤 집합 교집합으로 비교한다.
     resolved_paths = {}
@@ -251,8 +173,8 @@ def validate_fixed_split_coverage(data_dir="dataset/raw"):
                 )
         resolved_paths[split] = paths
 
-    # 3. Content MD5 Hash Leakage 검사
-    # 2번(realpath)을 통과해도, 파일을 물리적으로 복사해 두 split에 넣었다면 잡히지 않는다.
+    # 2. Content MD5 Hash Leakage 검사
+    # 1번(realpath)을 통과해도, 파일을 물리적으로 복사해 두 split에 넣었다면 잡히지 않는다.
     # 그래서 내용 자체를 해시해 비교한다. 여기서는 보안이 아니라 중복 탐지가 목적이라
     # 속도가 빠른 MD5로 충분하다. 전 이미지 내용을 읽으므로 데이터 크기에 비례해 비용이 든다.
     hash_to_split_paths = {}
@@ -283,8 +205,8 @@ def validate_fixed_split_coverage(data_dir="dataset/raw"):
                 else:
                     hash_to_split_paths[file_hash] = (split, file_path)
 
-    # 4. Explicit Manifest / Metadata Leakage 검사 (meta.json)
-    # 같은 촬영 세션·같은 영상에서 뽑은 서로 다른 프레임은 파일 내용이 달라 1~3번을 모두
+    # 3. Explicit Manifest / Metadata Leakage 검사 (meta.json)
+    # 같은 촬영 세션·같은 영상에서 뽑은 서로 다른 프레임은 파일 내용이 달라 1~2번을 모두
     # 통과하지만, 사실상 같은 데이터다(조명·표정·배경이 거의 동일). meta.json이 있으면
     # session/video ID로 그 관계를 직접 확인한다.
     # device와 attack_medium은 원래 여러 split에 공유되는 게 정상이라 로그만 남긴다.
@@ -297,7 +219,7 @@ def validate_fixed_split_coverage(data_dir="dataset/raw"):
         for rgb_path, _, _ in items:
             frame_dir = os.path.dirname(rgb_path)
             meta_path = os.path.join(frame_dir, "meta.json")
-            # meta.json은 선택 사항이다. 없으면 이 검사만 건너뛴다(1~3번은 이미 통과한 상태).
+            # meta.json은 선택 사항이다. 없으면 이 검사만 건너뛴다(1~2번은 이미 통과한 상태).
             if os.path.exists(meta_path):
                 try:
                     with open(meta_path, 'r', encoding='utf-8') as f:

@@ -33,6 +33,18 @@ def _make_dataset(root: Path):
                     _write_frame(root / split / category / f"{category}_{number}")
 
 
+def _make_conditioned_dataset(root: Path):
+    for split, numbers in SPLIT_SUBJECT_NUMBERS.items():
+        for category in CLASS_NAMES:
+            if category == "live":
+                for quality in ("high", "medium", "off"):
+                    _write_frame(root / split / category / quality / f"live_{numbers[0]}")
+            else:
+                for environment in ("indoor", "outdoor"):
+                    for number in numbers:
+                        _write_frame(root / split / category / environment / f"{category}_{number}")
+
+
 def test_fixed_split_validation_and_collection(tmp_path):
     _make_dataset(tmp_path)
 
@@ -41,6 +53,43 @@ def test_fixed_split_validation_and_collection(tmp_path):
     expected_count = len(CLASS_NAMES) * 2
     assert counts == {"train": expected_count, "validation": expected_count, "test": expected_count}
     assert len(collect_split_items(tmp_path, "validation")) == expected_count
+
+
+def test_conditioned_layout_collects_live_off_and_other_class_environments(tmp_path):
+    _make_conditioned_dataset(tmp_path)
+
+    counts = validate_fixed_split_coverage(tmp_path)
+
+    expected_count = 3 + (len(CLASS_NAMES) - 1) * 4
+    assert counts == {"train": expected_count, "validation": expected_count, "test": expected_count}
+    train_paths = [Path(rgb_path) for rgb_path, _, _ in collect_split_items(tmp_path, "train")]
+    assert tmp_path / "train" / "live" / "off" / "live_1" / "1" / "cropRGB.bmp" in train_paths
+    assert tmp_path / "train" / "print" / "indoor" / "print_1" / "1" / "cropRGB.bmp" in train_paths
+    assert tmp_path / "train" / "print" / "outdoor" / "print_2" / "1" / "cropRGB.bmp" in train_paths
+
+
+def test_conditioned_layout_rejects_unknown_condition_folder(tmp_path):
+    _make_conditioned_dataset(tmp_path)
+    _write_frame(tmp_path / "train" / "print" / "outdor" / "print_7")
+
+    with pytest.raises(ValueError, match="지원하지 않는 조건 폴더"):
+        collect_split_items(tmp_path, "train")
+
+
+def test_rejects_mixed_legacy_and_conditioned_layout(tmp_path):
+    _make_dataset(tmp_path)
+    _write_frame(tmp_path / "train" / "print" / "outdoor" / "print_7")
+
+    with pytest.raises(ValueError, match="평면/조건별 구조가 섞여 있습니다"):
+        collect_split_items(tmp_path, "train")
+
+
+def test_conditioned_spoof_pair_cannot_cross_splits(tmp_path):
+    _make_conditioned_dataset(tmp_path)
+    _write_frame(tmp_path / "validation" / "print" / "indoor" / "print_2")
+
+    with pytest.raises(ValueError, match="print.*여러 split"):
+        validate_fixed_split_coverage(tmp_path)
 
 
 def test_live_subject_cannot_cross_splits(tmp_path):

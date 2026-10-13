@@ -5,6 +5,8 @@ import json
 from common.classes import BONA_FIDE_CLASS_INDICES, CLASS_NAMES, CLASS_MAPPING
 
 FIXED_SPLITS = ("train", "validation", "test")
+LIVE_CONDITIONS = ("high", "medium", "off")
+ENVIRONMENT_CONDITIONS = ("indoor", "outdoor")
 
 
 # subject 폴더 정렬 키. "live_10"에서 뒤쪽 숫자를 뽑아 숫자 순으로 세운다
@@ -19,34 +21,58 @@ def _subject_sort_key(subject):
 
 
 # 한 클래스 폴더 안의 subject 디렉터리 목록을 번호순으로 반환한다.
-# live만 high/medium 하위 폴더를 한 단계 더 갖고 있어 분기가 필요하다
-# (반환값도 "high/live_1"처럼 하위 폴더를 포함한 상대 경로가 된다).
+# live는 high/medium/off, 나머지 클래스는 indoor/outdoor 조건 폴더를 사용한다.
+# 기존 비-live 평면 구조도 마이그레이션 전까지 허용하지만 새 구조와 섞지는 않는다.
 def _sort_subject_dirs(cat_path, category):
     prefix = f"{category}_"
-    if category == "live":
-        subdirs = []
-        for subdir in ["high", "medium"]:
-            sub_path = os.path.join(cat_path, subdir)
-            if os.path.exists(sub_path):
-                matched = [
-                    os.path.join(subdir, d) for d in os.listdir(sub_path)
-                    if os.path.isdir(os.path.join(sub_path, d)) and d.startswith(prefix)
-                ]
-                try:
-                    matched = sorted(matched, key=lambda x: int(os.path.basename(x)[len(prefix):]))
-                except ValueError:
-                    matched = sorted(matched)
-                subdirs.extend(matched)
-        return subdirs
-    else:
-        subdirs = [
-            d for d in os.listdir(cat_path)
-            if os.path.isdir(os.path.join(cat_path, d)) and d.startswith(prefix)
-        ]
+    conditions = LIVE_CONDITIONS if category == "live" else ENVIRONMENT_CONDITIONS
+    root_dirs = [
+        d for d in os.listdir(cat_path)
+        if os.path.isdir(os.path.join(cat_path, d))
+    ]
+    direct_subjects = [d for d in root_dirs if d.startswith(prefix)]
+    condition_dirs = [condition for condition in conditions if condition in root_dirs]
+    unexpected_dirs = [
+        d for d in root_dirs
+        if d not in conditions and d not in direct_subjects
+    ]
+    if unexpected_dirs:
+        raise ValueError(
+            f"지원하지 않는 조건 폴더가 있습니다: {cat_path} -> {sorted(unexpected_dirs)}"
+        )
+    if direct_subjects and condition_dirs:
+        raise ValueError(f"평면/조건별 구조가 섞여 있습니다: {cat_path}")
+    if category == "live" and direct_subjects:
+        raise ValueError(f"live subject는 품질 조건 폴더 아래에 있어야 합니다: {cat_path}")
+
+    if direct_subjects:
         try:
-            return sorted(subdirs, key=lambda x: int(x[len(prefix):]))
+            return sorted(direct_subjects, key=lambda x: int(x[len(prefix):]))
         except ValueError:
-            return sorted(subdirs)
+            return sorted(direct_subjects)
+
+    subdirs = []
+    for condition in conditions:
+        condition_path = os.path.join(cat_path, condition)
+        if not os.path.isdir(condition_path):
+            continue
+        nested_dirs = [
+            d for d in os.listdir(condition_path)
+            if os.path.isdir(os.path.join(condition_path, d))
+        ]
+        unexpected_subjects = [d for d in nested_dirs if not d.startswith(prefix)]
+        if unexpected_subjects:
+            raise ValueError(
+                f"지원하지 않는 subject 폴더가 있습니다: "
+                f"{condition_path} -> {sorted(unexpected_subjects)}"
+            )
+        matched = [os.path.join(condition, d) for d in nested_dirs]
+        try:
+            matched = sorted(matched, key=lambda x: int(os.path.basename(x)[len(prefix):]))
+        except ValueError:
+            matched = sorted(matched)
+        subdirs.extend(matched)
+    return subdirs
 
 
 
@@ -67,7 +93,7 @@ def _group_subject_dirs(subdirs, category):
     # spoof 쪽 그룹 구성이 통째로 달라진다는 점에 주의.
     groups = {}
     if category == "live":
-        # live의 경우: high/live_1, medium/live_1 등이 있으므로 basename에서 숫자를 추출하여 그룹화
+        # live의 경우: high/live_1, medium/live_1, off/live_1을 같은 인물로 그룹화
         for sd in subdirs:
             basename = os.path.basename(sd)  # 폴더명 예: "live_1"
             try:
@@ -76,17 +102,26 @@ def _group_subject_dirs(subdirs, category):
                 group_key = basename  # 숫자를 읽지 못하면 폴더 이름을 대신 쓴다
             groups.setdefault(group_key, []).append(sd)
     else:
-        # 그 외 spoof: subject 목록을 정렬한 순서대로 2개씩 묶음
-        for i, sd in enumerate(subdirs):
-            group_key = i // 2
-            groups.setdefault(group_key, []).append(sd)
+        # 그 외 클래스: indoor/outdoor는 subject 번호를 독립적으로 발급할 수 있으므로
+        # 각 환경 안에서 번호순으로 두 폴더씩 같은 물리 대상을 나타낸다.
+        by_condition = {}
+        for sd in subdirs:
+            condition = os.path.dirname(sd) or "legacy"
+            by_condition.setdefault(condition, []).append(sd)
+        for condition, condition_subjects in sorted(by_condition.items()):
+            for i, sd in enumerate(sorted(condition_subjects, key=_subject_sort_key)):
+                group_key = (condition, i // 2)
+                groups.setdefault(group_key, []).append(sd)
     return groups
 
 
 def collect_split_items(data_dir="dataset/raw", split="train"):
     """고정 split 하나에서 (cropRGB, cropIR, label) 항목을 수집한다.
 
-    디렉터리 구조: data_dir/{split}/{category}/{subject}/{frame}/cropRGB.bmp
+    디렉터리 구조:
+      live: data_dir/{split}/live/{high,medium,off}/{subject}/{frame}/cropRGB.bmp
+      기타: data_dir/{split}/{category}/{indoor,outdoor}/{subject}/{frame}/cropRGB.bmp
+            (기존 평면 {category}/{subject}/{frame}도 지원)
     반환: [(rgb_path, ir_path, label_int), ...]
 
     결과 순서는 클래스 → subject 번호 → frame 번호 순으로 완전히 결정적이다.
@@ -110,7 +145,7 @@ def collect_split_items(data_dir="dataset/raw", split="train"):
         if not os.path.isdir(cat_path):
             raise FileNotFoundError(f"클래스 디렉터리가 없습니다: {cat_path}")
 
-        # live는 high/medium 하위 폴더까지 훑고, spoof는 평면 구조다(_sort_subject_dirs 참고).
+        # live 품질 조건과 나머지 클래스의 촬영 환경 조건을 모두 훑는다.
         subdirs = _sort_subject_dirs(cat_path, category)
         if not subdirs:
             raise ValueError(f"subject 폴더가 비어 있습니다: {cat_path}")
@@ -126,8 +161,8 @@ def collect_split_items(data_dir="dataset/raw", split="train"):
 def validate_fixed_split_coverage(data_dir="dataset/raw"):
     """고정 split의 완전성과 subject/frame/content/metadata 누수를 검사한다.
 
-    live는 high/medium의 동일 번호를 같은 인물로 본다. spoof 클래스는
-    전체 subject 정렬 순서에서 연속 두 폴더를 같은 물리 인물로 본다.
+    live는 high/medium/off의 동일 번호를 같은 인물로 본다. spoof 클래스는
+    각 indoor/outdoor 조건 안에서 연속 두 폴더를 같은 물리 인물로 본다.
 
     학습 시작 직전에 training/train.py의 main()이 호출한다. 같은 인물/같은 프레임이 train과
     validation에 동시에 있으면 검증 지표가 부풀려져 실제 성능보다 좋아 보인다.
@@ -163,8 +198,8 @@ def validate_fixed_split_coverage(data_dir="dataset/raw"):
 
     # 1. Subject leakage 검사
     for category in CLASS_MAPPING:
-        # 그룹핑(특히 spoof의 "연속 2개 = 동일 인물") 규칙은 정렬 순서에 의존하므로,
-        # split별로 따로 묶으면 안 되고 세 split을 합친 전체 목록에서 한 번에 묶어야 한다.
+        # 그룹핑(특히 spoof의 조건별 "연속 2개 = 동일 인물") 규칙은 정렬 순서에
+        # 의존하므로, split별로 따로 묶으면 안 되고 세 split을 합쳐 한 번에 묶어야 한다.
         all_subdirs = sorted({
             subject
             for split in FIXED_SPLITS

@@ -15,4 +15,4 @@ source scripts/keras/_keras_env.sh "변환됩니다"
 CONVERT_PYTHON=".venv-tf/bin/python"
 
 echo "=== TFLite 변환 시작 ==="
-CUDA_VISIBLE_DEVICES="" "$CONVERT_PYTHON" -m keras_pipeline.export.converter "$@"
+TF_CPP_MIN_LOG_LEVEL=2 CUDA_VISIBLE_DEVICES="" "$CONVERT_PYTHON" -m keras_pipeline.export.converter "$@"

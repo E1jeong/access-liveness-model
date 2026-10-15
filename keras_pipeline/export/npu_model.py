@@ -51,7 +51,7 @@ def _copy_nested_weights(source_model, target_model, layer_name):
         target_sub_layer.set_weights(source_weights)
         copied.append((target_sub_layer.name, source_shapes))
 
-    print(f"[weight copy] {layer_name}: {copied}")
+    print(f"  Weight copy: {layer_name} ({len(copied)} weighted layers)")
 
 
 def _npu_parity_inputs(sample, model_type):
@@ -82,13 +82,21 @@ def _npu_parity_inputs(sample, model_type):
     return source_inputs, export_inputs
 
 
+def _match_model_input_structure(model, values):
+    if len(values) != 1:
+        return values
+    return values if isinstance(model.input, (list, tuple)) else values[0]
+
+
 def validate_npu_export_parity(trained_model, export_model, sample, model_type):
     """Reject an NPU export graph when it does not preserve Keras logits."""
     source_inputs, export_inputs = _npu_parity_inputs(sample, model_type)
-    source_call_inputs = source_inputs[0] if len(source_inputs) == 1 else source_inputs
-    export_call_inputs = export_inputs[0] if len(export_inputs) == 1 else export_inputs
-    trained_logits = trained_model(source_call_inputs, training=False).numpy()
-    export_logits = export_model(export_call_inputs, training=False).numpy()
+    trained_logits = trained_model(
+        _match_model_input_structure(trained_model, source_inputs), training=False
+    ).numpy()
+    export_logits = export_model(
+        _match_model_input_structure(export_model, export_inputs), training=False
+    ).numpy()
     error = np.abs(trained_logits - export_logits)
     result = {
         "max_error": float(error.max()),
@@ -101,7 +109,12 @@ def validate_npu_export_parity(trained_model, export_model, sample, model_type):
         trained_logits, export_logits, rtol=1e-5, atol=1e-5
     ):
         raise ValueError(f"NPU export Keras logits parity failed: {result}")
-    print(f"[NPU export Keras logits parity] {result}")
+    print(
+        "  Keras parity: "
+        f"max_error={result['max_error']:.3e} | "
+        f"mean_error={result['mean_error']:.3e} | "
+        f"argmax_agreement={result['argmax_agreement']}"
+    )
     return result
 
 

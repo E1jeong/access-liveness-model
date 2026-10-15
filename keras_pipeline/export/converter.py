@@ -8,10 +8,13 @@
   --npu-int8  int8 + NPU(NNAPI)가 소화 가능한 그래프 구조로 재조립한 것
 """
 import argparse
+import contextlib
+import io
 import json
 import os
 import random
 import sys
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -58,16 +61,34 @@ def _makedirs(path):
 
 
 def _validate_tflite_bytes(tflite_model, model_type):
-    interpreter = tf.lite.Interpreter(model_content=tflite_model)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"[\s\S]*tf\.lite\.Interpreter is deprecated[\s\S]*",
+            category=UserWarning,
+        )
+        interpreter = tf.lite.Interpreter(model_content=tflite_model)
     interpreter.allocate_tensors()
     validate_tflite_model_signature(
         interpreter.get_input_details(), interpreter.get_output_details(), model_type
     )
 
 
+def _convert_tflite(converter):
+    """Run conversion while hiding only the converter's known success chatter."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"Statistics for quantized inputs were expected, but not specified.*",
+            category=UserWarning,
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            return converter.convert()
+
+
 def convert_float(model, output_path, model_type):
     converter = tf.lite.TFLiteConverter.from_keras_model(model)
-    tflite_model = converter.convert()
+    tflite_model = _convert_tflite(converter)
     _validate_tflite_bytes(tflite_model, model_type)
     _makedirs(output_path)
     with open(output_path, "wb") as f:
@@ -109,7 +130,7 @@ def _convert_int8_core(keras_model, output_path, calibration_items, model_type, 
     converter.inference_input_type = tf.int8
     converter.inference_output_type = tf.int8
 
-    tflite_model = converter.convert()
+    tflite_model = _convert_tflite(converter)
     _validate_tflite_bytes(tflite_model, model_type)
     _makedirs(output_path)
     with open(output_path, "wb") as f:
@@ -301,15 +322,23 @@ def main():
             args.calibration_samples,
         )
 
+    export_count = sum((args.float, args.int8, args.npu_int8))
+    export_index = 0
     if args.float:
+        export_index += 1
+        print(f"\n[Export {export_index}/{export_count}] Float32 TFLite")
         convert_float(model, float_path, args.model_type)
         inspect_tflite(float_path, args.model_type)
         write_tflite_sidecar_manifest(float_path, args.model_type, npu_int8=False)
     if args.int8:
+        export_index += 1
+        print(f"\n[Export {export_index}/{export_count}] INT8 TFLite")
         convert_int8(model, int8_path, calibration_items, args.model_type)
         inspect_tflite(int8_path, args.model_type)
         write_tflite_sidecar_manifest(int8_path, args.model_type, npu_int8=False)
     if args.npu_int8:
+        export_index += 1
+        print(f"\n[Export {export_index}/{export_count}] NPU INT8 TFLite")
         convert_int8_npu(model, npu_int8_path, calibration_items, args.model_type)
         inspect_tflite(npu_int8_path, args.model_type)
         write_tflite_sidecar_manifest(npu_int8_path, args.model_type, npu_int8=True)

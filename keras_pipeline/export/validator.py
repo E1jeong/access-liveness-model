@@ -1,6 +1,7 @@
 """Inspect exported TFLite artifacts and write their Android sidecar contracts."""
 import json
 import os
+import warnings
 
 import tensorflow as tf
 
@@ -9,22 +10,32 @@ from keras_pipeline.contracts.model_signature import validate_tflite_model_signa
 from keras_pipeline.data.spec import CROP_MARGIN_RATIO
 
 
+def _make_interpreter(**kwargs):
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"[\s\S]*tf\.lite\.Interpreter is deprecated[\s\S]*",
+            category=UserWarning,
+        )
+        return tf.lite.Interpreter(**kwargs)
+
+
 def inspect_tflite(path, model_type):
     """Validate a saved TFLite signature and print its tensor details."""
-    interpreter = tf.lite.Interpreter(model_path=path)
+    interpreter = _make_interpreter(model_path=path)
     interpreter.allocate_tensors()
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
     validate_tflite_model_signature(input_details, output_details, model_type)
-    print("[tflite tensors]")
+    print("  TFLite tensors")
     for idx, detail in enumerate(input_details):
         print(
-            f" input {idx}: name={detail['name']} shape={detail['shape'].tolist()} "
+            f"    Input {idx}: name={detail['name']} shape={detail['shape'].tolist()} "
             f"dtype={detail['dtype']} quant={detail['quantization']}"
         )
     for idx, detail in enumerate(output_details):
         print(
-            f" output {idx}: name={detail['name']} shape={detail['shape'].tolist()} "
+            f"    Output {idx}: name={detail['name']} shape={detail['shape'].tolist()} "
             f"dtype={detail['dtype']} quant={detail['quantization']}"
         )
 
@@ -35,7 +46,7 @@ def write_tflite_sidecar_manifest(tflite_path, model_type, npu_int8):
     ``npu_int8``은 호출부가 변환 모드에서 명시적으로 넘긴다. 파일명에서 유추하면
     이름을 바꾼 산출물의 normalization 계약이 조용히 틀어진다.
     """
-    interpreter = tf.lite.Interpreter(model_path=tflite_path)
+    interpreter = _make_interpreter(model_path=tflite_path)
     interpreter.allocate_tensors()
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()

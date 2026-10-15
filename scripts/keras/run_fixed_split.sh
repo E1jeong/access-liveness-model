@@ -141,7 +141,7 @@ echo "========================================="
 
 EVAL_PYTHON=".venv-tf/bin/python"
 
-"$EVAL_PYTHON" -m common.evaluate_tflite \
+TF_CPP_MIN_LOG_LEVEL=2 "$EVAL_PYTHON" -m common.evaluate_tflite \
   --data-dir "$DATA_DIR" \
   --split validation \
   --model-type "$MODEL_TYPE" \

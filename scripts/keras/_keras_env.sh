@@ -7,7 +7,7 @@ export LD_LIBRARY_PATH="$(find .venv-tf/lib -path "*/nvidia/*/lib" -type d | tr 
 _keras_env_msg="${1:-실행}"
 
 echo "=== GPU 상태 확인 ==="
-.venv-tf/bin/python - <<EOF
+TF_CPP_MIN_LOG_LEVEL=2 .venv-tf/bin/python - <<EOF
 import tensorflow as tf
 gpus = tf.config.list_physical_devices('GPU')
 print(f"GPU: {gpus if gpus else '없음 (CPU로 ${_keras_env_msg})'}")

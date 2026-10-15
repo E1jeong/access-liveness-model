@@ -4,6 +4,7 @@ from tensorflow import keras
 
 from keras_pipeline.export.npu_model import (
     _copy_nested_weights,
+    _match_model_input_structure,
     build_npu_export_model,
     validate_npu_export_parity,
 )
@@ -29,6 +30,16 @@ def test_copy_nested_weights_rejects_missing_weighted_layer():
 
     with pytest.raises(ValueError, match="export backbone에 없는 source weighted layer"):
         _copy_nested_weights(source, target, "backbone")
+
+
+def test_match_model_input_structure_preserves_declared_single_input_shape():
+    inputs = keras.Input(shape=(4,))
+    values = [np.zeros((1, 4), dtype=np.float32)]
+    scalar_input_model = keras.Model(inputs, inputs)
+    list_input_model = keras.Model([inputs], inputs)
+
+    assert _match_model_input_structure(scalar_input_model, values) is values[0]
+    assert _match_model_input_structure(list_input_model, values) is values
 
 
 def test_copy_nested_weights_rejects_export_only_weighted_layer():

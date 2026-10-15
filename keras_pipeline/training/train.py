@@ -137,6 +137,19 @@ def _build_optimizer(optimizer_name, learning_rate, weight_decay=0.01, use_ema=F
         raise ValueError(f"지원하지 않는 옵티마이저: {optimizer_name}")
 
 
+def _print_validation_results(cm, recalls, acc, apcer, bpcer, acer):
+    cm_text = np.array2string(cm).replace("\n", "\n    ")
+
+    print("\n[Validation Results]")
+    print("  Confusion matrix (rows=true, cols=pred)")
+    print(f"    {cm_text}")
+    print("  Class recall")
+    for class_name, recall in zip(CLASS_NAMES, recalls):
+        print(f"    {class_name:<16} {recall:.4f}")
+    print("  Metrics")
+    print(f"    Accuracy {acc:.4f} | APCER {apcer:.4f} | BPCER {bpcer:.4f} | ACER {acer:.4f}")
+
+
 def _set_backbone_trainable(model, trainable=True):
     count = 0
     for layer in model.layers:
@@ -187,12 +200,7 @@ class AcerCheckpoint(tf.keras.callbacks.Callback):
             cm, recalls, apcer, bpcer, acer = calculate_validation_metrics(labels, preds)
             acc = float(np.mean(labels == preds))
 
-            print("\n -> Confusion Matrix (row=true, col=pred):")
-            print(cm)
-            print(" -> Class recall:")
-            for class_name, recall in zip(CLASS_NAMES, recalls):
-                print(f"    {class_name}: {recall:.4f}")
-            print(f" -> Val Acc: {acc:.4f} | APCER: {apcer:.4f} | BPCER: {bpcer:.4f} | ACER: {acer:.4f}")
+            _print_validation_results(cm, recalls, acc, apcer, bpcer, acer)
 
             self.acer_history.append(acer)
 
@@ -208,11 +216,18 @@ class AcerCheckpoint(tf.keras.callbacks.Callback):
                 if dirpath:
                     os.makedirs(dirpath, exist_ok=True)
                 self.model.save(self.output_path)
-                print(f" >>> Best ACER updated ({acer:.4f}) -> saved {self.output_path}")
+                print(f"  Checkpoint: best ACER {acer:.4f} -> saved {self.output_path}")
         finally:
             if is_ema and orig_weights is not None:
                 for v, orig in zip(self.model.trainable_variables, orig_weights):
                     v.assign(orig)
+
+
+class TrainingProgbarLogger(tf.keras.callbacks.ProgbarLogger):
+    """학습 배치 진행 바만 표시하고 에폭 종료 시 중복 출력을 생략한다."""
+
+    def on_epoch_end(self, epoch, logs=None):
+        pass
 
 
 def parse_args():
@@ -473,6 +488,7 @@ def main():
     output_path = keras_checkpoint_path(args.output_dir, args.model_type, args.backbone)
     check_no_overwrite(output_path, force=args.force)
     checkpoint = AcerCheckpoint(val_ds=val_ds, output_path=output_path)
+    progress = TrainingProgbarLogger()
 
     if args.freeze_backbone_epochs > 0:
         print(f"\n========================================================")
@@ -497,7 +513,7 @@ def main():
             train_ds,
             steps_per_epoch=steps_per_epoch,
             epochs=args.freeze_backbone_epochs,
-            callbacks=[checkpoint],
+            callbacks=[checkpoint, progress],
         )
 
         remaining_epochs = args.epochs - args.freeze_backbone_epochs
@@ -530,7 +546,7 @@ def main():
             steps_per_epoch=steps_per_epoch,
             initial_epoch=args.freeze_backbone_epochs,
             epochs=args.epochs,
-            callbacks=[checkpoint],
+            callbacks=[checkpoint, progress],
         )
         history = _merge_histories(history_warmup, history_finetune)
     else:
@@ -558,7 +574,7 @@ def main():
             train_ds,
             steps_per_epoch=steps_per_epoch,
             epochs=args.epochs,
-            callbacks=[checkpoint],
+            callbacks=[checkpoint, progress],
         )
 
     _save_learning_curves(history, checkpoint.acer_history, args.output_dir, args.model_type, args.backbone)

@@ -25,7 +25,7 @@ def _make_interpreter(model_path):
     try:
         interp = Interpreter(model_path=model_path, num_threads=n)
         interp.allocate_tensors()
-        print(f"[interpreter] XNNPACK 경로 (num_threads={n})")
+        print(f"  Runtime: XNNPACK (threads={n})")
         return interp
     except Exception:
         interp = Interpreter(
@@ -34,7 +34,7 @@ def _make_interpreter(model_path):
             experimental_op_resolver_type=OpResolverType.BUILTIN_WITHOUT_DEFAULT_DELEGATES,
         )
         interp.allocate_tensors()
-        print(f"[interpreter] reference 커널 경로 (XNNPACK 미사용, num_threads={n})")
+        print(f"  Runtime: reference kernels (XNNPACK disabled, threads={n})")
         return interp
 
 
@@ -129,7 +129,10 @@ def evaluate(model_path, data_dir, split, model_type, max_samples=None):
     )
     from common.classes import CLASS_NAMES
 
-    is_npu_int8 = "npu_int8" in os.path.basename(model_path)
+    model_name = os.path.basename(model_path)
+    is_npu_int8 = "npu_int8" in model_name
+
+    print(f"\n[Validation] {model_name}")
 
     interp = _make_interpreter(model_path)
     in_details = interp.get_input_details()
@@ -155,14 +158,14 @@ def evaluate(model_path, data_dir, split, model_type, max_samples=None):
     if model_type == "dual":
         rgb_d, rgb_layout, _ = next(m for m in metas if m[2] == 3)
         ir_d, ir_layout, _ = next(m for m in metas if m[2] == 1)
-        print(f" 입력 레이아웃: rgb={rgb_layout}, ir={ir_layout}")
+        print(f"  Input layout: rgb={rgb_layout}, ir={ir_layout}")
 
     elif model_type == "crop_rgb":
         rgb_d, rgb_layout, _ = next(m for m in metas if m[2] == 3)
-        print(f" 입력 레이아웃: rgb={rgb_layout}")
+        print(f"  Input layout: rgb={rgb_layout}")
     elif model_type == "crop_ir":
         ir_d, ir_layout, _ = next(m for m in metas if m[2] == 1)
-        print(f" 입력 레이아웃: ir={ir_layout}")
+        print(f"  Input layout: ir={ir_layout}")
 
     def build(sample_hwc, layout):
         if layout == "NCHW":
@@ -172,7 +175,7 @@ def evaluate(model_path, data_dir, split, model_type, max_samples=None):
     split_counts = validate_fixed_split_coverage(data_dir)
     eval_items = collect_split_items(data_dir, split)
     print(
-        f"[데이터셋 구성 완료] split={split}, 평가 데이터 수: {len(eval_items)}장 "
+        f"  Dataset: split={split}, samples={len(eval_items)} "
         f"(train={split_counts['train']}, validation={split_counts['validation']}, "
         f"test={split_counts['test']})"
     )
@@ -181,7 +184,7 @@ def evaluate(model_path, data_dir, split, model_type, max_samples=None):
     if max_samples is not None:
         eval_items = subsample_split_items(eval_items, max_samples)
     total = len(eval_items)
-    pbar = tqdm(total=total, desc=f"평가 {os.path.basename(model_path)}")
+    pbar = tqdm(total=total, desc=f"  Evaluate {model_name}")
     for rgb_path, ir_path, label in eval_items:
         rgb_hwc, ir_hwc = load_sample(rgb_path, ir_path, augment=False)
         if is_npu_int8:
@@ -217,13 +220,15 @@ def evaluate(model_path, data_dir, split, model_type, max_samples=None):
 
     active_d = rgb_d if rgb_d is not None else ir_d
     in_dtype = active_d['dtype'].__name__
-    print(f"\n===== 평가: {model_path} (split={split}, 입력 dtype={in_dtype}, {len(all_labels)}장) =====")
-    print(f" accuracy: {result['accuracy']:.4f}")
-    print(f" APCER: {result['apcer']:.4f} | BPCER: {result['bpcer']:.4f} | ACER: {result['acer']:.4f}")
-    print(f" mean latency: {result['mean_latency_ms']:.3f} ms")
-    print(" 클래스별 Recall:")
+    print("  Results")
+    print(
+        f"    Accuracy {result['accuracy']:.4f} | APCER {result['apcer']:.4f} | "
+        f"BPCER {result['bpcer']:.4f} | ACER {result['acer']:.4f}"
+    )
+    print(f"    Mean latency {result['mean_latency_ms']:.3f} ms | dtype={in_dtype}")
+    print("  Class recall")
     for name, r in zip(CLASS_NAMES, result["recalls"]):
-        print(f"   {name}: {r:.4f}")
+        print(f"    {name:<16} {r:.4f}")
     return result
 
 

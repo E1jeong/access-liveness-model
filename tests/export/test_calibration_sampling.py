@@ -1,4 +1,5 @@
 import json
+import warnings
 
 import numpy as np
 import pytest
@@ -14,6 +15,33 @@ def _items(counts):
         for label, count in enumerate(counts)
         for index in range(count)
     ]
+
+
+def test_convert_tflite_preserves_result_and_hides_known_chatter(capsys):
+    class FakeConverter:
+        def convert(self):
+            print("Saved artifact at '/tmp/export'")
+            warnings.warn(
+                "Statistics for quantized inputs were expected, but not specified; continuing anyway.",
+                UserWarning,
+            )
+            return b"tflite-bytes"
+
+    with warnings.catch_warnings(record=True) as caught:
+        result = converter._convert_tflite(FakeConverter())
+
+    assert result == b"tflite-bytes"
+    assert capsys.readouterr().out == ""
+    assert caught == []
+
+
+def test_convert_tflite_does_not_hide_conversion_failures():
+    class BrokenConverter:
+        def convert(self):
+            raise RuntimeError("conversion failed")
+
+    with pytest.raises(RuntimeError, match="conversion failed"):
+        converter._convert_tflite(BrokenConverter())
 
 
 def test_stratified_calibration_is_seeded_and_covers_every_class():

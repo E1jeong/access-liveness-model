@@ -5,10 +5,12 @@ import tensorflow as tf
 from common.classes import CLASS_NAMES
 from keras_pipeline.training.train import (
     _build_optimizer,
+    _print_validation_results,
     _set_backbone_trainable,
     _merge_histories,
     CombinedHistory,
     AcerCheckpoint,
+    TrainingProgbarLogger,
     parse_args,
 )
 from keras_pipeline.models.model import build_single_model, build_dual_model
@@ -95,6 +97,33 @@ def test_combined_history():
     # Single history wrapper
     single_merged = _merge_histories(h1, None)
     assert single_merged.history["loss"] == [0.5, 0.4]
+
+
+def test_training_progbar_omits_duplicate_epoch_end_output(capsys):
+    progress = TrainingProgbarLogger()
+    progress.set_params({"verbose": 1, "epochs": 1, "steps": 1})
+
+    progress.on_epoch_begin(0)
+    progress.on_train_batch_end(0, {"loss": 0.5})
+    output_after_batch = capsys.readouterr().out
+
+    progress.on_epoch_end(0, {"loss": 0.5})
+    assert capsys.readouterr().out == ""
+    assert "1/1" in output_after_batch
+
+
+def test_print_validation_results_is_grouped_and_aligned(capsys):
+    cm = np.eye(len(CLASS_NAMES), dtype=np.int32)
+    recalls = np.linspace(0.5, 1.0, len(CLASS_NAMES))
+
+    _print_validation_results(cm, recalls, 0.9, 0.1, 0.2, 0.15)
+    output = capsys.readouterr().out
+
+    assert "[Validation Results]" in output
+    assert "Confusion matrix (rows=true, cols=pred)" in output
+    assert "Class recall" in output
+    assert "live             0.5000" in output
+    assert "Accuracy 0.9000 | APCER 0.1000 | BPCER 0.2000 | ACER 0.1500" in output
 
 
 def test_acer_checkpoint_ema_swap(tmp_path):

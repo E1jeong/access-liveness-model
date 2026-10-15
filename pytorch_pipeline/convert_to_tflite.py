@@ -295,7 +295,7 @@ def convert_pytorch_to_tflite(
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
 
-    # 5. TFLite 산출물 3종 생성 (Float32, INT8, NPU INT8)
+    # 5. TFLite 산출물 2종 생성 (Float32, INT8)
     # 5-1. Float32 TFLite
     float_tflite_path = f"{output_prefix}_float.tflite"
     print(f"\n[단계 4-1] Float32 TFLite 생성: {float_tflite_path}")
@@ -330,13 +330,8 @@ def convert_pytorch_to_tflite(
     inspect_tflite(int8_tflite_path, model_type)
     write_tflite_sidecar_manifest(int8_tflite_path, model_type, npu_int8=False)
 
-    # 5-4. NPU-friendly INT8 TFLite
-    npu_int8_tflite_path = f"{output_prefix}_npu_int8.tflite"
-    print(f"\n[단계 4-3] NPU INT8 TFLite 생성: {npu_int8_tflite_path}")
-    with open(npu_int8_tflite_path, "wb") as f:
-        f.write(int8_model_bytes)
-    inspect_tflite(npu_int8_tflite_path, model_type)
-    write_tflite_sidecar_manifest(npu_int8_tflite_path, model_type, npu_int8=True)
+    # 5-4. NPU INT8 단계는 두지 않는다: 이 경로는 Keras와 달리 그래프 재구성을 하지
+    # 않으므로 `_int8.tflite`와 바이트가 같고, npu_int8=True manifest는 거짓 계약이 된다.
 
     # 임시 디렉터리 정리
     shutil.rmtree(temp_dir, ignore_errors=True)
@@ -345,7 +340,6 @@ def convert_pytorch_to_tflite(
     print(f"★ [PyTorch → Sony MCT 변환 성공] 모든 TFLite 아티팩트가 생성되었습니다.")
     print(f"  - Float32: {float_tflite_path}")
     print(f"  - Full INT8: {int8_tflite_path}")
-    print(f"  - NPU INT8: {npu_int8_tflite_path}")
     print(f"==================================================")
 
 

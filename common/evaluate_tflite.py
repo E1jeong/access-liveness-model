@@ -116,6 +116,27 @@ def write_metrics_csv(results, output_path, split):
     print(f"[metrics csv] {output_path}")
 
 
+def _read_npu_int8_contract(model_path):
+    """sidecar manifest에서 RGB 입력의 NPU INT8 normalization 계약을 읽는다.
+
+    파일명에서 유추하면 이름을 바꾼 산출물의 normalization이 조용히 틀어진다.
+    manifest가 없으면 명시적으로 실패시켜 export 시 생성된 계약을 요구한다.
+    """
+    manifest_path = model_path.replace(".tflite", "_manifest.json")
+    if not os.path.exists(manifest_path):
+        raise FileNotFoundError(
+            f"sidecar manifest가 없습니다: {manifest_path} "
+            "(export 경로에서 write_tflite_sidecar_manifest로 생성해야 합니다)"
+        )
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        manifest = json.load(f)
+    for input_info in manifest.get("inputs", []):
+        norm = input_info.get("normalization") or {}
+        if len(norm.get("mean") or []) == 3:
+            return norm.get("range") == "[-1, 1]"
+    return False
+
+
 def evaluate(model_path, data_dir, split, model_type, max_samples=None):
     from keras_pipeline.data.dataset import load_sample
     from keras_pipeline.data.spec import RGB_MEAN, RGB_STD
@@ -130,7 +151,7 @@ def evaluate(model_path, data_dir, split, model_type, max_samples=None):
     from common.classes import CLASS_NAMES
 
     model_name = os.path.basename(model_path)
-    is_npu_int8 = "npu_int8" in model_name
+    is_npu_int8 = _read_npu_int8_contract(model_path)
 
     print(f"\n[Validation] {model_name}")
 

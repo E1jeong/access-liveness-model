@@ -10,7 +10,7 @@
 - Configuration: `pytest.ini`
 - Test directories:
   - Dataset & leakage: `tests/dataset/` (`test_dataset_pipeline.py`, `test_deterministic_augmentation.py`, `test_fixed_splits.py`)
-  - Export & quantization: `tests/export/` (`test_artifact_paths.py`, `test_artifact_regression.py`, `test_calibration_sampling.py`, `test_evaluate_keras_model.py`, `test_npu_export.py`, `test_pytorch_mct_export.py`, `test_recognition_calibration.py`, `test_sidecar_manifest.py`)
+  - Export & quantization: `tests/export/` (`test_artifact_paths.py`, `test_artifact_regression.py`, `test_calibration_sampling.py`, `test_evaluate_keras_model.py`, `test_evaluate_npu_int8_contract.py`, `test_npu_export.py`, `test_pytorch_mct_export.py`, `test_recognition_calibration.py`, `test_sidecar_manifest.py`)
   - Metrics: `tests/metrics/` (`test_metrics.py`)
   - Model architectures & loss: `tests/model/` (`test_aux_depth.py`, `test_aux_residual.py`, `test_binary_pad.py`, `test_conv1_reduction.py`, `test_display_target_augmentation.py`, `test_efficientnet_lite.py`, `test_focal_loss.py`, `test_model_signature.py`, `test_pytorch_model.py`, `test_run_metadata.py`, `test_supcon.py`, `test_training_enhancements.py`)
   - Face detection: `tests/face_detection/` (model, adapter, loss parity, training, decoding, and metrics)

@@ -69,8 +69,7 @@ echo "========================================="
   --model-type "$MODEL_TYPE" \
   --models \
     "model/pytorch/${PREFIX}_float.tflite" \
-    "model/pytorch/${PREFIX}_int8.tflite" \
-    "model/pytorch/${PREFIX}_npu_int8.tflite"
+    "model/pytorch/${PREFIX}_int8.tflite"
 
 echo "========================================="
 echo "  [성공] PyTorch 고정 split 파이프라인 완료"

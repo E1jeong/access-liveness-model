@@ -21,7 +21,7 @@
 2. **cuDNN Library Resolution**: Keras scripts must source `scripts/keras/_keras_env.sh` to populate `LD_LIBRARY_PATH` from `.venv-tf/lib/.../nvidia/*/lib`. Bare Python execution fails to locate GPU cuDNN libraries on the training host.
 3. **CRLF Prevention & Line Endings**: All scripts must maintain strict LF line endings and executable (`+x`) permissions. Git is configured with `core.autocrlf=input`.
 4. **Git Pull Hygiene**: On the GPU server (`sub`), always synchronize code using `scripts/git_pull_clean.sh`. This stashes, pulls with rebase, and avoids deleting gitignored `dataset/`, `model/`, or virtual environments.
-5. **Background Execution**: Use `sub-train` (or tmux session `train`) on the GPU server so long training runs survive SSH disconnection.
+5. **Background Execution**: Use `sub-train` on the GPU server (or `mac-train` on Mac Studio) so long training runs survive SSH disconnection.
 
 ## Change Gates
 

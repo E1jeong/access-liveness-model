@@ -8,7 +8,7 @@
 - **Machine Topology**:
   - **Company PC (WSL CPU)**: Code/doc editing, Git operations, and fast unit tests (`uv run pytest tests/dataset tests/metrics`). Never run training here.
   - **Sub GPU machine (`sub`, GTX 1660 Ti)**: The sole authoritative environment for training, dataset processing, and INT8 quantization via managed `uv` virtual environments (`.venv` for PyTorch, `.venv-tf` for Keras TF 2.21).
-  - **Mac Studio (`mac`, Apple Silicon M4 Max)**: High-speed Metal GPU training & export node. Uses a unified `.venv-tf` environment (TensorFlow 2.18.0 + `tensorflow-metal 1.2.0` + LiteRT 2.3.0, `requirements/mac-tf.lock`): supports Metal GPU-accelerated training, Keras 3 TFLite export, INT8 quantization, and validation evaluation in a single environment. Grappler meta-optimizer is disabled on Darwin to guarantee numerical parity with TFLite.
+  - **Mac Studio (`mac`, Apple Silicon M4 Max)**: High-speed Metal GPU training & export node. Uses a unified `.venv-tf` environment (TensorFlow 2.18.0 + `tensorflow-metal 1.2.0` + LiteRT 2.3.0, `requirements/mac-tf.lock`): supports Metal GPU-accelerated training, Keras 3 TFLite export, INT8 quantization, and validation evaluation in a single environment. Grappler meta-optimizer is disabled on Darwin to guarantee numerical parity with TFLite. Holds full 12-class condition-folder `dataset/raw` synchronized with `sub`.
 - Report to the user in Korean; keep code, identifiers, paths, and commands in English.
 - Read the nearest module `AGENTS.md` before changing a pipeline module; this root guide remains in force everywhere.
 
@@ -35,7 +35,7 @@
 ## Verify
 
 - Company PC fast unit tests: `uv run pytest tests/dataset tests/metrics`
-- Split integrity & leakage check: `.venv/bin/python -m common.validate_fixed_splits`
+- Split integrity & leakage check: `.venv/bin/python -m common.validate_fixed_splits` (or `.venv-tf/bin/python` on GPU server/mac)
 - GPU server full test suite: `.venv-tf/bin/pytest`
 - Keras model & GPU smoke test: `./scripts/keras/run_keras_model.sh`
 - GPU-server TFLite evaluation on test split: `.venv-tf/bin/python -m common.evaluate_tflite --models model/keras/best_crop_ir_fixed_npu_int8.tflite --model-type crop_ir --split test`

@@ -28,7 +28,7 @@
 ## Change Gates
 
 - All unit tests must pass before approving architectural or pipeline changes.
-- Fast tests must run cleanly on the company PC (CPU environment); full TensorFlow/export tests run on `sub` (GPU environment) in `.venv-tf`.
+- Fast tests must run cleanly on the company PC (CPU environment); full TensorFlow/export tests run on `sub` or `mac` in `.venv-tf`.
 
 ## Verify
 

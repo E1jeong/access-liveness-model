@@ -13,6 +13,7 @@
   - Keras fixed-split wrapper: `scripts/keras/run_fixed_split.sh`
   - PyTorch fixed-split wrapper: `scripts/pytorch/run_fixed_split.sh`
   - Recognition NPU export: `scripts/recognition/export_npu_mobilenet_emore.py`
+  - Face detector training: `scripts/face_detection/run_train.sh`
   - Git synchronization cleaner: `scripts/git_pull_clean.sh`
 
 ## Boundary & Architecture Constraints
@@ -35,6 +36,7 @@
 # Syntax verification
 bash -n scripts/keras/*.sh
 bash -n scripts/pytorch/*.sh
+bash -n scripts/face_detection/*.sh
 bash -n scripts/git_pull_clean.sh
 
 # GPU environment check

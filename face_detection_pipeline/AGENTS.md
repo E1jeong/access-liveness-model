@@ -2,7 +2,7 @@
 
 ## Scope
 
-- Own the RGB face detector architecture, training data adapter, losses, evaluation, and export.
+- Own the RGB face detector architecture, training data adapter, losses, and evaluation. Export is not implemented yet.
 - Keep detector outputs separate from PAD classes and decisions.
 
 ## Orient First

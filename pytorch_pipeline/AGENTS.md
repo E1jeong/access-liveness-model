@@ -3,7 +3,7 @@
 ## Scope
 
 - Own research, prototyping, and PyTorch-based model architectures (`SingleInputMobileNetV3`, `DualInputMobileNetV3`).
-- Host the Sony Model Compression Toolkit (MCT) bridge for post-training quantization (PTQ) and quantization-aware training (QAT) to emit Android NPU-compliant TFLite INT8 models.
+- Host the Sony Model Compression Toolkit (MCT) post-training quantization (PTQ) bridge to emit Android NPU-compliant TFLite INT8 models. QAT is not implemented.
 
 ## Orient First
 
@@ -11,7 +11,7 @@
 - Source entry points:
   - Model definitions: `model.py` (`SingleInputMobileNetV3`, `DualInputMobileNetV3`, `replace_hardswish_with_relu`, `disable_se_blocks`)
   - Training loop: `train.py`
-  - Sony MCT / TFLite export: `convert_to_tflite.py` (PTQ/QAT via ONNX -> onnx2tf)
+  - Sony MCT / TFLite export: `convert_to_tflite.py` (MCT PTQ -> ONNX -> onnx2tf)
   - Verification & setup: `verify_setup.py`, `verify_quantization.py`
 
 ## Boundary & Architecture Constraints
@@ -22,9 +22,9 @@
    - Classifier head must use `_build_npu_classifier_head` (`1×1 Conv2D` -> `ReLU6` -> `Dropout` -> `1×1 Conv2D`) instead of `torch.flatten` + `nn.Linear`.
    - Conv1 reduction for IR single-channel must be `sum`.
 2. **Sony MCT Quantization Bridge**:
-   - Standard PyTorch PTQ causes activation collapse on MobileNetV3; use the Sony MCT path with QAT fine-tuning for INT8 convergence.
+   - Standard PyTorch PTQ causes activation collapse on MobileNetV3; use the Sony MCT PTQ path (`get_npu_tflite_tpc`) for INT8 export.
 3. **Android Contract Compatibility**:
-   - The emitted TFLite model from `convert_to_tflite.py` (via ONNX -> `onnx2tf`) must strictly follow the Android contract: NHWC input `[1, 224, 224, 1]` or `[1, 224, 224, 3]`, output `[1, 12]` INT8 logits (matching `len(CLASS_NAMES)`).
+   - The emitted TFLite model from `convert_to_tflite.py` (via ONNX -> `onnx2tf`) must strictly follow the Android contract: NHWC input `[1, 224, 224, 1]` (`crop_ir`), `[1, 224, 224, 3]` (`crop_rgb`), or RGB `[1, 224, 224, 3]` + IR `[1, 224, 224, 1]` (`dual`), output `[1, 12]` INT8 logits (matching `len(CLASS_NAMES)`).
    - Sidecar manifest must be generated and inspected using `keras_pipeline.export.validator`.
 
 ## Change Gates

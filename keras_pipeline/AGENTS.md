@@ -10,7 +10,7 @@
 - Read `technical/training-pipeline`, `technical/training-command-guide`, `technical/training-options-and-checklist`, `technical/training-enhancement-proposals`, `technical/int8-quantization-npu`, and `technical/android-deployment-agreement` before modifying model architectures or quantization pipelines.
 - Source entry points:
   - Model definitions: `models/model.py` (`build_single_model`, `build_dual_model`, `extract_deploy_model`), `models/efficientnet_lite.py`
-  - 3D Depth supervision: `data/depth_generator.py` (`generate_pseudo_depth_map`, `_build_base_templates`)
+  - 3D Depth supervision: `data/depth_generator.py` (`generate_pseudo_depth_map`, `_build_base_templates`, `generate_high_frequency_residual_map`)
   - Losses: `models/losses.py` (CrossEntropy, Focal Loss, binary PAD, and SupCon)
   - Training loop: `training/train.py` (cosine decay, `AcerCheckpoint`, fixed-split evaluation, auxiliary heads, `--loss focal`)
   - Quantization & export: `export/converter.py` (Full INT8 conversion), `export/npu_model.py` (NPU graph reconstruction and parity)
@@ -20,7 +20,7 @@
 
 1. **Fixed Splits Only**: Training and calibration use `dataset/raw/train`, model selection uses `dataset/raw/validation`, and final evaluation uses `dataset/raw/test`. Never reintroduce K-Fold splitting.
 2. **Supported Backbones**:
-   - `mobilenetv2`: Baseline architecture; supports `crop_ir` (1ch), `crop_rgb` (3ch), and `dual` (4ch).
+   - `mobilenetv2`: Baseline architecture; supports `crop_ir` (1ch), `crop_rgb` (3ch), and `dual` (separate RGB 3ch + IR 1ch inputs).
    - `efficientnet_lite0`: Active candidate; supports `crop_ir`, `crop_rgb`, and `dual`.
 3. **IR Conv1 Reduction**: Single-channel IR transfer from ImageNet weights must use `sum` reduction. `mean` is the rejected variant and must never be passed to published runs.
 4. **NPU-Friendly INT8 Graph Rules**:

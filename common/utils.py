@@ -6,6 +6,8 @@ import json
 from common.classes import BONA_FIDE_CLASS_INDICES, CLASS_NAMES, CLASS_MAPPING
 
 FIXED_SPLITS = ("train", "validation", "test")
+REQUIRED_SPLITS = ("train", "validation")
+OPTIONAL_SPLITS = ("test",)
 LIVE_CONDITIONS = ("high", "medium", "off")
 ENVIRONMENT_CONDITIONS = ("indoor", "outdoor")
 
@@ -156,6 +158,18 @@ def subsample_split_items(items, max_samples, seed=42):
     return selected
 
 
+def is_optional_split_empty(data_dir, split):
+    """선택적 split(test)이 없거나 하위 디렉터리가 전혀 없는 빈 상태인지 확인한다."""
+    if split not in OPTIONAL_SPLITS:
+        return False
+    split_dir = os.path.join(data_dir, split)
+    if not os.path.isdir(split_dir):
+        return True
+    return not any(
+        os.path.isdir(os.path.join(split_dir, d)) for d in os.listdir(split_dir)
+    )
+
+
 def validate_fixed_split_coverage(data_dir="dataset/raw"):
     """고정 split의 완전성과 frame/content/metadata 누수를 검사한다.
 
@@ -176,8 +190,10 @@ def validate_fixed_split_coverage(data_dir="dataset/raw"):
     """
     split_items = {}
 
-    # 먼저 세 split의 subject 목록과 프레임 목록을 모두 읽어 둔다(검사는 그다음).
+    # 필수 split(train, validation)과 존재하는 선택적 split(test)의 프레임 목록을 읽어 둔다.
     for split in FIXED_SPLITS:
+        if is_optional_split_empty(data_dir, split):
+            continue
         split_dir = os.path.join(data_dir, split)
         if not os.path.isdir(split_dir):
             raise FileNotFoundError(f"고정 split 디렉터리가 없습니다: {split_dir}")
@@ -327,7 +343,7 @@ def validate_fixed_split_coverage(data_dir="dataset/raw"):
         if len(splits_dict) > 1:
             print(f"[Metadata Info] Attack Medium '{attack_val}' is shared across splits: {sorted(splits_dict.keys())}")
 
-    return {split: len(items) for split, items in split_items.items()}
+    return {split: len(split_items.get(split, ())) for split in FIXED_SPLITS}
 
 
 def gather_frame_items(cat_path, subdirs_list, label):

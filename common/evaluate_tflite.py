@@ -195,6 +195,7 @@ def evaluate(model_path, data_dir, split, model_type, max_samples=None):
 
     split_counts = validate_fixed_split_coverage(data_dir)
     eval_items = collect_split_items(data_dir, split)
+    _ensure_evaluatable_split(eval_items, split)
     print(
         f"  Dataset: split={split}, samples={len(eval_items)} "
         f"(train={split_counts['train']}, validation={split_counts['validation']}, "
@@ -253,6 +254,16 @@ def evaluate(model_path, data_dir, split, model_type, max_samples=None):
     return result
 
 
+def _ensure_evaluatable_split(items, split):
+    from common.classes import CLASS_NAMES
+
+    if split == "test" and len(items) <= len(CLASS_NAMES):
+        raise ValueError(
+            f"test split이 비어 있거나 placeholder 상태입니다 ({len(items)} frames <= {len(CLASS_NAMES)} classes). "
+            "실제 평가 데이터가 준비되기 전에는 --split test를 실행할 수 없습니다."
+        )
+
+
 def evaluate_keras_model(model_path, data_dir, split, model_type, max_samples=None, npu_export=False):
     import tensorflow as tf
     from keras_pipeline.export.npu_model import build_npu_export_model
@@ -276,6 +287,7 @@ def evaluate_keras_model(model_path, data_dir, split, model_type, max_samples=No
 
     validate_fixed_split_coverage(data_dir)
     items = collect_split_items(data_dir, split)
+    _ensure_evaluatable_split(items, split)
     if max_samples is not None:
         items = subsample_split_items(items, max_samples)
 

@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from common.classes import CLASS_NAMES
-from common.utils import collect_split_items
+from common.utils import collect_split_items, is_optional_split_empty
 
 
 # 실행 식별자: UTC 시각 + 모델 타입 (예: 20260807T100157Z_dual).
@@ -28,7 +28,13 @@ def split_hashes(data_dir):
     root = Path(data_dir)
     hashes = {}
     for split in ("train", "validation", "test"):
-        items = collect_split_items(data_dir, split)
+        try:
+            items = collect_split_items(data_dir, split)
+        except FileNotFoundError:
+            if is_optional_split_empty(data_dir, split):
+                items = []
+            else:
+                raise
         # 절대경로가 아니라 data_dir 기준 상대경로로 바꾼다 →
         # 머신이 달라져도(회사 PC vs 서브 노트북) 같은 데이터면 같은 해시가 나온다.
         payload = [

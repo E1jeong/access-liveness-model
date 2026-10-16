@@ -25,7 +25,7 @@
 
 ## Change Gates
 
-- **Fixed Split Mandate**: All future training uses `dataset/raw/{train,validation,test}`. Never reintroduce K-Fold splitting. Run `python -m common.validate_fixed_splits` before training.
+- **Fixed Split Mandate**: All training uses `dataset/raw/{train,validation}` (`test` is optional and leakage-checked when present; 1-per-class placeholder `test` evaluation is blocked). Never reintroduce K-Fold splitting. Run `python -m common.validate_fixed_splits` before training.
 - **Conv1 Reduction**: Single-channel IR ImageNet transfer must use `sum` reduction. `mean` is rejected and must never be passed to published runs.
 - **Class Names SSOT**: `common/classes.py:CLASS_NAMES` is the sole source of truth for the 12-class order.
 - **Shell Wrapper Mandate**: Never invoke bare `python` for Keras on the GPU server. Always run through `scripts/keras/*.sh` so `_keras_env.sh` sets `LD_LIBRARY_PATH` for `libcudnn.so.9`.
@@ -39,5 +39,5 @@
 - Split integrity & leakage check: `.venv/bin/python -m common.validate_fixed_splits` (or `.venv-tf/bin/python` on GPU server/mac)
 - GPU server full test suite: `.venv-tf/bin/pytest`
 - Keras model & GPU smoke test: `./scripts/keras/run_keras_model.sh`
-- GPU-server TFLite evaluation on test split: `.venv-tf/bin/python -m common.evaluate_tflite --models model/keras/best_crop_ir_fixed_npu_int8.tflite --model-type crop_ir --split test`
+- GPU-server TFLite evaluation on validation split: `.venv-tf/bin/python -m common.evaluate_tflite --models model/keras/best_crop_ir_fixed_npu_int8.tflite --model-type crop_ir --split validation`
 - Report exact commands and results.

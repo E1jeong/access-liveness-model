@@ -231,3 +231,27 @@ def test_subsample_split_items_is_representative_and_deterministic():
     assert len(sampled_a) == 24
     assert {label for _, _, label in sampled_a} == set(range(len(CLASS_NAMES)))
     assert subsample_split_items(items, len(items)) == items
+
+
+def test_optional_test_split_can_be_absent(tmp_path):
+    import shutil
+
+    _make_conditioned_dataset(tmp_path)
+    shutil.rmtree(tmp_path / "test")
+
+    counts = validate_fixed_split_coverage(tmp_path)
+
+    expected_count = 3 + (len(CLASS_NAMES) - 1) * 4
+    assert counts == {"train": expected_count, "validation": expected_count, "test": 0}
+
+
+def test_ensure_evaluatable_split_rejects_placeholder_test_split():
+    from common.evaluate_tflite import _ensure_evaluatable_split
+
+    placeholder_items = [(f"rgb-{i}", f"ir-{i}", i) for i in range(len(CLASS_NAMES))]
+    with pytest.raises(ValueError, match="placeholder"):
+        _ensure_evaluatable_split(placeholder_items, "test")
+
+    # validation split은 소규모 fixture에서도 허용하고, test는 클래스 수 초과 시 허용한다.
+    _ensure_evaluatable_split(placeholder_items, "validation")
+    _ensure_evaluatable_split(placeholder_items + [("rgb-extra", "ir-extra", 0)], "test")

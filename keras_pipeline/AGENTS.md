@@ -18,7 +18,7 @@
 
 ## Boundary & Architecture Constraints
 
-1. **Fixed Splits Only**: Training and calibration use `dataset/raw/train`, model selection uses `dataset/raw/validation`, and final evaluation uses `dataset/raw/test`. Never reintroduce K-Fold splitting.
+1. **Fixed Splits Only**: Training and calibration use `dataset/raw/train` and model selection uses `dataset/raw/validation` (`dataset/raw/test` is optional for prospective holdout checks and rejects placeholder evaluation). Never reintroduce K-Fold splitting.
 2. **Supported Backbones**:
    - `mobilenetv2`: Baseline architecture; supports `crop_ir` (1ch), `crop_rgb` (3ch), and `dual` (separate RGB 3ch + IR 1ch inputs).
    - `efficientnet_lite0`: Active candidate; supports `crop_ir`, `crop_rgb`, and `dual`.

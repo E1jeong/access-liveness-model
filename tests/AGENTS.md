@@ -6,7 +6,8 @@
 
 ## Orient First
 
-- Read `tests/evaluation-metrics-results` and `schema` (§Information precedence) before adding or updating tests.
+- When the wiki or snapshot is available, read `tests/evaluation-metrics-results` and `schema` (§Information precedence) before adding or updating tests.
+- Report model metrics with run ID, split, artifact, execution machine, and code revision. Saved-dataset evaluation does not verify Android behavior.
 - Configuration: `pytest.ini`
 - Test directories:
   - Dataset & leakage: `tests/dataset/` (`test_dataset_pipeline.py`, `test_deterministic_augmentation.py`, `test_fixed_splits.py`)

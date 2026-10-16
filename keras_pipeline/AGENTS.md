@@ -7,7 +7,7 @@
 
 ## Orient First
 
-- Read `technical/training-pipeline`, `technical/training-command-guide`, `technical/training-options-and-checklist`, `technical/training-enhancement-proposals`, `technical/int8-quantization-npu`, and `technical/android-deployment-agreement` before modifying model architectures or quantization pipelines.
+- When the wiki or snapshot is available, read `technical/training-pipeline`, `technical/training-command-guide`, `technical/training-options-and-checklist`, `technical/training-enhancement-proposals`, `technical/int8-quantization-npu`, and `technical/android-deployment-agreement` before modifying model architectures or quantization pipelines.
 - Source entry points:
   - Model definitions: `models/model.py` (`build_single_model`, `build_dual_model`, `extract_deploy_model`), `models/efficientnet_lite.py`
   - 3D Depth supervision: `data/depth_generator.py` (`generate_pseudo_depth_map`, `_build_base_templates`, `generate_high_frequency_residual_map`)

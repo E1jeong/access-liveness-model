@@ -7,7 +7,7 @@
 
 ## Orient First
 
-- Read `technical/training-pipeline` (§65–90), `technical/int8-quantization-npu`, and `technical/training-command-guide` (§5) before modifying PyTorch models or Sony MCT quantization.
+- When the wiki or snapshot is available, read `technical/training-pipeline` (§65–90), `technical/int8-quantization-npu`, and `technical/training-command-guide` (§5) before modifying PyTorch models or Sony MCT quantization.
 - Source entry points:
   - Model definitions: `model.py` (`SingleInputMobileNetV3`, `DualInputMobileNetV3`, `replace_hardswish_with_relu`, `disable_se_blocks`)
   - Training loop: `train.py`

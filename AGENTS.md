@@ -11,7 +11,7 @@
   - **Sub GPU machine (`sub`, GTX 1660 Ti)**: The project owner's training, dataset processing, and INT8 quantization host via managed `uv` virtual environments (`.venv` for PyTorch, `.venv-tf` for Keras TF 2.21).
   - **Mac Studio (`mac`, Apple Silicon M4 Max)**: The collaborator's training host; high-speed Metal GPU training & export node. Uses a unified `.venv-tf` environment (TensorFlow 2.18.0 + `tensorflow-metal 1.2.0` + LiteRT 2.3.0, `requirements/mac-tf.lock`): supports Metal GPU-accelerated training, Keras 3 TFLite export, INT8 quantization, and validation evaluation in a single environment. Grappler meta-optimizer is disabled on Darwin to guarantee numerical parity with TFLite. Holds full 12-class condition-folder `dataset/raw` synchronized with `sub`.
   - **Host sharing**: Each person trains on their own host. Coordinate before running on the other host (one GPU each), and never modify the other person's checkout, run directories, or tmux sessions. Record the execution machine with metrics; `sub` (CUDA, TF 2.21) and `mac` (Metal, TF 2.18) results are compared only with that noted.
-- Report to the user in Korean; keep code, identifiers, paths, and commands in English.
+- In reports, keep code, identifiers, paths, and commands in English.
 - Read the nearest module `AGENTS.md` before changing a pipeline module; this root guide remains in force everywhere.
 
 ## Code Map

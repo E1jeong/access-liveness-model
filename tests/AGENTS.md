@@ -18,7 +18,8 @@
 
 1. **Environment Scope**:
    - Fast unit tests without heavy framework imports can run on CPU (Company PC or GPU server).
-   - TensorFlow/Keras and INT8 export tests require `.venv-tf` on the GPU server.
+   - TensorFlow/Keras-only export tests use `.venv-tf` on the GPU server.
+   - The mixed PyTorch MCT + TensorFlow export suite uses `.venv` on `sub`, where both stacks are installed.
 2. **Leakage & Determinism Protection**:
    - Any modification to `common/utils.py` or `keras_pipeline/data/dataset.py` must pass `test_fixed_splits.py` and `test_deterministic_augmentation.py`.
    - Never weaken evidence-based leakage detection: canonical realpath, MD5 content hash, and session/video metadata. Folder numbers are split-local capture IDs, not identity evidence; add identity leakage checks only when an explicit metadata `groupId` contract exists.
@@ -30,7 +31,7 @@
 
 - Report model metrics with run ID, split, artifact, execution machine, and code revision. Saved-dataset evaluation does not verify Android behavior.
 - All unit tests must pass before approving architectural or pipeline changes.
-- Fast tests must run cleanly on the company PC (CPU environment); full TensorFlow/export tests run on `sub` or `mac` in `.venv-tf`.
+- Fast tests must run cleanly on the company PC (CPU environment); Keras-only export tests run in `.venv-tf`, while the mixed PyTorch MCT + TensorFlow export suite runs in `.venv` on `sub`.
 
 ## Verify
 
@@ -38,6 +39,9 @@
 # Fast unit tests (Company PC or GPU server)
 uv run pytest tests/dataset tests/metrics
 
-# Full test suite (GPU server or mac with .venv-tf)
-.venv-tf/bin/pytest
+# Keras export suite (GPU server or mac with .venv-tf)
+.venv-tf/bin/pytest tests/export --ignore=tests/export/test_pytorch_mct_export.py
+
+# Mixed PyTorch MCT + TensorFlow export suite (sub .venv)
+.venv/bin/pytest tests/export
 ```

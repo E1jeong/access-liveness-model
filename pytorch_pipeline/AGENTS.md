@@ -42,5 +42,5 @@
 ./scripts/pytorch/run_pytorch_model.sh
 
 # Unit tests for PyTorch models and MCT export
-pytest tests/model/test_pytorch_model.py tests/export/test_pytorch_mct_export.py
+.venv/bin/pytest tests/model/test_pytorch_model.py tests/export/test_pytorch_mct_export.py
 ```

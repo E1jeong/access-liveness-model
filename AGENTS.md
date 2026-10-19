@@ -39,7 +39,8 @@
 
 - Company PC fast unit tests: `uv run pytest tests/dataset tests/metrics`
 - Split integrity & leakage check: `.venv/bin/python -m common.validate_fixed_splits` (or `.venv-tf/bin/python` on GPU server/mac)
-- GPU server full test suite: `.venv-tf/bin/pytest`
+- GPU server Keras export suite: `.venv-tf/bin/pytest tests/export --ignore=tests/export/test_pytorch_mct_export.py`
+- GPU server mixed PyTorch MCT + TensorFlow export suite: `.venv/bin/pytest tests/export`
 - Keras model & GPU smoke test: `./scripts/keras/run_keras_model.sh`
 - GPU-server TFLite evaluation on validation split: `.venv-tf/bin/python -m common.evaluate_tflite --models model/keras/best_crop_ir_fixed_npu_int8.tflite --model-type crop_ir --split validation`
 - Report exact commands and results.

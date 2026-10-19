@@ -3,7 +3,7 @@
 ## Context
 
 - Governs code navigation, implementation boundaries, and safety for `access-liveness-model`.
-- **Project wiki (owner-maintained)**: When the Obsidian wiki at vault-relative `Dev/Project/Company/access-liveness-model` is reachable, it is the single source of truth for project context, dataset standards, training pipelines, quantization benchmarks, and deployment contracts. Resolve the vault through `_meta/routing-tables.md` or `obsidian-wiki-sync`, never a hardcoded file URL.
+- **Project wiki (company-maintained)**: When the Obsidian wiki at vault-relative `Dev/Project/Company/ubio-vision-wiki/ubio-vision-model` is reachable, it is the single source of truth for project context, dataset standards, training pipelines, quantization benchmarks, and deployment contracts. Resolve the vault through `_meta/routing-tables.md` or `obsidian-wiki-sync`, never a hardcoded file URL.
 - **Without the wiki**: Code and these `AGENTS.md` guides are authoritative. A provided wiki snapshot is read-only background that may be stale and yields to code; record results in commit messages, not in the snapshot. Wiki page names cited in guides (e.g. `technical/training-pipeline`) are relative to the wiki or snapshot root.
 - **Paired Project**: Governs training and quantization upstream for `android-anti-spoofing-lab` (Anti-Spoofing Viewer Android app). Output contracts follow `technical/android-deployment-agreement`.
 - **Machine Topology**:

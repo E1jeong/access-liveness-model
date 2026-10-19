@@ -1,4 +1,4 @@
-# `pytorch_pipeline` Guide (R&D Sandbox & Quantization Bridge)
+# `pytorch_pipeline` Module Guide
 
 ## Scope
 
@@ -7,7 +7,6 @@
 
 ## Orient First
 
-- When the wiki or snapshot is available, read `technical/training-pipeline` (§65–90), `technical/int8-quantization-npu`, and `technical/training-command-guide` (§5) before modifying PyTorch models or Sony MCT quantization.
 - Source entry points:
   - Model definitions: `model.py` (`SingleInputMobileNetV3`, `DualInputMobileNetV3`, `replace_hardswish_with_relu`, `disable_se_blocks`)
   - Training loop: `train.py`
@@ -24,7 +23,7 @@
 2. **Sony MCT Quantization Bridge**:
    - Standard PyTorch PTQ causes activation collapse on MobileNetV3; use the Sony MCT PTQ path (`get_npu_tflite_tpc`) for INT8 export.
 3. **Android Contract Compatibility**:
-   - The emitted TFLite model from `convert_to_tflite.py` (via ONNX -> `onnx2tf`) must strictly follow the Android contract: NHWC input `[1, 224, 224, 1]` (`crop_ir`), `[1, 224, 224, 3]` (`crop_rgb`), or RGB `[1, 224, 224, 3]` + IR `[1, 224, 224, 1]` (`dual`), output `[1, 12]` INT8 logits (matching `len(CLASS_NAMES)`).
+   - Android deployment accepts only NHWC `[1, 224, 224, 1]` (`crop_ir`) or RGB `[1, 224, 224, 3]` + IR `[1, 224, 224, 1]` (`dual`), with `[1, 12]` INT8 logits matching `len(CLASS_NAMES)`. The converter also supports `crop_rgb` for research; RGB-only export is not an Android-deployable contract.
    - Sidecar manifest must be generated and inspected using `keras_pipeline.export.validator`.
 
 ## Change Gates
@@ -41,9 +40,6 @@
 
 # Model shape and architecture smoke test
 ./scripts/pytorch/run_pytorch_model.sh
-
-# End-to-end PyTorch fixed split run
-./scripts/pytorch/run_fixed_split.sh --model-type crop_ir --epochs 30 --batch-size 32 --learning-rate 2e-4
 
 # Unit tests for PyTorch models and MCT export
 pytest tests/model/test_pytorch_model.py tests/export/test_pytorch_mct_export.py

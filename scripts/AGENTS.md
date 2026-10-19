@@ -1,4 +1,4 @@
-# `scripts` Guide (Execution Wrappers & Server Tooling)
+# `scripts` Module Guide
 
 ## Scope
 
@@ -7,7 +7,6 @@
 
 ## Orient First
 
-- When the wiki or snapshot is available, read `technical/training-command-guide` and `operations/working-environment` before running server scripts or adding wrappers.
 - Source entry points:
   - Keras environment preamble: `scripts/keras/_keras_env.sh`
   - Keras fixed-split wrapper: `scripts/keras/run_fixed_split.sh`
@@ -26,7 +25,8 @@
 
 ## Change Gates
 
-- Test shell script syntax before committing: `bash -n scripts/**/*.sh`.
+- Before requested server execution or changing wrapper execution semantics, consult `technical/training-command-guide` and `operations/working-environment` when the wiki or snapshot is available.
+- Check every affected shell script individually with the syntax loop below; passing several files to one `bash -n` checks only its first script.
 - Never hardcode host-specific absolute paths (e.g., `/home/union/...` or `C:\Users\...`) inside scripts.
 - Default arguments in scripts must match repository-wide constants (`REDUCTION="sum"`, `DATA_DIR="dataset/raw"`; `CALIBRATION_SAMPLES=500` for Keras and `200` for PyTorch, matching `convert_to_tflite.py --calib-samples`).
 
@@ -34,10 +34,9 @@
 
 ```bash
 # Syntax verification
-bash -n scripts/keras/*.sh
-bash -n scripts/pytorch/*.sh
-bash -n scripts/face_detection/*.sh
-bash -n scripts/git_pull_clean.sh
+for script in scripts/keras/*.sh scripts/pytorch/*.sh scripts/face_detection/*.sh scripts/git_pull_clean.sh; do
+  bash -n "$script" || exit
+done
 
 # GPU environment check
 ./scripts/keras/run_keras_model.sh

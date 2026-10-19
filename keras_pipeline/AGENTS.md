@@ -1,4 +1,4 @@
-# `keras_pipeline` Guide (Production Mainline)
+# `keras_pipeline` Module Guide
 
 ## Scope
 
@@ -7,7 +7,6 @@
 
 ## Orient First
 
-- When the wiki or snapshot is available, read `technical/training-pipeline`, `technical/training-command-guide`, `technical/training-options-and-checklist`, `technical/training-enhancement-proposals`, `technical/int8-quantization-npu`, and `technical/android-deployment-agreement` before modifying model architectures or quantization pipelines.
 - Source entry points:
   - Model definitions: `models/model.py` (`build_single_model`, `build_dual_model`, `extract_deploy_model`), `models/efficientnet_lite.py`
   - 3D Depth supervision: `data/depth_generator.py` (`generate_pseudo_depth_map`, `_build_base_templates`, `generate_high_frequency_residual_map`)
@@ -28,11 +27,11 @@
    - `MEAN` global pooling replaced with `AVERAGE_POOL_2D`.
    - Classifier head built with `1x1 Conv2D` instead of `Dense` to avoid NPU dimension flattening defects.
    - Batch dimension fixed to `1`.
-5. **Label Smoothing**: `--label-smoothing 0.1` is standard to prevent logit saturation during quantization.
-6. **Deterministic Augmentation**: Stream-global `(epoch * N + step, seed)` ensures epoch-unique augmentation without breaking reproducibility.
+5. **Deterministic Augmentation**: Stream-global `(epoch * N + step, seed)` ensures epoch-unique augmentation without breaking reproducibility.
 
 ## Change Gates
 
+- For requested training/export execution or changes to approved presets and deployment contracts, consult the relevant wiki runbook/contract when available; do not treat module navigation as authorization to launch training.
 - Always execute via `scripts/keras/*.sh` from repository root. Never invoke bare `python` on the GPU machine (`sub`) because `.venv-tf` requires `libcudnn.so.9` from `_keras_env.sh`.
 - Do not overwrite existing candidate models (`model/keras/best_*`). Write new runs with unique timestamps or run IDs.
 - Any change to model inputs, outputs, or quantization must generate and validate the matching sidecar JSON (`best_*_manifest.json`) via `export/validator.py`.
@@ -42,9 +41,6 @@
 ```bash
 # Model architecture & GPU smoke test
 ./scripts/keras/run_keras_model.sh
-
-# End-to-end training + quantization + validation evaluation
-./scripts/keras/run_fixed_split.sh --model-type crop_ir --backbone mobilenetv2 --epochs 30 --batch-size 32 --learning-rate 2e-4
 
 # Unit tests for Keras models and exports
 .venv-tf/bin/pytest tests/model/test_conv1_reduction.py tests/model/test_efficientnet_lite.py tests/export/test_npu_export.py

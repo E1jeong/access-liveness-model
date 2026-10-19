@@ -1,4 +1,4 @@
-# `tests` Guide (Automated Test Suite & Quality Gates)
+# `tests` Module Guide
 
 ## Scope
 
@@ -6,8 +6,6 @@
 
 ## Orient First
 
-- When the wiki or snapshot is available, read `tests/evaluation-metrics-results` and `schema` (§Information precedence) before adding or updating tests.
-- Report model metrics with run ID, split, artifact, execution machine, and code revision. Saved-dataset evaluation does not verify Android behavior.
 - Configuration: `pytest.ini`
 - Test directories:
   - Dataset & leakage: `tests/dataset/` (`test_dataset_pipeline.py`, `test_deterministic_augmentation.py`, `test_fixed_splits.py`)
@@ -30,6 +28,7 @@
 
 ## Change Gates
 
+- Report model metrics with run ID, split, artifact, execution machine, and code revision. Saved-dataset evaluation does not verify Android behavior.
 - All unit tests must pass before approving architectural or pipeline changes.
 - Fast tests must run cleanly on the company PC (CPU environment); full TensorFlow/export tests run on `sub` or `mac` in `.venv-tf`.
 

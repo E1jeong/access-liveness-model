@@ -13,6 +13,7 @@
   - Metrics: `tests/metrics/` (`test_metrics.py`)
   - Model architectures & loss: `tests/model/` (`test_aux_depth.py`, `test_aux_residual.py`, `test_binary_pad.py`, `test_conv1_reduction.py`, `test_display_target_augmentation.py`, `test_efficientnet_lite.py`, `test_focal_loss.py`, `test_model_signature.py`, `test_pytorch_model.py`, `test_run_metadata.py`, `test_supcon.py`, `test_training_enhancements.py`)
   - Face detection: `tests/face_detection/` (model, adapter, loss parity, training, decoding, metrics, and export contracts)
+  - Face recognition: `tests/face_recognition/` (model architecture, calibration sampling, verifier contracts)
 
 ## Boundary & Architecture Constraints
 

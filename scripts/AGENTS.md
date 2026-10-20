@@ -11,7 +11,7 @@
   - Keras environment preamble: `scripts/keras/_keras_env.sh`
   - Keras fixed-split wrapper: `scripts/keras/run_fixed_split.sh`
   - PyTorch fixed-split wrapper: `scripts/pytorch/run_fixed_split.sh`
-  - Recognition NPU export: `scripts/recognition/export_npu_mobilenet_emore.py`
+  - Recognition NPU export: `scripts/face_recognition/run_export.sh` (legacy alias: `scripts/keras/run_recognition_export.sh`)
   - Face detector training: `scripts/face_detection/run_train.sh`
   - Face detector CPU conversion: `scripts/face_detection/run_convert.sh`
   - Git synchronization cleaner: `scripts/git_pull_clean.sh`
@@ -35,7 +35,7 @@
 
 ```bash
 # Syntax verification
-for script in scripts/keras/*.sh scripts/pytorch/*.sh scripts/face_detection/*.sh scripts/git_pull_clean.sh; do
+for script in scripts/keras/*.sh scripts/pytorch/*.sh scripts/face_detection/*.sh scripts/face_recognition/*.sh scripts/git_pull_clean.sh; do
   bash -n "$script" || exit
 done
 

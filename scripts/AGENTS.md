@@ -13,6 +13,7 @@
   - PyTorch fixed-split wrapper: `scripts/pytorch/run_fixed_split.sh`
   - Recognition NPU export: `scripts/recognition/export_npu_mobilenet_emore.py`
   - Face detector training: `scripts/face_detection/run_train.sh`
+  - Face detector CPU conversion: `scripts/face_detection/run_convert.sh`
   - Git synchronization cleaner: `scripts/git_pull_clean.sh`
 
 ## Boundary & Architecture Constraints

@@ -32,12 +32,20 @@ class FaceDetectionDataset(Dataset):
         *,
         image_size: tuple[int, int],
         limit_samples: int | None = None,
+        zoom_probability: float = 0.0,
+        zoom_max_face_fraction: float = 0.9,
     ):
         self.split_dir = Path(split_dir)
         self.image_size = image_size
         if not self.split_dir.is_dir():
             raise FileNotFoundError(f"Split directory does not exist: {self.split_dir}")
         _validate_target_size(image_size)
+        if not 0 <= zoom_probability <= 1:
+            raise ValueError("zoom_probability must be in [0, 1]")
+        if not 0 < zoom_max_face_fraction <= 1:
+            raise ValueError("zoom_max_face_fraction must be in (0, 1]")
+        self.zoom_probability = zoom_probability
+        self.zoom_max_face_fraction = zoom_max_face_fraction
         if limit_samples is not None and limit_samples <= 0:
             raise ValueError("limit_samples must be positive")
 
@@ -60,12 +68,50 @@ class FaceDetectionDataset(Dataset):
         with Image.open(image_path) as source:
             image = source.convert("RGB")
         boxes = _load_face_boxes(meta_path, image.size)
+        if self.zoom_probability > 0 and torch.rand(1).item() < self.zoom_probability:
+            image, boxes = _random_zoom_image_and_boxes(
+                image, boxes, self.zoom_max_face_fraction,
+            )
         tensor, transformed_boxes, _ = letterbox_image_and_boxes(
             image,
             boxes,
             self.image_size,
         )
         return tensor, transformed_boxes
+
+
+def _random_zoom_image_and_boxes(
+    image: Image.Image,
+    boxes: torch.Tensor,
+    max_face_fraction: float,
+) -> tuple[Image.Image, torch.Tensor]:
+    """Zoom a crop without padding or cutting any labeled face; preserve aspect ratio."""
+
+    if not boxes.numel():
+        return image, boxes
+    width, height = image.size
+    left, top = boxes[:, :2].amin(dim=0).tolist()
+    right, bottom = boxes[:, 2:].amax(dim=0).tolist()
+    fraction = max((right - left) / width, (bottom - top) / height)
+    if fraction >= max_face_fraction:
+        return image, boxes
+
+    scale = 1 + torch.rand(1).item() * (max_face_fraction / fraction - 1)
+    crop_width, crop_height = width / scale, height / scale
+    min_x, max_x = max(0.0, right - crop_width), min(left, width - crop_width)
+    min_y, max_y = max(0.0, bottom - crop_height), min(top, height - crop_height)
+    crop_x = min_x + torch.rand(1).item() * (max_x - min_x)
+    crop_y = min_y + torch.rand(1).item() * (max_y - min_y)
+    zoomed = image.transform(
+        image.size,
+        Image.Transform.AFFINE,
+        (1 / scale, 0, crop_x, 0, 1 / scale, crop_y),
+        Image.Resampling.BILINEAR,
+    )
+    transformed = boxes.clone()
+    transformed[:, 0::2] = (transformed[:, 0::2] - crop_x) * scale
+    transformed[:, 1::2] = (transformed[:, 1::2] - crop_y) * scale
+    return zoomed, transformed
 
 
 def _load_face_boxes(meta_path: Path, image_size: tuple[int, int]) -> torch.Tensor:

@@ -49,6 +49,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-detections", type=int, default=100)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--zoom-probability", type=float, default=0.5,
+        help="Training-only full-face zoom probability; 0 disables augmentation",
+    )
+    parser.add_argument(
+        "--zoom-max-face-fraction", type=float, default=0.9,
+        help="Maximum zoomed face extent relative to source width/height",
+    )
     parser.add_argument("--device", choices=("cuda", "cpu"), default="cuda")
     parser.add_argument("--limit-train-samples", type=int)
     parser.add_argument("--limit-validation-samples", type=int)
@@ -67,6 +75,8 @@ def train(args: argparse.Namespace) -> Path:
         data_dir / "train",
         image_size=image_size,
         limit_samples=args.limit_train_samples,
+        zoom_probability=args.zoom_probability,
+        zoom_max_face_fraction=args.zoom_max_face_fraction,
     )
     validation_dataset = FaceDetectionDataset(
         data_dir / "validation",
@@ -115,6 +125,15 @@ def train(args: argparse.Namespace) -> Path:
         best_validation_loss = float("inf")
     else:
         checkpoint = _load_checkpoint(args.resume, model, optimizer, warmup, device)
+        saved_config = checkpoint.get("training_config", {})
+        for name, legacy_default in (
+            ("zoom_probability", 0.0), ("zoom_max_face_fraction", 0.9),
+        ):
+            if saved_config.get(name, legacy_default) != getattr(args, name):
+                raise ValueError(
+                    f"Resume {name} does not match checkpoint; use matching zoom "
+                    "options or start a new run"
+                )
         if checkpoint.get("input_size") != [args.image_width, args.image_height]:
             raise ValueError(
                 f"Checkpoint input size {checkpoint.get('input_size')} does not match "
@@ -346,6 +365,10 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("score-threshold and nms-threshold must be in [0, 1]")
     if not 0 < args.iou_threshold <= 1 or args.max_detections <= 0:
         raise ValueError("iou-threshold must be in (0, 1] and max-detections positive")
+    if not 0 <= args.zoom_probability <= 1:
+        raise ValueError("zoom-probability must be in [0, 1]")
+    if not 0 < args.zoom_max_face_fraction <= 1:
+        raise ValueError("zoom-max-face-fraction must be in (0, 1]")
     if args.run_id is not None and not re.fullmatch(
         r"[A-Za-z0-9][A-Za-z0-9_.-]*",
         args.run_id,

@@ -24,7 +24,18 @@ def _write_split_frame(data_dir, split):
     (frame_dir / "meta.json").write_text(json.dumps(metadata), encoding="utf-8")
 
 
-def test_one_epoch_cpu_smoke_saves_box_only_checkpoint(tmp_path):
+def test_one_epoch_cpu_smoke_saves_box_only_checkpoint(tmp_path, monkeypatch):
+    import face_detection_pipeline.training.train as training
+
+    datasets = []
+    original_dataset = training.FaceDetectionDataset
+
+    def capture_dataset(*args, **kwargs):
+        dataset = original_dataset(*args, **kwargs)
+        datasets.append(dataset)
+        return dataset
+
+    monkeypatch.setattr(training, "FaceDetectionDataset", capture_dataset)
     data_dir = tmp_path / "dataset" / "raw"
     _write_split_frame(data_dir, "train")
     _write_split_frame(data_dir, "validation")
@@ -58,6 +69,10 @@ def test_one_epoch_cpu_smoke_saves_box_only_checkpoint(tmp_path):
     assert checkpoint["model"] == "yunet_n_box_only"
     assert checkpoint["run_id"] == "smoke"
     assert checkpoint["input_size"] == [64, 64]
+    assert checkpoint["training_config"]["zoom_probability"] == 0.5
+    assert checkpoint["training_config"]["zoom_max_face_fraction"] == 0.9
+    assert datasets[0].zoom_probability == 0.5
+    assert datasets[1].zoom_probability == 0
     assert checkpoint["epoch"] == 1
     assert checkpoint["warmup_state"]["completed_iterations"] == 1
     assert checkpoint["validation_metrics"]["f1"] >= 0
@@ -85,6 +100,14 @@ def test_one_epoch_cpu_smoke_saves_box_only_checkpoint(tmp_path):
             str(output_dir / "smoke" / "latest_yunet_n_64x64.pth"),
         ]
     )
+    resumed_args.zoom_probability = 0
+    with pytest.raises(ValueError, match="Resume zoom_probability"):
+        train(resumed_args)
+    assert torch.load(
+        output_dir / "smoke" / "latest_yunet_n_64x64.pth",
+        map_location="cpu", weights_only=True,
+    )["epoch"] == 1
+    resumed_args.zoom_probability = 0.5
     train(resumed_args)
     resumed = torch.load(
         output_dir / "smoke" / "latest_yunet_n_64x64.pth",
@@ -116,6 +139,10 @@ def test_one_epoch_cpu_smoke_saves_box_only_checkpoint(tmp_path):
         ["--iou-threshold", "0"],
         ["--max-detections", "0"],
         ["--run-id", "../outside"],
+        ["--zoom-probability", "-0.1"],
+        ["--zoom-probability", "nan"],
+        ["--zoom-max-face-fraction", "0"],
+        ["--zoom-max-face-fraction", "inf"],
     ],
 )
 def test_train_rejects_invalid_arguments(arguments):

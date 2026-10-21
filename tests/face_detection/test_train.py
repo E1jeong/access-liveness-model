@@ -7,7 +7,12 @@ from torch.utils.data import DataLoader
 
 from face_detection_pipeline.data.dataset import collate_face_detection_batch
 from face_detection_pipeline.models.yunet import build_yunet_n
-from face_detection_pipeline.training.train import _run_epoch, parse_args, train
+from face_detection_pipeline.training.train import (
+    _resolve_device,
+    _run_epoch,
+    parse_args,
+    train,
+)
 
 
 def _write_split_frame(data_dir, split):
@@ -177,3 +182,15 @@ def test_training_aborts_on_non_finite_loss():
             optimizer,
             torch.device("cpu"),
         )
+
+
+def test_resolve_device_supports_mps_when_available(monkeypatch):
+    args = parse_args(["--device", "mps"])
+    assert args.device == "mps"
+
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: False)
+    with pytest.raises(RuntimeError, match="MPS was requested but is not available"):
+        _resolve_device("mps")
+
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
+    assert _resolve_device("mps") == torch.device("mps")

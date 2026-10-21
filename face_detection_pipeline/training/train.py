@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from face_detection_pipeline.data.dataset import (
     FaceDetectionDataset,
@@ -57,7 +58,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--zoom-max-face-fraction", type=float, default=0.9,
         help="Maximum zoomed face extent relative to source width/height",
     )
-    parser.add_argument("--device", choices=("cuda", "cpu"), default="cuda")
+    parser.add_argument("--device", choices=("cuda", "mps", "cpu"), default="cuda")
     parser.add_argument("--limit-train-samples", type=int)
     parser.add_argument("--limit-validation-samples", type=int)
     args = parser.parse_args(argv)
@@ -177,6 +178,7 @@ def train(args: argparse.Namespace) -> Path:
             optimizer,
             device,
             warmup=warmup,
+            progress_desc=f"Epoch {epoch}/{args.epochs} [train]",
         )
         validation_metrics = _run_epoch(
             model,
@@ -188,6 +190,7 @@ def train(args: argparse.Namespace) -> Path:
             nms_threshold=args.nms_threshold,
             iou_threshold=args.iou_threshold,
             max_detections=args.max_detections,
+            progress_desc=f"Epoch {epoch}/{args.epochs} [val]",
         )
         record = {
             "epoch": epoch,
@@ -243,6 +246,7 @@ def _run_epoch(
     nms_threshold: float = 0.45,
     iou_threshold: float = 0.5,
     max_detections: int = 100,
+    progress_desc: str | None = None,
 ) -> dict[str, float]:
     training = optimizer is not None
     model.train(training)
@@ -251,8 +255,13 @@ def _run_epoch(
     all_detections: list[Detection] = []
     all_ground_truth: list[torch.Tensor] = []
     context = torch.enable_grad() if training else torch.inference_mode()
+    iterator = (
+        tqdm(loader, desc=progress_desc, leave=False, dynamic_ncols=True)
+        if progress_desc is not None
+        else loader
+    )
     with context:
-        for images, boxes in loader:
+        for images, boxes in iterator:
             if warmup is not None:
                 warmup.step()
             images = images.to(device, non_blocking=True)
@@ -284,6 +293,8 @@ def _run_epoch(
             sample_count += batch_size
             for name, value in losses.items():
                 totals[name] += float(value.detach()) * batch_size
+            if progress_desc is not None:
+                iterator.set_postfix(loss=f"{totals['total'] / sample_count:.4f}")
     if sample_count == 0:
         raise ValueError("Cannot train or validate with an empty dataset")
     metrics = {name: value / sample_count for name, value in totals.items()}
@@ -312,6 +323,7 @@ def _build_loader(
         shuffle=shuffle,
         num_workers=num_workers,
         pin_memory=device.type == "cuda",
+        persistent_workers=num_workers > 0,
         collate_fn=collate_face_detection_batch,
     )
 
@@ -347,6 +359,10 @@ def _checkpoint(
 def _resolve_device(name: str) -> torch.device:
     if name == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA was requested but is not available")
+    if name == "mps" and not (
+        hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+    ):
+        raise RuntimeError("MPS was requested but is not available")
     return torch.device(name)
 
 

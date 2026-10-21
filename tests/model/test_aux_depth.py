@@ -3,6 +3,8 @@ import numpy as np
 import pytest
 import tensorflow as tf
 
+from common.classes import CLASS_NAMES
+
 from keras_pipeline.data.depth_generator import generate_pseudo_depth_map
 from keras_pipeline.models.model import (
     build_single_model, build_dual_model, extract_deploy_model
@@ -46,13 +48,13 @@ def test_model_aux_depth_single_and_deploy_extract():
     assert isinstance(outputs, (list, tuple))
     assert len(outputs) == 2
     logits, depth = outputs
-    assert logits.shape == (2, 12)
+    assert logits.shape == (2, len(CLASS_NAMES))
     assert depth.shape == (2, 14, 14, 1)
 
     # 배포용 모델 추출
     deploy_model = extract_deploy_model(model)
     deploy_out = deploy_model(dummy_in)
-    assert deploy_out.shape == (2, 12)
+    assert deploy_out.shape == (2, len(CLASS_NAMES))
     assert len(deploy_model.outputs) == 1
 
 
@@ -65,7 +67,7 @@ def test_model_aux_depth_dual():
 
     assert len(outputs) == 2
     logits, depth = outputs
-    assert logits.shape == (2, 12)
+    assert logits.shape == (2, len(CLASS_NAMES))
     assert depth.shape == (2, 14, 14, 1)
 
 
@@ -85,3 +87,16 @@ def test_dataset_aux_depth_structure(tmp_path):
         assert "logits" in batch_y and "depth_output" in batch_y
         assert batch_y["logits"].shape == (2,)
         assert batch_y["depth_output"].shape == (2, 14, 14, 1)
+
+
+def test_outdoor_depth_templates_match_indoor_geometry():
+    for label in range(12):
+        np.testing.assert_array_equal(
+            generate_pseudo_depth_map(label), generate_pseudo_depth_map(label + 12)
+        )
+
+
+@pytest.mark.parametrize("label", [-1, 24])
+def test_depth_generator_rejects_out_of_range_labels(label):
+    with pytest.raises(ValueError, match="클래스 라벨"):
+        generate_pseudo_depth_map(label)

@@ -6,6 +6,8 @@ import numpy as np
 import pytest
 import tensorflow as tf
 
+from common.classes import CLASS_NAMES
+
 from keras_pipeline.data.dataset import make_dataset, make_single_dataset
 from keras_pipeline.data.depth_generator import generate_high_frequency_residual_map
 from keras_pipeline.models.losses import build_classification_loss, build_supcon_loss
@@ -66,7 +68,7 @@ def test_residual_head_combines_with_depth_and_supcon_and_is_stripped_for_deploy
 
     assert model.output_names == ["logits", "depth_output", "residual_output", "supcon_output"]
     assert [tuple(output.shape) for output in outputs] == [
-        (2, 12),
+        (2, len(CLASS_NAMES)),
         (2, 14, 14, 1),
         (2, 14, 14, 1),
         (2, 16),
@@ -125,7 +127,7 @@ def test_dual_model_and_dataset_use_ir_residual_target(tmp_path):
         np.zeros((1, 224, 224, 1), dtype=np.float32),
     ])
     assert model.output_names == ["logits", "residual_output"]
-    assert outputs[0].shape == (1, 12)
+    assert outputs[0].shape == (1, len(CLASS_NAMES))
     assert outputs[1].shape == (1, 14, 14, 1)
 
     rgb_path = str(tmp_path / "rgb.bmp")
@@ -182,5 +184,5 @@ def test_depth_supcon_and_residual_heads_train_together_and_reload_for_deploy(tm
     loaded = tf.keras.models.load_model(checkpoint, compile=False)
     deploy_model = extract_deploy_model(loaded)
 
-    assert deploy_model.output_shape == (None, 12)
+    assert deploy_model.output_shape == (None, len(CLASS_NAMES))
     assert all("residual" not in layer.name for layer in deploy_model.layers)

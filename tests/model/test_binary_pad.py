@@ -3,20 +3,20 @@ import numpy as np
 import pytest
 import tensorflow as tf
 
-from common.classes import BONA_FIDE_CLASS_INDICES
+from common.classes import BONA_FIDE_CLASS_INDICES, CLASS_NAMES
 from keras_pipeline.models.losses import build_binary_pad_loss
 from keras_pipeline.data.dataset import make_single_dataset
 from keras_pipeline.models.model import build_single_model, extract_deploy_model
 
 
 def test_phase_two_bona_fide_indices():
-    assert BONA_FIDE_CLASS_INDICES == (0, 10, 11)
+    assert BONA_FIDE_CLASS_INDICES == (0, 10, 11, 12, 22, 23)
 
 
 def test_binary_pad_loss_matches_phase_two_policy():
     loss_fn = build_binary_pad_loss()
-    labels = tf.constant([0, 10, 11, 1, 9], dtype=tf.int32)
-    correct_logits = tf.constant([[-8.0], [-8.0], [-8.0], [8.0], [8.0]], dtype=tf.float32)
+    labels = tf.constant([0, 10, 11, 12, 22, 23, 1, 9, 13, 21], dtype=tf.int32)
+    correct_logits = tf.constant([[-8.0]] * 6 + [[8.0]] * 4, dtype=tf.float32)
     inverted_logits = -correct_logits
 
     assert float(loss_fn(labels, correct_logits)) < 0.01
@@ -30,13 +30,13 @@ def test_binary_pad_head_is_training_only_and_deploy_extracts_logits():
     outputs = model(np.zeros((2, 224, 224, 1), dtype=np.float32))
 
     assert len(outputs) == 3
-    assert outputs[0].shape == (2, 12)
+    assert outputs[0].shape == (2, len(CLASS_NAMES))
     assert outputs[1].shape == (2, 14, 14, 1)
     assert outputs[2].shape == (2, 1)
 
     deploy_model = extract_deploy_model(model)
     assert len(deploy_model.outputs) == 1
-    assert deploy_model(np.zeros((2, 224, 224, 1), dtype=np.float32)).shape == (2, 12)
+    assert deploy_model(np.zeros((2, 224, 224, 1), dtype=np.float32)).shape == (2, len(CLASS_NAMES))
 
 
 def test_dataset_reuses_multiclass_label_for_binary_pad(tmp_path):

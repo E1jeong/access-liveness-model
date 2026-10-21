@@ -9,7 +9,7 @@ from keras_pipeline.contracts.model_signature import (
 
 
 def test_class_order_matches_android_collection_names():
-    assert CLASS_NAMES == [
+    base_classes = [
         "live",
         "print",
         "picture",
@@ -23,6 +23,7 @@ def test_class_order_matches_android_collection_names():
         "dental_white",
         "dental_black",
     ]
+    assert CLASS_NAMES == base_classes + [f"{name}_outdoor" for name in base_classes]
 
 
 class FakeTensor:
@@ -74,3 +75,9 @@ def test_tflite_signature_rejects_wrong_logical_input_name():
 
     with pytest.raises(ValueError, match="허용되지 않은 입력 이름"):
         validate_tflite_model_signature(inputs, outputs, "crop_ir")
+
+
+def test_tflite_rejects_legacy_twelve_class_output():
+    inputs, _ = _tflite_details("crop_ir")
+    with pytest.raises(ValueError, match="출력 shape"):
+        validate_tflite_model_signature(inputs, [{"shape": (1, 12)}], "crop_ir")

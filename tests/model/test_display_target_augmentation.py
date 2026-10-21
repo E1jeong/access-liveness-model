@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import pytest
 
 from common.classes import CLASS_MAPPING
 from keras_pipeline.data.dataset import load_sample, load_single_sample, make_single_dataset
@@ -89,3 +90,20 @@ def test_dataset_display_artifacts_option(tmp_path):
     ir_enabled = batch_enabled[0].numpy()
 
     assert not np.array_equal(ir_disabled, ir_enabled)
+
+
+@pytest.mark.parametrize("input_type", ["crop_ir", "crop_rgb", "dual"])
+def test_outdoor_display_receives_same_artifact_augmentation(tmp_path, input_type):
+    rgb_path, ir_path = _write_blank_pair(tmp_path)
+    results = []
+    for name in ("display", "display_outdoor"):
+        if input_type == "dual":
+            results.append(load_sample(rgb_path, ir_path, label=CLASS_MAPPING[name], **DISPLAY_PARAMS))
+        else:
+            path = ir_path if input_type == "crop_ir" else rgb_path
+            results.append(load_single_sample(path, input_type=input_type, label=CLASS_MAPPING[name], **DISPLAY_PARAMS))
+    if input_type == "dual":
+        for indoor, outdoor in zip(results[0], results[1]):
+            np.testing.assert_array_equal(indoor, outdoor)
+    else:
+        np.testing.assert_array_equal(results[0], results[1])

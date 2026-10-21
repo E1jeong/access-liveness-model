@@ -4,6 +4,8 @@
 입력 이미지 및 라벨에 대응하는 14x14 크기의 3D 깊이 지도를 메모리 상에서 실시간 생성합니다.
 IR 고주파 잔차 지도는 클래스와 무관하게 입력 영상으로부터 생성합니다.
 
+야외 라벨(12~23)은 대응하는 실내 라벨(0~11)의 깊이 지도를 사용합니다.
+
 깊이 지도 규칙 (ISO/IEC PAD 물리 모델 기반):
   1) live (0): 코를 정점으로 하는 3D 볼록 타원 곡면 (0.0 ~ 1.0)
   2) dental_white (10), dental_black (11): 상안부(이마/눈/미간) 3D 곡면 + 하안부(마스크) 감쇄 (0.0 ~ 1.0)
@@ -12,6 +14,8 @@ IR 고주파 잔차 지도는 클래스와 무관하게 입력 영상으로부�
 """
 import cv2
 import numpy as np
+
+from common.classes import BASE_CLASS_NAMES, CLASS_NAMES
 
 
 HIGH_FREQUENCY_RESIDUAL_SCALE = 0.1
@@ -86,6 +90,10 @@ def generate_pseudo_depth_map(label_idx, size=(14, 14), flip=0, angle=0.0):
         templates = _CACHED_TEMPLATES
     else:
         templates = _build_base_templates(size)
+
+    if not 0 <= label_idx < len(CLASS_NAMES):
+        raise ValueError(f"지원하지 않는 클래스 라벨: {label_idx}")
+    label_idx %= len(BASE_CLASS_NAMES)
 
     # 클래스에 따른 기본 템플릿 선택
     if label_idx == 0:

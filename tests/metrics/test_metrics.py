@@ -20,7 +20,7 @@ def test_all_attacks_predicted_as_bona_fide_is_full_apcer(bona_fide_prediction):
 
 
 def test_all_bona_fide_predicted_as_attack_is_full_bpcer():
-    apcer, bpcer, acer = _metrics(BONA_FIDE_CLASS_INDICES, [1, 2, 5])
+    apcer, bpcer, acer = _metrics(BONA_FIDE_CLASS_INDICES, [1] * len(BONA_FIDE_CLASS_INDICES))
 
     assert (apcer, bpcer, acer) == (0.0, 1.0, 0.5)
 
@@ -77,3 +77,9 @@ def test_metric_inputs_must_have_equal_lengths():
 def test_metric_inputs_must_stay_within_class_range(labels, preds, message):
     with pytest.raises(ValueError, match=message):
         calculate_validation_metrics(labels, preds)
+
+
+def test_outdoor_bona_fide_classes_and_cross_environment_predictions():
+    assert BONA_FIDE_CLASS_INDICES == (0, 10, 11, 12, 22, 23)
+    assert _metrics([12, 22, 23], [0, 10, 11]) == (0.0, 0.0, 0.0)
+    assert _metrics([13, 21], [12, 23]) == (1.0, 0.0, 0.5)

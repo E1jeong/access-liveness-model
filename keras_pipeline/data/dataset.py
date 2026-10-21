@@ -11,7 +11,7 @@ resize 구현과 ColorJitter 연산 순서가 달라 픽셀 단위 결과까지 
 Multi-Task Auxiliary 지도학습 지원:
   - `aux_depth=True` 시 14x14 크기의 3D 깊이 지도(`depth_output`)를 타겟 딕셔너리로 함께 반환한다.
   - `aux_residual=True` 시 IR 입력의 14x14 고주파 잔차 지도(`residual_output`)를 함께 반환한다.
-  - `aux_binary_pad=True` 시 같은 12-class label을 `pad_output`에도 전달한다.
+  - `aux_binary_pad=True` 시 같은 24-class label을 `pad_output`에도 전달한다.
   - `aux_supcon=True` 시 같은 label을 학습 전용 `supcon_output`에도 전달한다.
     binary target 변환은 loss에서 Phase 2 policy로 수행한다.
 """
@@ -37,6 +37,7 @@ from common.classes import CLASS_MAPPING
 
 
 DISPLAY_LABEL = CLASS_MAPPING["display"]
+DISPLAY_LABELS = (DISPLAY_LABEL, CLASS_MAPPING["display_outdoor"])
 
 
 def _moire_luminance_stripe(height, width, frequency, angle, phase):
@@ -115,7 +116,7 @@ def load_sample(rgb_path, ir_path, augment=False, flip=0, angle=0.0, brightness_
             ir_f = ir.astype(np.float32)
             ir = np.clip(ir_f * ir_brightness_f, 0, 255).astype(np.uint8)
 
-        if label == DISPLAY_LABEL:
+        if label in DISPLAY_LABELS:
             if moire_strength > 0.0:
                 rgb = _apply_rgb_moire(rgb, moire_strength, moire_frequency, moire_angle, moire_phase)
                 ir = _apply_ir_moire(ir, moire_strength, moire_frequency, moire_angle, moire_phase)
@@ -160,7 +161,7 @@ def load_single_sample(path, input_type="crop_rgb", augment=False, flip=0, angle
             gray = (0.299 * rgb_f[:, :, 0] + 0.587 * rgb_f[:, :, 1] + 0.114 * rgb_f[:, :, 2])[:, :, np.newaxis]
             rgb_f = np.clip(gray + sat_f * (rgb_f - gray), 0, 255)
             rgb = rgb_f.astype(np.uint8)
-            if label == DISPLAY_LABEL:
+            if label in DISPLAY_LABELS:
                 rgb = _apply_rgb_moire(rgb, moire_strength, moire_frequency, moire_angle, moire_phase)
 
         rgb = rgb.astype(np.float32) / 255.0
@@ -184,7 +185,7 @@ def load_single_sample(path, input_type="crop_rgb", augment=False, flip=0, angle
             if ir_brightness_f != 1.0:
                 ir_f = ir.astype(np.float32)
                 ir = np.clip(ir_f * ir_brightness_f, 0, 255).astype(np.uint8)
-            if label == DISPLAY_LABEL:
+            if label in DISPLAY_LABELS:
                 if moire_strength > 0.0:
                     ir = _apply_ir_moire(ir, moire_strength, moire_frequency, moire_angle, moire_phase)
                 if glare_strength > 0.0:

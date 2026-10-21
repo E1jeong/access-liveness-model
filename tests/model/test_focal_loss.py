@@ -15,7 +15,7 @@ class TestBuildClassificationLoss:
     def test_ce_loss_without_smoothing(self):
         loss_fn = build_classification_loss(loss_type="ce", label_smoothing=0.0)
         y_true = tf.constant([0, 1])
-        y_pred = tf.constant([[5.0] + [0.0] * 11, [0.0, 5.0] + [0.0] * 10])
+        y_pred = tf.constant([[5.0] + [0.0] * (len(CLASS_NAMES) - 1), [0.0, 5.0] + [0.0] * (len(CLASS_NAMES) - 2)])
         val = loss_fn(y_true, y_pred)
         assert val.shape == ()
         assert val.numpy() > 0
@@ -23,7 +23,7 @@ class TestBuildClassificationLoss:
     def test_ce_loss_with_smoothing(self):
         loss_fn = build_classification_loss(loss_type="ce", label_smoothing=0.1)
         y_true = tf.constant([0, 1])
-        y_pred = tf.constant([[5.0] + [0.0] * 11, [0.0, 5.0] + [0.0] * 10])
+        y_pred = tf.constant([[5.0] + [0.0] * (len(CLASS_NAMES) - 1), [0.0, 5.0] + [0.0] * (len(CLASS_NAMES) - 2)])
         val = loss_fn(y_true, y_pred)
         assert val.shape == ()
         assert val.numpy() > 0
@@ -36,11 +36,11 @@ class TestBuildClassificationLoss:
         # y_true = 0 (클래스 0)
         # 쉬운 샘플: 클래스 0에 높은 로짓 (p_0 ≈ 0.999)
         y_easy = tf.constant([0])
-        pred_easy = tf.constant([[10.0] + [0.0] * 11])
+        pred_easy = tf.constant([[10.0] + [0.0] * (len(CLASS_NAMES) - 1)])
 
         # 어려운 샘플: 클래스 0인데 다른 클래스에 높은 로짓 (오답, p_0 ≈ 0.001)
         y_hard = tf.constant([0])
-        pred_hard = tf.constant([[0.0, 10.0] + [0.0] * 10])
+        pred_hard = tf.constant([[0.0, 10.0] + [0.0] * (len(CLASS_NAMES) - 2)])
 
         ce_easy = ce_fn(y_easy, pred_easy).numpy()
         ce_hard = ce_fn(y_hard, pred_hard).numpy()

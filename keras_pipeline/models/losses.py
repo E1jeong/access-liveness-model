@@ -51,10 +51,10 @@ def build_classification_loss(
 
 
 def build_binary_pad_loss():
-    """12-class labels를 Phase 2 bona-fide/spoof PAD target으로 변환한 BCE loss.
+    """24-class labels를 Phase 2 bona-fide/spoof PAD target으로 변환한 BCE loss.
 
-    ``live``, ``dental_white``, ``dental_black``은 bona-fide(0), 나머지는
-    spoof(1)다. 모델의 12-class logits 출력은 그대로 유지하며 이 loss는
+    실내/야외 ``live``, ``dental_white``, ``dental_black``은 bona-fide(0), 나머지는
+    spoof(1)다. 모델의 24-class logits 출력은 그대로 유지하며 이 loss는
     학습 전용 ``pad_output`` 보조 head에만 사용한다.
     """
     core_loss = tf.keras.losses.BinaryCrossentropy(from_logits=True)

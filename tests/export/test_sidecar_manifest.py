@@ -59,3 +59,18 @@ def test_sidecar_normalization_ignores_npu_int8_in_filename(tmp_path):
     float_manifest = _read_manifest(float_path)
     assert float_manifest["delegate"] == "cpu"
     assert float_manifest["inputs"][0]["normalization"]["range"] == "imagenet"
+
+
+def test_experimental_sidecar_preserves_all_twenty_four_outputs(tmp_path):
+    from common.classes import CLASS_NAMES
+
+    inputs = keras.Input(shape=(8, 8, 1), batch_size=1, name="b_crop_ir")
+    pooled = keras.layers.GlobalAveragePooling2D()(inputs)
+    model = keras.Model(inputs, keras.layers.Dense(24, name="logits")(pooled))
+    tflite_path = tmp_path / "outdoor_24.tflite"
+    tflite_path.write_bytes(tf.lite.TFLiteConverter.from_keras_model(model).convert())
+    validator.write_tflite_sidecar_manifest(str(tflite_path), "crop_ir", npu_int8=False)
+    manifest = _read_manifest(tflite_path)
+    assert manifest["outputs"][0]["shape"] == [1, 24]
+    assert manifest["class_order"] == CLASS_NAMES
+    assert manifest["outputs"][0]["output_is_logits"] is True

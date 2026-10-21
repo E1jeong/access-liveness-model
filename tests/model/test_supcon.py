@@ -2,6 +2,8 @@
 import numpy as np
 import tensorflow as tf
 
+from common.classes import CLASS_NAMES
+
 from keras_pipeline.data.dataset import make_single_dataset
 from keras_pipeline.models.losses import build_classification_loss, build_supcon_loss
 from keras_pipeline.models.model import build_single_model, extract_deploy_model
@@ -54,7 +56,7 @@ def test_supcon_projection_head_is_training_only():
 
     assert len(outputs) == 2
     assert model.output_names == ["logits", "supcon_output"]
-    assert outputs[0].shape == (2, 12)
+    assert outputs[0].shape == (2, len(CLASS_NAMES))
     assert outputs[1].shape == (2, 16)
     np.testing.assert_allclose(
         tf.norm(outputs[1], axis=-1).numpy(), np.ones(2), rtol=1e-5, atol=1e-5
@@ -62,7 +64,7 @@ def test_supcon_projection_head_is_training_only():
 
     deploy_model = extract_deploy_model(model)
     assert len(deploy_model.outputs) == 1
-    assert deploy_model(dummy_input).shape == (2, 12)
+    assert deploy_model(dummy_input).shape == (2, len(CLASS_NAMES))
     assert all("supcon" not in layer.name for layer in deploy_model.layers)
 
 
@@ -91,7 +93,7 @@ def test_supcon_model_trains_and_checkpoint_loads_for_deploy(tmp_path):
     model.save(checkpoint)
     loaded = tf.keras.models.load_model(checkpoint, compile=False)
     deploy_model = extract_deploy_model(loaded)
-    assert deploy_model.output_shape == (None, 12)
+    assert deploy_model.output_shape == (None, len(CLASS_NAMES))
     assert all("supcon" not in layer.name for layer in deploy_model.layers)
 
 

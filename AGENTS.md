@@ -23,16 +23,16 @@
 | `face_recognition_pipeline/` | MobileNetV1 ArcFace architecture adaptation, calibration, and NPU INT8 export | `face_recognition_pipeline/models/mobilenet_v1.py` | `face_recognition_pipeline/AGENTS.md` |
 | `scripts/` | Shell wrappers, CUDA/cuDNN environment preambles | `scripts/keras/_keras_env.sh` | `scripts/AGENTS.md` |
 | `tests/` | Automated test suite, leakage checks, export regression | `tests/dataset/test_fixed_splits.py` | `tests/AGENTS.md` |
-| Common Tools | Shared 12-class SSOT, leakage detection, evaluation | `common/classes.py`, `common/utils.py`, `common/evaluate_tflite.py` | Root `AGENTS.md` |
+| Common Tools | Shared class SSOT, leakage detection, evaluation | `common/classes.py`, `common/utils.py`, `common/evaluate_tflite.py` | Root `AGENTS.md` |
 
 ## Change Gates
 
 - **Fixed Split Mandate**: All training uses `dataset/raw/{train,validation}` (`test` is optional and leakage-checked when present; 1-per-class placeholder `test` evaluation is blocked). Never reintroduce K-Fold splitting. Run `python -m common.validate_fixed_splits` before training.
 - **Conv1 Reduction**: Single-channel IR ImageNet transfer must use `sum` reduction. `mean` is rejected and must never be passed to published runs.
-- **Class Names SSOT**: `common/classes.py:CLASS_NAMES` is the sole source of truth for the 12-class order.
+- **Class Names SSOT**: `common/classes.py:CLASS_NAMES` is the sole source of truth for the experimental 24-class order (12 indoor classes followed by their `_outdoor` counterparts).
 - **Shell Wrapper Mandate**: Never invoke bare `python` for Keras on the GPU server. Always run through `scripts/keras/*.sh` so `_keras_env.sh` sets `LD_LIBRARY_PATH` for `libcudnn.so.9`.
 - **NNAPI No-Fallback Policy**: Android runtime rejects a model slot on NNAPI setup/warmup failure; it must not fall back to CPU. Ensure all exported TFLite models conform strictly to NPU operators.
-- **Android Export Contract**: The downstream Android SDK deploys only `crop_ir` as IR `single_1_input` (`ir@0`, one channel) or `dual` as RGB+IR `dual_2_input` (distinct `rgb`/`ir` indices `0`/`1`, three/one channels), both with one `[1,12]` output. `crop_rgb` may remain a training experiment but is not a standalone Android deployment form; paired one-input and five-input artifacts are historical only.
+- **Android Export Contract**: The downstream Android SDK deploys only `crop_ir` as IR `single_1_input` (`ir@0`, one channel) or `dual` as RGB+IR `dual_2_input` (distinct `rgb`/`ir` indices `0`/`1`, three/one channels), both with one `[1,24]` output on this experimental branch; use only the matching 24-class Android branch. `crop_rgb` may remain a training experiment but is not a standalone Android deployment form; paired one-input and five-input artifacts are historical only.
 - **Data & Run Protection**: Never modify or overwrite original capture images (`RGB.bmp`/`IR.bmp`). Store each training run in a separate directory containing its run ID; do not overwrite existing candidate checkpoints (`.pth`, `.keras`, or `.tflite`).
 - **Artifact Separation**: Store generated `.tflite`, `.keras`, and `.pth` only in gitignored `model/`. Never commit model weights or raw image datasets to Git.
 

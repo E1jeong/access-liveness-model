@@ -3,7 +3,7 @@ import random
 import numpy as np
 import hashlib
 import json
-from common.classes import BONA_FIDE_CLASS_INDICES, CLASS_NAMES, CLASS_MAPPING
+from common.classes import BASE_CLASS_NAMES, BONA_FIDE_CLASS_INDICES, CLASS_NAMES, CLASS_MAPPING
 
 FIXED_SPLITS = ("train", "validation", "test")
 REQUIRED_SPLITS = ("train", "validation")
@@ -102,8 +102,8 @@ def collect_split_items(data_dir="dataset/raw", split="train"):
         raise FileNotFoundError(f"고정 split 디렉터리가 없습니다: {split_dir}")
 
     items = []
-    # CLASS_MAPPING은 CLASS_NAMES 순서를 그대로 따르므로 label 값이 인덱스와 일치한다.
-    for category, label in CLASS_MAPPING.items():
+    # 원본 12개 폴더를 그대로 읽고 촬영 조건으로 24개 출력 라벨을 결정한다.
+    for category in BASE_CLASS_NAMES:
         cat_path = os.path.join(split_dir, category)
         if not os.path.isdir(cat_path):
             raise FileNotFoundError(f"클래스 디렉터리가 없습니다: {cat_path}")
@@ -113,7 +113,11 @@ def collect_split_items(data_dir="dataset/raw", split="train"):
         if not subdirs:
             raise ValueError(f"subject 폴더가 비어 있습니다: {cat_path}")
 
-        category_items = gather_frame_items(cat_path, subdirs, label)
+        category_items = []
+        for subject_dir in subdirs:
+            condition = os.path.dirname(subject_dir)
+            class_name = category + ("_outdoor" if condition in ("outdoor", "off") else "")
+            category_items.extend(gather_frame_items(cat_path, [subject_dir], CLASS_MAPPING[class_name]))
         if not category_items:
             raise ValueError(f"프레임이 비어 있습니다: {cat_path}")
         items.extend(category_items)
@@ -198,7 +202,7 @@ def validate_fixed_split_coverage(data_dir="dataset/raw"):
         if not os.path.isdir(split_dir):
             raise FileNotFoundError(f"고정 split 디렉터리가 없습니다: {split_dir}")
 
-        for category in CLASS_MAPPING:
+        for category in BASE_CLASS_NAMES:
             cat_path = os.path.join(split_dir, category)
             if not os.path.isdir(cat_path):
                 raise FileNotFoundError(f"클래스 디렉터리가 없습니다: {cat_path}")
@@ -206,6 +210,11 @@ def validate_fixed_split_coverage(data_dir="dataset/raw"):
             if not subdirs:
                 raise ValueError(f"subject 폴더가 비어 있습니다: {cat_path}")
         split_items[split] = collect_split_items(data_dir, split)
+        if split in REQUIRED_SPLITS:
+            present = {label for _, _, label in split_items[split]}
+            missing = [name for label, name in enumerate(CLASS_NAMES) if label not in present]
+            if missing:
+                raise ValueError(f"{split} split에 클래스 프레임이 없습니다: {missing}")
 
     # 1. Realpath leakage 검사
     # split을 심볼릭 링크로 구성한 경우, 경로 문자열은 달라도 실체가 같은 파일일 수 있다.

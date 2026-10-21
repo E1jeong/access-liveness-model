@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,6 +12,11 @@ import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
+
+
+LANDMARK_NAMES = (
+    "eyeImageLeft", "eyeImageRight", "noseTip", "mouthImageLeft", "mouthImageRight",
+)
 
 
 @dataclass(frozen=True)
@@ -34,9 +41,11 @@ class FaceDetectionDataset(Dataset):
         limit_samples: int | None = None,
         zoom_probability: float = 0.0,
         zoom_max_face_fraction: float = 0.9,
+        landmarks: bool = False,
     ):
         self.split_dir = Path(split_dir)
         self.image_size = image_size
+        self.landmarks = landmarks
         if not self.split_dir.is_dir():
             raise FileNotFoundError(f"Split directory does not exist: {self.split_dir}")
         _validate_target_size(image_size)
@@ -59,7 +68,7 @@ class FaceDetectionDataset(Dataset):
     def __len__(self) -> int:
         return len(self.records)
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, ...]:
         image_path = self.records[index]
         meta_path = image_path.with_name("meta.json")
         if not meta_path.is_file():
@@ -68,33 +77,92 @@ class FaceDetectionDataset(Dataset):
         with Image.open(image_path) as source:
             image = source.convert("RGB")
         boxes = _load_face_boxes(meta_path, image.size)
+        if self.landmarks:
+            points, mask = _load_landmarks(image_path, image.size, boxes.shape[0])
         if self.zoom_probability > 0 and torch.rand(1).item() < self.zoom_probability:
-            image, boxes = _random_zoom_image_and_boxes(
-                image, boxes, self.zoom_max_face_fraction,
-            )
-        tensor, transformed_boxes, _ = letterbox_image_and_boxes(
+            if self.landmarks:
+                image, boxes, points = _random_zoom_image_and_boxes(
+                    image, boxes, self.zoom_max_face_fraction, landmarks=points,
+                )
+                width, height = image.size
+                mask &= ((points >= 0) & (points < points.new_tensor([width, height]))).all(-1)
+            else:
+                image, boxes = _random_zoom_image_and_boxes(
+                    image, boxes, self.zoom_max_face_fraction,
+                )
+        tensor, transformed_boxes, geometry = letterbox_image_and_boxes(
             image,
             boxes,
             self.image_size,
         )
+        if self.landmarks:
+            points = points * geometry.scale + points.new_tensor(
+                [geometry.pad_left, geometry.pad_top]
+            )
+            points[~mask] = 0
+            return tensor, transformed_boxes, points, mask
         return tensor, transformed_boxes
+
+
+def _load_landmarks(
+    image_path: Path, image_size: tuple[int, int], box_count: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    points = torch.zeros((box_count, 5, 2), dtype=torch.float32)
+    mask = torch.zeros((box_count, 5), dtype=torch.bool)
+    path = image_path.with_name("landmarks.json")
+    if not path.is_file():
+        return points, mask
+    with path.open(encoding="utf-8") as stream:
+        label = json.load(stream)
+    if not isinstance(label, dict) or (
+        label.get("schemaVersion") != 1
+        or label.get("image") != "RGB.bmp"
+        or label.get("coordinateSystem") != "original_image_pixels"
+        or (label.get("imageWidth"), label.get("imageHeight")) != image_size
+    ):
+        raise ValueError(f"Invalid landmark coordinate contract: {path}")
+    for key, source in (("imageSha256", image_path),
+                        ("metaSha256", image_path.with_name("meta.json"))):
+        if label.get(key) != hashlib.sha256(source.read_bytes()).hexdigest():
+            raise ValueError(f"Landmark {key} provenance mismatch: {path}")
+    records = label.get("landmarks")
+    if not isinstance(records, dict) or set(records) != set(LANDMARK_NAMES):
+        raise ValueError(f"Expected five named landmarks: {path}")
+    for index, name in enumerate(LANDMARK_NAMES):
+        point = records[name]
+        if not isinstance(point, dict) or type(point.get("useForTraining")) is not bool:
+            raise ValueError(f"Invalid landmark training mask for {name}: {path}")
+        if not point["useForTraining"]:
+            continue
+        if box_count != 1 or label.get("status") != "extracted":
+            raise ValueError(f"Selected landmark requires an extracted face box: {path}")
+        xy = (point.get("x"), point.get("y"))
+        if any(type(value) not in (int, float) or not math.isfinite(value) for value in xy):
+            raise ValueError(f"Invalid selected landmark coordinate for {name}: {path}")
+        if not (0 <= xy[0] < image_size[0] and 0 <= xy[1] < image_size[1]):
+            raise ValueError(f"Selected landmark outside RGB image for {name}: {path}")
+        points[0, index] = torch.tensor(xy)
+        mask[0, index] = True
+    return points, mask
 
 
 def _random_zoom_image_and_boxes(
     image: Image.Image,
     boxes: torch.Tensor,
     max_face_fraction: float,
-) -> tuple[Image.Image, torch.Tensor]:
+    *,
+    landmarks: torch.Tensor | None = None,
+):
     """Zoom a crop without padding or cutting any labeled face; preserve aspect ratio."""
 
     if not boxes.numel():
-        return image, boxes
+        return (image, boxes) if landmarks is None else (image, boxes, landmarks)
     width, height = image.size
     left, top = boxes[:, :2].amin(dim=0).tolist()
     right, bottom = boxes[:, 2:].amax(dim=0).tolist()
     fraction = max((right - left) / width, (bottom - top) / height)
     if fraction >= max_face_fraction:
-        return image, boxes
+        return (image, boxes) if landmarks is None else (image, boxes, landmarks)
 
     scale = 1 + torch.rand(1).item() * (max_face_fraction / fraction - 1)
     crop_width, crop_height = width / scale, height / scale
@@ -111,6 +179,9 @@ def _random_zoom_image_and_boxes(
     transformed = boxes.clone()
     transformed[:, 0::2] = (transformed[:, 0::2] - crop_x) * scale
     transformed[:, 1::2] = (transformed[:, 1::2] - crop_y) * scale
+    if landmarks is not None:
+        transformed_points = (landmarks - landmarks.new_tensor([crop_x, crop_y])) * scale
+        return zoomed, transformed, transformed_points
     return zoomed, transformed
 
 
@@ -199,9 +270,26 @@ def restore_boxes_from_letterbox(
     return restored
 
 
+def restore_landmarks_from_letterbox(
+    landmarks: torch.Tensor,
+    geometry: LetterboxGeometry,
+) -> torch.Tensor:
+    """Restore five named points to original RGB pixels without swapping point order."""
+
+    restored = landmarks.to(dtype=torch.float32).clone().reshape(-1, 5, 2)
+    restored[..., 0] = (restored[..., 0] - geometry.pad_left) / geometry.scale
+    restored[..., 1] = (restored[..., 1] - geometry.pad_top) / geometry.scale
+    restored[..., 0].clamp_(0, geometry.source_width)
+    restored[..., 1].clamp_(0, geometry.source_height)
+    return restored
+
+
 def collate_face_detection_batch(
-    batch: list[tuple[torch.Tensor, torch.Tensor]],
-) -> tuple[torch.Tensor, list[torch.Tensor]]:
+    batch: list[tuple[torch.Tensor, ...]],
+) -> tuple:
+    if len(batch[0]) == 4:
+        images, boxes, points, masks = zip(*batch)
+        return torch.stack(images), list(boxes), list(points), list(masks)
     images, boxes = zip(*batch)
     return torch.stack(images), list(boxes)
 

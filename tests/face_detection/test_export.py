@@ -107,3 +107,50 @@ def test_tflite_contract_rejects_wrong_shape_dtype_and_unscaled_int8():
     int_outputs = [dict(info, dtype=np.int8, quantization=(0.1, 0)) for info in outputs]
     with pytest.raises(ValueError, match="scale"):
         validate_tflite_contract(int_inputs, int_outputs, (320, 320), True)
+
+
+@pytest.mark.parametrize("width,height", [(320, 320), (256, 448)])
+def test_landmark_export_preserves_all_heads(width, height):
+    model = build_yunet_n(landmarks=True).eval()
+    image = torch.rand(1, 3, height, width) * 255
+    with torch.inference_mode():
+        original = model(image)
+        parts = ExportModel(model)(image)
+    assert [part.shape[-1] for part in parts] == [2, 4, 10]
+    restored = unpack_predictions(torch.cat(parts, dim=-1), (width, height))
+    for expected_group, actual_group in zip(original, restored):
+        for expected, actual in zip(expected_group, actual_group):
+            torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
+def test_landmark_checkpoint_contract_and_roundtrip(tmp_path):
+    from face_detection_pipeline.data.dataset import LANDMARK_NAMES
+
+    path = tmp_path / "landmarks.pth"
+    checkpoint = {"model": "yunet_n_landmarks", "upstream_commit": UPSTREAM_COMMIT,
+                  "input_size": [320, 320], "run_id": "landmarks", "epoch": 25,
+                  "model_state_dict": build_yunet_n(landmarks=True).state_dict(),
+                  "landmark_names": list(LANDMARK_NAMES),
+                  "landmark_encoding": "grid_relative_stride_units_xy"}
+    torch.save(checkpoint, path)
+    model, restored, digest = load_checkpoint(path)
+    assert model.model.landmarks
+    assert restored["epoch"] == 25
+    assert len(digest) == 64
+    checkpoint["landmark_names"] = list(reversed(LANDMARK_NAMES))
+    torch.save(checkpoint, path)
+    with pytest.raises(ValueError, match="landmark"):
+        load_checkpoint(path)
+
+
+def test_landmark_tflite_contract_requires_separate_scaled_third_tensor():
+    inputs = [{"shape": np.array([1, 320, 320, 3]), "dtype": np.int8, "quantization": (1., -128)}]
+    outputs = [{"shape": np.array([1, 2100, channels]), "dtype": np.int8,
+                "quantization": (0.1, 0)} for channels in (2, 4, 10)]
+    validate_tflite_contract(inputs, outputs[::-1], (320, 320), True, landmarks=True)
+    for bad in [outputs[:2], outputs + outputs[-1:],
+                outputs[:2] + [dict(outputs[2], quantization=(0., 0))]]:
+        with pytest.raises(ValueError):
+            validate_tflite_contract(inputs, bad, (320, 320), True, landmarks=True)
+    with pytest.raises(ValueError):
+        validate_tflite_contract(inputs, outputs, (320, 320), True)

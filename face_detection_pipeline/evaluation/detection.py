@@ -6,17 +6,18 @@ from dataclasses import dataclass
 
 import torch
 
-from face_detection_pipeline.models.yunet import YuNetOutputs
+from face_detection_pipeline.models.yunet import YuNetLandmarkOutputs, YuNetOutputs
 
 
 @dataclass(frozen=True)
 class Detection:
     boxes: torch.Tensor
     scores: torch.Tensor
+    landmarks: torch.Tensor | None = None
 
 
 def decode_detections(
-    outputs: YuNetOutputs,
+    outputs: YuNetOutputs | YuNetLandmarkOutputs,
     *,
     strides: tuple[int, ...] = (8, 16, 32),
     score_threshold: float = 0.5,
@@ -44,6 +45,11 @@ def decode_detections(
     objectnesses = _flatten(outputs.objectnesses, batch_size, 1).sigmoid()
     regressions = _flatten(outputs.bbox_regressions, batch_size, 4)
     decoded = _decode_boxes(priors.unsqueeze(0), regressions)
+    landmark_outputs = getattr(outputs, "landmark_regressions", None)
+    landmarks = None
+    if landmark_outputs is not None:
+        offsets = _flatten(landmark_outputs, batch_size, 10).reshape(batch_size, -1, 5, 2)
+        landmarks = offsets * priors[None, :, None, 2:] + priors[None, :, None, :2]
     scores = (cls_scores * objectnesses).squeeze(-1)
     image_height = max(
         height * stride for (height, _), stride in zip(feature_sizes, strides)
@@ -57,14 +63,75 @@ def decode_detections(
         selected = scores[image_index] >= score_threshold
         boxes = decoded[image_index, selected].clone()
         selected_scores = scores[image_index, selected]
+        selected_points = landmarks[image_index, selected] if landmarks is not None else None
         if boxes.numel():
             boxes[:, 0::2].clamp_(0, image_width)
             boxes[:, 1::2].clamp_(0, image_height)
             keep = _nms(boxes, selected_scores, nms_threshold)[:max_detections]
             boxes = boxes[keep]
             selected_scores = selected_scores[keep]
-        detections.append(Detection(boxes=boxes.reshape(-1, 4), scores=selected_scores))
+            if selected_points is not None:
+                selected_points = selected_points[keep]
+        detections.append(Detection(boxes=boxes.reshape(-1, 4), scores=selected_scores,
+                                    landmarks=selected_points))
     return detections
+
+
+def calculate_landmark_metrics(
+    detections: list[Detection],
+    ground_truth_boxes: list[torch.Tensor],
+    ground_truth_landmarks: list[torch.Tensor],
+    landmark_masks: list[torch.Tensor],
+    *,
+    iou_threshold: float = 0.5,
+) -> dict[str, float]:
+    """Point error on score-ordered IoU matches; target labels may be pseudo-labels.
+
+    Pixel errors use input letterbox coordinates. NME divides by target box diagonal.
+    Report point coverage separately so missed detections cannot hide in mean error.
+    """
+
+    if not (len(detections) == len(ground_truth_boxes)
+            == len(ground_truth_landmarks) == len(landmark_masks)):
+        raise ValueError("Expected one landmark target and mask per image")
+    if not 0 < iou_threshold <= 1:
+        raise ValueError("iou_threshold must be in (0, 1]")
+    error_sum = normalized_error_sum = 0.0
+    matched_points = target_points = 0
+    for detection, boxes, points, mask in zip(
+        detections, ground_truth_boxes, ground_truth_landmarks, landmark_masks,
+    ):
+        if points.shape != (len(boxes), 5, 2) or mask.shape != (len(boxes), 5) or mask.dtype != torch.bool:
+            raise ValueError("Invalid landmark target shape or mask dtype")
+        target_points += int(mask.sum())
+        if detection.landmarks is None:
+            raise ValueError("Landmark metrics require landmark predictions")
+        if not len(boxes) or not len(detection.boxes):
+            continue
+        boxes, points, mask = boxes.cpu(), points.cpu(), mask.cpu()
+        overlaps = _box_iou(detection.boxes.cpu(), boxes)
+        used = set()
+        for index in detection.scores.argsort(descending=True).tolist():
+            available = overlaps[index].clone()
+            if used:
+                available[list(used)] = -1
+            best_iou, target_index = available.max(0)
+            target_index = int(target_index)
+            if best_iou < iou_threshold:
+                continue
+            used.add(target_index)
+            valid = mask[target_index]
+            errors = torch.linalg.vector_norm(
+                detection.landmarks[index].cpu()[valid] - points[target_index][valid], dim=-1,
+            )
+            diagonal = torch.linalg.vector_norm(boxes[target_index, 2:] - boxes[target_index, :2])
+            error_sum += float(errors.sum())
+            normalized_error_sum += float((errors / diagonal.clamp(min=1e-7)).sum())
+            matched_points += int(valid.sum())
+    return {"mean_error_pixels": error_sum / max(matched_points, 1),
+            "mean_normalized_error": normalized_error_sum / max(matched_points, 1),
+            "matched_points": matched_points, "target_points": target_points,
+            "point_coverage": matched_points / max(target_points, 1)}
 
 
 def calculate_detection_metrics(

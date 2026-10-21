@@ -1,4 +1,4 @@
-"""Train the box-only YuNet-N detector on the fixed internal split."""
+"""Train YuNet-N with optional five-point landmarks on the fixed internal split."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from tqdm import tqdm
 
 from face_detection_pipeline.data.dataset import (
     FaceDetectionDataset,
+    LANDMARK_NAMES,
     collate_face_detection_batch,
 )
 from face_detection_pipeline.evaluation.detection import (
@@ -30,11 +31,15 @@ UPSTREAM_COMMIT = "dca340aa082c71081a68d17db8e58b33a58a914b"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train box-only YuNet-N")
+    parser = argparse.ArgumentParser(description="Train YuNet-N with optional landmarks")
     parser.add_argument("--data-dir", default="dataset/raw")
     parser.add_argument("--output-dir", default="model/face_detection")
     parser.add_argument("--run-id")
     parser.add_argument("--resume", type=Path)
+    parser.add_argument(
+        "--landmarks", action="store_true",
+        help="Train five-point landmarks using landmarks.json per-point masks",
+    )
     parser.add_argument("--image-width", type=int, default=320)
     parser.add_argument("--image-height", type=int, default=320)
     parser.add_argument("--epochs", type=int, default=30)
@@ -78,11 +83,13 @@ def train(args: argparse.Namespace) -> Path:
         limit_samples=args.limit_train_samples,
         zoom_probability=args.zoom_probability,
         zoom_max_face_fraction=args.zoom_max_face_fraction,
+        landmarks=args.landmarks,
     )
     validation_dataset = FaceDetectionDataset(
         data_dir / "validation",
         image_size=image_size,
         limit_samples=args.limit_validation_samples,
+        landmarks=args.landmarks,
     )
     train_loader = _build_loader(
         train_dataset,
@@ -99,7 +106,7 @@ def train(args: argparse.Namespace) -> Path:
         device=device,
     )
 
-    model = build_yunet_n().to(device)
+    model = build_yunet_n(landmarks=args.landmarks).to(device)
     criterion = YuNetCriterion()
     optimizer = torch.optim.SGD(
         model.parameters(),
@@ -229,6 +236,9 @@ def train(args: argparse.Namespace) -> Path:
             f"recall={validation_metrics['recall']:.4f} "
             f"f1={validation_metrics['f1']:.4f} "
             f"lr={optimizer.param_groups[0]['lr']:.8f}"
+            + (f" landmark_loss={validation_metrics['landmark']:.6f}"
+               f" landmark_points={validation_metrics['landmark_points']}"
+               if args.landmarks else "")
         )
 
     print(f"best_checkpoint={best_path}")
@@ -251,7 +261,10 @@ def _run_epoch(
     training = optimizer is not None
     model.train(training)
     totals = {name: 0.0 for name in ("total", "classification", "objectness", "bbox")}
+    if model.landmarks:
+        totals["landmark"] = 0.0
     sample_count = 0
+    landmark_point_count = 0
     all_detections: list[Detection] = []
     all_ground_truth: list[torch.Tensor] = []
     context = torch.enable_grad() if training else torch.inference_mode()
@@ -261,7 +274,8 @@ def _run_epoch(
         else loader
     )
     with context:
-        for images, boxes in iterator:
+        for batch in iterator:
+            images, boxes = batch[:2]
             if warmup is not None:
                 warmup.step()
             images = images.to(device, non_blocking=True)
@@ -269,7 +283,13 @@ def _run_epoch(
             if training:
                 optimizer.zero_grad(set_to_none=True)
             outputs = model(images)
-            losses = criterion(outputs, boxes)
+            if model.landmarks:
+                points = [item.to(device, non_blocking=True) for item in batch[2]]
+                masks = [item.to(device, non_blocking=True) for item in batch[3]]
+                landmark_point_count += sum(int(mask.sum()) for mask in masks)
+                losses = criterion(outputs, boxes, points, masks)
+            else:
+                losses = criterion(outputs, boxes)
             non_finite = [name for name, value in losses.items() if not torch.isfinite(value)]
             if non_finite:
                 names = ", ".join(non_finite)
@@ -298,6 +318,10 @@ def _run_epoch(
     if sample_count == 0:
         raise ValueError("Cannot train or validate with an empty dataset")
     metrics = {name: value / sample_count for name, value in totals.items()}
+    if model.landmarks:
+        if training and landmark_point_count == 0:
+            raise ValueError("Landmark training requires at least one selected landmark point")
+        metrics["landmark_points"] = landmark_point_count
     if score_threshold is not None:
         metrics.update(
             calculate_detection_metrics(
@@ -341,7 +365,9 @@ def _checkpoint(
 ) -> dict:
     return {
         "format_version": 1,
-        "model": "yunet_n_box_only",
+        "model": "yunet_n_landmarks" if model.landmarks else "yunet_n_box_only",
+        **({"landmark_names": list(LANDMARK_NAMES),
+            "landmark_encoding": "grid_relative_stride_units_xy"} if model.landmarks else {}),
         "upstream_commit": UPSTREAM_COMMIT,
         "run_id": run_id,
         "input_size": [args.image_width, args.image_height],
@@ -448,8 +474,14 @@ def _load_checkpoint(
     if not path.is_file():
         raise FileNotFoundError(f"Resume checkpoint does not exist: {path}")
     checkpoint = torch.load(path, map_location=device, weights_only=True)
-    if checkpoint.get("model") != "yunet_n_box_only":
+    expected_model = "yunet_n_landmarks" if model.landmarks else "yunet_n_box_only"
+    if checkpoint.get("model") != expected_model:
         raise ValueError(f"Unsupported checkpoint model: {checkpoint.get('model')!r}")
+    if model.landmarks and (
+        checkpoint.get("landmark_names") != list(LANDMARK_NAMES)
+        or checkpoint.get("landmark_encoding") != "grid_relative_stride_units_xy"
+    ):
+        raise ValueError("Checkpoint landmark contract does not match this implementation")
     if checkpoint.get("upstream_commit") != UPSTREAM_COMMIT:
         raise ValueError("Checkpoint YuNet source revision does not match this implementation")
     model.load_state_dict(checkpoint["model_state_dict"], strict=True)

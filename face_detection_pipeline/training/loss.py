@@ -1,4 +1,4 @@
-"""Box-only YuNet assignment and loss.
+"""YuNet assignment and box/optional masked landmark loss.
 
 Derived from Shiqi Yu's ``libfacedetection.train`` at commit
 ``dca340aa082c71081a68d17db8e58b33a58a914b``. The upstream project is
@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn.functional as F
 
-from face_detection_pipeline.models.yunet import YuNetOutputs
+from face_detection_pipeline.models.yunet import YuNetLandmarkOutputs, YuNetOutputs
 
 
 @dataclass(frozen=True)
@@ -20,6 +20,7 @@ class YuNetLossWeights:
     classification: float = 1.0
     objectness: float = 1.0
     bbox: float = 5.0
+    landmark: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -182,7 +183,7 @@ class _SimOTAAssigner:
 
 
 class YuNetCriterion:
-    """BCE classification/objectness plus EIoU box loss."""
+    """BCE/EIoU detection loss and optional point-masked Smooth L1 in stride units."""
 
     def __init__(
         self,
@@ -196,12 +197,30 @@ class YuNetCriterion:
 
     def __call__(
         self,
-        outputs: YuNetOutputs,
+        outputs: YuNetOutputs | YuNetLandmarkOutputs,
         ground_truth_boxes: list[torch.Tensor],
+        ground_truth_landmarks: list[torch.Tensor] | None = None,
+        landmark_masks: list[torch.Tensor] | None = None,
     ) -> dict[str, torch.Tensor]:
         batch_size = outputs.cls_scores[0].shape[0]
         if len(ground_truth_boxes) != batch_size:
             raise ValueError("Expected one ground-truth box tensor per image")
+        landmark_outputs = getattr(outputs, "landmark_regressions", None)
+        if landmark_outputs is not None:
+            if (ground_truth_landmarks is None or landmark_masks is None
+                    or len(ground_truth_landmarks) != batch_size
+                    or len(landmark_masks) != batch_size):
+                raise ValueError("Expected landmark targets and masks per image")
+            for boxes, points, mask in zip(
+                ground_truth_boxes, ground_truth_landmarks, landmark_masks,
+            ):
+                if (points.shape != (boxes.shape[0], 5, 2)
+                        or mask.shape != (boxes.shape[0], 5) or mask.dtype != torch.bool):
+                    raise ValueError("Invalid landmark target shape or mask dtype")
+                if not torch.isfinite(points[mask]).all():
+                    raise ValueError("Selected landmark targets must be finite")
+        elif ground_truth_landmarks is not None or landmark_masks is not None:
+            raise ValueError("Landmark targets require a landmark model")
 
         feature_sizes = [tuple(scores.shape[-2:]) for scores in outputs.cls_scores]
         priors = self.prior_generator.grid_priors(
@@ -224,6 +243,8 @@ class YuNetCriterion:
         bbox_targets = []
         positive_masks = []
         positive_count = 0
+        landmark_targets = []
+        selected_landmark_masks = []
         for image_index, boxes in enumerate(ground_truth_boxes):
             boxes = boxes.to(device=cls_logits.device, dtype=cls_logits.dtype).reshape(-1, 4)
             assignment = self.assigner.assign(
@@ -240,6 +261,15 @@ class YuNetCriterion:
             cls_targets.append(assignment.overlaps[positive, None])
             objectness_targets.append(positive.to(cls_logits.dtype)[:, None])
             bbox_targets.append(boxes[assigned_indices])
+            if landmark_outputs is not None:
+                points = ground_truth_landmarks[image_index].to(
+                    device=cls_logits.device, dtype=cls_logits.dtype,
+                )[assigned_indices]
+                mask = landmark_masks[image_index].to(device=cls_logits.device)[assigned_indices]
+                # Encode in stride units using the same grid origin as box decoding.
+                target = (points - priors[positive, None, :2]) / priors[positive, None, 2:]
+                landmark_targets.append(target)
+                selected_landmark_masks.append(mask)
 
         normalizer = max(float(positive_count), 1.0)
         positive_mask = torch.cat(positive_masks)
@@ -271,12 +301,23 @@ class YuNetCriterion:
         weighted_classification = loss_classification * self.weights.classification
         weighted_objectness = loss_objectness * self.weights.objectness
         weighted_bbox = loss_bbox * self.weights.bbox
-        return {
+        losses = {
             "total": weighted_classification + weighted_objectness + weighted_bbox,
             "classification": weighted_classification,
             "objectness": weighted_objectness,
             "bbox": weighted_bbox,
         }
+        if landmark_outputs is not None:
+            predictions = _flatten(landmark_outputs, batch_size, 10).reshape(-1, 5, 2)
+            masks = torch.cat(selected_landmark_masks)
+            selected_predictions = predictions[positive_mask][masks]
+            selected_targets = torch.cat(landmark_targets)[masks]
+            loss_landmark = F.smooth_l1_loss(
+                selected_predictions, selected_targets, reduction="sum",
+            ) / max(selected_predictions.numel(), 1)
+            losses["landmark"] = loss_landmark * self.weights.landmark
+            losses["total"] = losses["total"] + losses["landmark"]
+        return losses
 
 
 def _flatten(

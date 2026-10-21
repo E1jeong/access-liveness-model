@@ -66,3 +66,39 @@ def test_detection_metrics_count_matches_and_geometry_errors():
 def test_detection_metrics_reject_mismatched_batches():
     with pytest.raises(ValueError):
         calculate_detection_metrics([], [torch.empty((0, 4))])
+
+
+def test_decode_landmarks_uses_grid_stride_and_same_nms_indices():
+    from face_detection_pipeline.models.yunet import YuNetLandmarkOutputs
+
+    outputs = YuNetLandmarkOutputs(
+        [torch.tensor([[[[9., 10.]]]])], [torch.full((1, 1, 1, 2), 10.)],
+        [torch.tensor([[[[0.5, -0.5]], [[0.5, 0.5]], [[0., 0.]], [[0., 0.]]]])],
+        [torch.tensor([[[[i, i + 1.]] for i in range(10)]])],
+    )
+    detection = decode_detections(outputs, strides=(8,))[0]
+    assert detection.landmarks.shape == (1, 5, 2)
+    expected = torch.arange(1., 11.).reshape(1, 5, 2) * 8
+    expected[:, :, 0] += 8
+    torch.testing.assert_close(detection.landmarks, expected)
+    assert decode_detections(outputs, strides=(8,), score_threshold=1)[0].landmarks.shape == (0, 5, 2)
+
+
+def test_landmark_restore_letterbox_and_masked_metrics():
+    from PIL import Image
+    from face_detection_pipeline.data.dataset import letterbox_image_and_boxes, restore_landmarks_from_letterbox
+    from face_detection_pipeline.evaluation.detection import calculate_landmark_metrics
+
+    _, boxes, geometry = letterbox_image_and_boxes(Image.new('RGB', (96, 128)),
+                                                   torch.tensor([[20., 20., 75., 110.]]), (64, 64))
+    points = torch.tensor([[[23., 20.]] * 5])
+    restored = restore_landmarks_from_letterbox(points, geometry)
+    torch.testing.assert_close(restored[0, 0], torch.tensor([30., 40.]))
+    detection = Detection(boxes, torch.tensor([0.9]), points)
+    targets = points.clone()
+    targets[:, 0] += torch.tensor([3., 4.])
+    masks = [torch.tensor([[True, False, False, False, False]])]
+    metrics = calculate_landmark_metrics([detection], [boxes], [targets], masks)
+    assert metrics['mean_error_pixels'] == pytest.approx(5.)
+    assert metrics['matched_points'] == 1
+    assert metrics['target_points'] == 1

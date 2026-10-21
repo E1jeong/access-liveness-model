@@ -1,4 +1,4 @@
-"""Box-only YuNet-N model.
+"""YuNet-N model with optional five-point landmark supervision.
 
 Derived from Shiqi Yu's ``libfacedetection.train`` at commit
 ``dca340aa082c71081a68d17db8e58b33a58a914b``. The upstream project is
@@ -20,6 +20,15 @@ class YuNetOutputs(NamedTuple):
     cls_scores: list[torch.Tensor]
     objectnesses: list[torch.Tensor]
     bbox_regressions: list[torch.Tensor]
+
+
+class YuNetLandmarkOutputs(NamedTuple):
+    """Box predictions plus five stride-relative (x, y) offsets per candidate."""
+
+    cls_scores: list[torch.Tensor]
+    objectnesses: list[torch.Tensor]
+    bbox_regressions: list[torch.Tensor]
+    landmark_regressions: list[torch.Tensor]
 
 
 def _init_yunet_weights(module: nn.Module) -> None:
@@ -131,7 +140,7 @@ class _TFPN(nn.Module):
 
 
 class _BoxOnlyHead(nn.Module):
-    def __init__(self):
+    def __init__(self, landmarks: bool = False):
         super().__init__()
         self.shared_convs = nn.ModuleList([_ConvDPUnit(64, 64) for _ in range(3)])
         self.cls_heads = nn.ModuleList(
@@ -143,11 +152,15 @@ class _BoxOnlyHead(nn.Module):
         self.bbox_heads = nn.ModuleList(
             [_ConvDPUnit(64, 4, activate=False) for _ in range(3)]
         )
+        if landmarks:
+            self.landmark_heads = nn.ModuleList(
+                [_ConvDPUnit(64, 10, activate=False) for _ in range(3)]
+            )
         _init_yunet_weights(self)
 
-    def forward(self, inputs: list[torch.Tensor]) -> YuNetOutputs:
+    def forward(self, inputs: list[torch.Tensor]) -> YuNetOutputs | YuNetLandmarkOutputs:
         shared = [layer(features) for layer, features in zip(self.shared_convs, inputs)]
-        return YuNetOutputs(
+        outputs = YuNetOutputs(
             cls_scores=[layer(features) for layer, features in zip(self.cls_heads, shared)],
             objectnesses=[
                 layer(features) for layer, features in zip(self.objectness_heads, shared)
@@ -156,20 +169,27 @@ class _BoxOnlyHead(nn.Module):
                 layer(features) for layer, features in zip(self.bbox_heads, shared)
             ],
         )
+        if hasattr(self, "landmark_heads"):
+            return YuNetLandmarkOutputs(
+                *outputs,
+                [layer(features) for layer, features in zip(self.landmark_heads, shared)],
+            )
+        return outputs
 
 
 class YuNet(nn.Module):
-    """Randomly initialized YuNet-N without the upstream landmark head."""
+    """Randomly initialized YuNet-N; box-only by default."""
 
     strides = (8, 16, 32)
 
-    def __init__(self):
+    def __init__(self, *, landmarks: bool = False):
         super().__init__()
         self.backbone = _YuNetNBackbone()
         self.neck = _TFPN()
-        self.head = _BoxOnlyHead()
+        self.landmarks = landmarks
+        self.head = _BoxOnlyHead(landmarks=landmarks)
 
-    def forward(self, inputs: torch.Tensor) -> YuNetOutputs:
+    def forward(self, inputs: torch.Tensor) -> YuNetOutputs | YuNetLandmarkOutputs:
         if inputs.ndim != 4 or inputs.shape[1] != 3:
             raise ValueError(
                 f"Expected RGB input shaped [N, 3, H, W], got {tuple(inputs.shape)}"
@@ -179,7 +199,7 @@ class YuNet(nn.Module):
         return self.head(self.neck(self.backbone(inputs)))
 
 
-def build_yunet_n() -> YuNet:
-    """Build a random-initialized, one-class, box-only YuNet-N."""
+def build_yunet_n(*, landmarks: bool = False) -> YuNet:
+    """Build YuNet-N with an optional five-point training head."""
 
-    return YuNet()
+    return YuNet(landmarks=landmarks)

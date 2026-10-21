@@ -17,9 +17,9 @@
 ## Boundary & Architecture Constraints
 
 - The v1 contract is one RGB image to zero or more axis-aligned face boxes with confidence.
-- Use the box-only YuNet-N source pinned in `models/yunet.py`; do not add public pretrained weights or public face-detection datasets.
+- Use the YuNet-N source pinned in `models/yunet.py`; do not add public pretrained weights or public face-detection datasets.
 - Preserve the upstream BSD-3-Clause license in `third_party/yunet/LICENSE`.
-- Keep landmarks out of v1. Add a landmark head only when the downstream SDK contract requires it.
+- Keep v1 box-only. Five-point training is opt-in (`--landmarks`), with per-point masks; missing points must not remove box supervision. Landmark checkpoints use a distinct model identity and v2 manifest with a separate `[1,N,10]` output; preserve named point order and shared box/NMS indices.
 
 ## Change Gates
 

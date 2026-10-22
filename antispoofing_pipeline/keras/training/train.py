@@ -1,7 +1,7 @@
 """Keras 안티스푸핑 학습 진입점.
 
 실행 경로: `scripts/keras/run_fixed_split.sh` → `scripts/keras/run_keras_train.sh`
-→ `python -m keras_pipeline.training.train`. bare `python`으로 직접 부르면
+→ `python -m antispoofing_pipeline.keras.training.train`. bare `python`으로 직접 부르면
 `.venv-tf`가 필요로 하는 `LD_LIBRARY_PATH`(libcudnn)가 설정되지 않아 GPU를 놓친다.
 
 전체 흐름:
@@ -35,7 +35,7 @@ if sys.platform == "darwin":
     except Exception as _e:
         pass
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -45,15 +45,15 @@ from common.utils import (
     collect_split_items,
     validate_fixed_split_coverage,
 )
-from keras_pipeline.data.dataset import (
+from antispoofing_pipeline.keras.data.dataset import (
     make_dataset, make_single_dataset
 )
-from keras_pipeline.models.model import (
+from antispoofing_pipeline.keras.models.model import (
     SUPPORTED_BACKBONES, build_dual_model, build_single_model
 )
-from keras_pipeline.models.losses import build_binary_pad_loss, build_classification_loss, build_supcon_loss
-from keras_pipeline.training.run_metadata import make_run_id, write_run_metadata
-from keras_pipeline.training.artifact_paths import (
+from antispoofing_pipeline.keras.models.losses import build_binary_pad_loss, build_classification_loss, build_supcon_loss
+from antispoofing_pipeline.keras.training.run_metadata import make_run_id, write_run_metadata
+from antispoofing_pipeline.keras.training.artifact_paths import (
     keras_checkpoint_path,
     learning_curves_path,
     metadata_path as artifact_metadata_path,

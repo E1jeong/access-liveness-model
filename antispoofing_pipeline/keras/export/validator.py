@@ -6,8 +6,8 @@ import warnings
 import tensorflow as tf
 
 from common.classes import CLASS_NAMES
-from keras_pipeline.contracts.model_signature import validate_tflite_model_signature
-from keras_pipeline.data.spec import CROP_MARGIN_RATIO
+from antispoofing_pipeline.keras.contracts.model_signature import validate_tflite_model_signature
+from antispoofing_pipeline.keras.data.spec import CROP_MARGIN_RATIO
 
 
 def _make_interpreter(**kwargs):

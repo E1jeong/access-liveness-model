@@ -2,14 +2,14 @@ import numpy as np
 import pytest
 from tensorflow import keras
 
-from keras_pipeline.export.npu_model import (
+from antispoofing_pipeline.keras.export.npu_model import (
     _copy_nested_weights,
     _match_model_input_structure,
     build_npu_export_model,
     validate_npu_export_parity,
 )
-from keras_pipeline.data.spec import RGB_MEAN, RGB_STD
-from keras_pipeline.models.model import build_single_mobilenetv2
+from antispoofing_pipeline.keras.data.spec import RGB_MEAN, RGB_STD
+from antispoofing_pipeline.keras.models.model import build_single_mobilenetv2
 
 
 def _nested_model(weighted_layer_name, units, extra_weighted_layer_name=None):

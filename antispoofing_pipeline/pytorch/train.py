@@ -2,7 +2,7 @@ import sys
 import os
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -13,8 +13,8 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-from pytorch_pipeline.dataset import get_fixed_split_loaders
-from pytorch_pipeline.model import get_anti_spoof_model
+from antispoofing_pipeline.pytorch.dataset import get_fixed_split_loaders
+from antispoofing_pipeline.pytorch.model import get_anti_spoof_model
 from common.classes import ATTACK_CLASS_INDICES, CLASS_NAMES
 from common.utils import (
     validate_fixed_split_coverage,

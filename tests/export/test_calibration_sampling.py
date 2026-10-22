@@ -5,8 +5,8 @@ import numpy as np
 import pytest
 
 from common.classes import CLASS_NAMES
-from keras_pipeline.export import converter
-from keras_pipeline.training.artifact_paths import tflite_path as artifact_tflite_path
+from antispoofing_pipeline.keras.export import converter
+from antispoofing_pipeline.keras.training.artifact_paths import tflite_path as artifact_tflite_path
 
 
 def _items(counts):

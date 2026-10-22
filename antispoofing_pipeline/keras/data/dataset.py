@@ -1,7 +1,7 @@
 """tf.data 입력 파이프라인.
 
 이미지 디코딩·증강·정규화를 OpenCV로 수행하고 tf.py_function으로 감싸 tf.data에 태운다.
-공간 증강 방식과 정규화 계약은 PyTorch 파이프라인(pytorch_pipeline/dataset.py)에 맞췄지만,
+공간 증강 방식과 정규화 계약은 PyTorch 파이프라인(antispoofing_pipeline/pytorch/dataset.py)에 맞췄지만,
 resize 구현과 ColorJitter 연산 순서가 달라 픽셀 단위 결과까지 같지는 않다.
 
 정규화 계약(앱/PyTorch와 동일해야 함):
@@ -24,15 +24,15 @@ import cv2
 import numpy as np
 import tensorflow as tf
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from keras_pipeline.data.depth_generator import (
+from antispoofing_pipeline.keras.data.depth_generator import (
     generate_high_frequency_residual_map,
     generate_pseudo_depth_map,
 )
-from keras_pipeline.data.spec import IMAGE_SIZE, RGB_MEAN, RGB_STD, IR_MEAN, IR_STD
+from antispoofing_pipeline.keras.data.spec import IMAGE_SIZE, RGB_MEAN, RGB_STD, IR_MEAN, IR_STD
 from common.classes import CLASS_MAPPING
 
 

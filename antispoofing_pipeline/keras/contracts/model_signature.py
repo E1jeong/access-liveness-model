@@ -17,7 +17,7 @@ spec.py의 a_/b_ 접두사와 TFLite 변환 결과로 관리하며, inspect_tfli
 변환 후에 한 번 확인해야 변환 단계에서 생긴 어긋남을 잡을 수 있다.
 """
 from common.classes import CLASS_NAMES
-from keras_pipeline.data.spec import MODEL_INPUT_SIGNATURES
+from antispoofing_pipeline.keras.data.spec import MODEL_INPUT_SIGNATURES
 
 
 # 모델 종류에 해당하는 계약 튜플을 꺼낸다. 오타 난 model_type이 조용히 통과하지 않도록

@@ -18,13 +18,13 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from common.classes import CLASS_NAMES
-from keras_pipeline.models.efficientnet_lite import EfficientNetLite0
-from keras_pipeline.data.spec import MODEL_INPUT_SIGNATURES, RGB_MEAN, RGB_STD
+from antispoofing_pipeline.keras.models.efficientnet_lite import EfficientNetLite0
+from antispoofing_pipeline.keras.data.spec import MODEL_INPUT_SIGNATURES, RGB_MEAN, RGB_STD
 
 
 SUPPORTED_BACKBONES = ("mobilenetv2", "efficientnet_lite0")

@@ -1,7 +1,7 @@
 """NPU-friendly Keras export model construction and parity validation."""
 import numpy as np
 
-from keras_pipeline.data.spec import RGB_MEAN, RGB_STD
+from antispoofing_pipeline.keras.data.spec import RGB_MEAN, RGB_STD
 
 
 def _rgb_imagenet_norm_to_mobilenet_range(rgb):
@@ -135,7 +135,7 @@ def build_npu_export_model(trained_model, model_type):
         backbone = "mobilenetv2"
 
     if model_type == "dual":
-        from keras_pipeline.models.model import build_dual_model
+        from antispoofing_pipeline.keras.models.model import build_dual_model
         export_model = build_dual_model(
             rgb_weights=None,
             dropout=0.0,
@@ -149,7 +149,7 @@ def build_npu_export_model(trained_model, model_type):
         )
         backbones = [f"rgb_{backbone}", f"ir_{backbone}"]
     else:
-        from keras_pipeline.models.model import build_single_model
+        from antispoofing_pipeline.keras.models.model import build_single_model
         export_model = build_single_model(
             input_type=model_type,
             rgb_weights=None,

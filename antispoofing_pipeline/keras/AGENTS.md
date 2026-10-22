@@ -1,4 +1,4 @@
-# `keras_pipeline` Module Guide
+# `antispoofing_pipeline.keras` Module Guide
 
 ## Scope
 

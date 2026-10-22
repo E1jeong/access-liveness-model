@@ -2,7 +2,7 @@ import sys
 import os
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -22,8 +22,8 @@ import onnx2tf
 import tensorflow as tf
 
 from common.classes import CLASS_NAMES
-from keras_pipeline.export.validator import inspect_tflite, write_tflite_sidecar_manifest
-from pytorch_pipeline.model import get_anti_spoof_model
+from antispoofing_pipeline.keras.export.validator import inspect_tflite, write_tflite_sidecar_manifest
+from antispoofing_pipeline.pytorch.model import get_anti_spoof_model
 
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
@@ -144,7 +144,7 @@ def _build_representative_dataset(dataset_dir="dataset/raw/train", model_type="c
     Sony MCT 및 TFLite 양자화 보정용 대표 데이터셋 제너레이터를 구성합니다.
     실제 train 고정 split 이미지에서 stratified/sampled 프레임을 추출합니다.
     """
-    from pytorch_pipeline.dataset import DualInputDataset, _get_default_transforms
+    from antispoofing_pipeline.pytorch.dataset import DualInputDataset, _get_default_transforms
     from common.utils import collect_split_items
 
     train_items = []

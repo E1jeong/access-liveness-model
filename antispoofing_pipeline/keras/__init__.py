@@ -3,8 +3,8 @@
 이 파일은 폴더를 파이썬 패키지로 만드는 표시자다. 실행되는 코드는 없고
 docstring만 들어 있으며, 있기 때문에 아래가 성립한다.
 
-    from keras_pipeline.data.dataset import make_dataset
-    python -m keras_pipeline.training.train
+    from antispoofing_pipeline.keras.data.dataset import make_dataset
+    python -m antispoofing_pipeline.keras.training.train
 
 모듈 구성:
     data            입력 규격·깊이 지도·tf.data 파이프라인

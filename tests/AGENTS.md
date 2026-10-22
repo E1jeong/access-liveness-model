@@ -22,7 +22,7 @@
    - TensorFlow/Keras-only export tests use `.venv-tf` on the GPU server.
    - The mixed PyTorch MCT + TensorFlow export suite uses `.venv` on `sub`, where both stacks are installed.
 2. **Leakage & Determinism Protection**:
-   - Any modification to `common/utils.py` or `keras_pipeline/data/dataset.py` must pass `test_fixed_splits.py` and `test_deterministic_augmentation.py`.
+   - Any modification to `common/utils.py` or `antispoofing_pipeline/keras/data/dataset.py` must pass `test_fixed_splits.py` and `test_deterministic_augmentation.py`.
    - Never weaken evidence-based leakage detection: canonical realpath, MD5 content hash, and session/video metadata. Folder numbers are split-local capture IDs, not identity evidence; add identity leakage checks only when an explicit metadata `groupId` contract exists.
 3. **Artifact Contracts**:
    - `test_model_signature.py` enforces the 12-class order and Keras/TFLite input names, channels, and `[1, 12]` output.

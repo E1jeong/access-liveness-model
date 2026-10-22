@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# keras_pipeline/training/train.py — MobileNetV2 학습
+# antispoofing_pipeline/keras/training/train.py — MobileNetV2 학습
 #
 # dataset/raw/{train,validation,test} 고정 분할을 사용한다.
 # 사용 예:
@@ -10,4 +10,4 @@ cd "$(dirname "$0")/../.."
 source scripts/keras/_keras_env.sh "실행됩니다"
 
 echo "=== 학습 시작 ==="
-.venv-tf/bin/python -m keras_pipeline.training.train "$@"
+.venv-tf/bin/python -m antispoofing_pipeline.keras.training.train "$@"

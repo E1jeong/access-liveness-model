@@ -17,8 +17,8 @@
 
 | Module | Responsibility | First entry point | Module guide |
 | --- | --- | --- | --- |
-| `keras_pipeline/` | Production training, backbones, NPU INT8 export | `keras_pipeline/training/train.py` | `keras_pipeline/AGENTS.md` |
-| `pytorch_pipeline/` | Research backbones, Sony MCT PTQ bridge | `pytorch_pipeline/train.py` | `pytorch_pipeline/AGENTS.md` |
+| `antispoofing_pipeline/keras/` | Production training, backbones, NPU INT8 export | `antispoofing_pipeline/keras/training/train.py` | `antispoofing_pipeline/keras/AGENTS.md` |
+| `antispoofing_pipeline/pytorch/` | Research backbones, Sony MCT PTQ bridge | `antispoofing_pipeline/pytorch/train.py` | `antispoofing_pipeline/pytorch/AGENTS.md` |
 | `face_detection_pipeline/` | YuNet-N box/optional landmark training, evaluation, and TFLite export | `face_detection_pipeline/models/yunet.py` | `face_detection_pipeline/AGENTS.md` |
 | `face_recognition_pipeline/` | MobileNetV1 ArcFace architecture adaptation, calibration, and NPU INT8 export | `face_recognition_pipeline/models/mobilenet_v1.py` | `face_recognition_pipeline/AGENTS.md` |
 | `scripts/` | Shell wrappers, CUDA/cuDNN environment preambles | `scripts/keras/_keras_env.sh` | `scripts/AGENTS.md` |

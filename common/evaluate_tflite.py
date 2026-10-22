@@ -138,8 +138,8 @@ def _read_npu_int8_contract(model_path):
 
 
 def evaluate(model_path, data_dir, split, model_type, max_samples=None):
-    from keras_pipeline.data.dataset import load_sample
-    from keras_pipeline.data.spec import RGB_MEAN, RGB_STD
+    from antispoofing_pipeline.keras.data.dataset import load_sample
+    from antispoofing_pipeline.keras.data.spec import RGB_MEAN, RGB_STD
     from common.utils import (
         calculate_validation_metrics,
         collect_split_items,
@@ -266,11 +266,11 @@ def _ensure_evaluatable_split(items, split):
 
 def evaluate_keras_model(model_path, data_dir, split, model_type, max_samples=None, npu_export=False):
     import tensorflow as tf
-    from keras_pipeline.export.npu_model import build_npu_export_model
-    from keras_pipeline.contracts.model_signature import validate_keras_model_signature
-    from keras_pipeline.data.dataset import load_sample
-    from keras_pipeline.data.spec import RGB_MEAN, RGB_STD
-    from keras_pipeline.models.model import _rgb_current_norm_to_mobilenet_range, extract_deploy_model
+    from antispoofing_pipeline.keras.export.npu_model import build_npu_export_model
+    from antispoofing_pipeline.keras.contracts.model_signature import validate_keras_model_signature
+    from antispoofing_pipeline.keras.data.dataset import load_sample
+    from antispoofing_pipeline.keras.data.spec import RGB_MEAN, RGB_STD
+    from antispoofing_pipeline.keras.models.model import _rgb_current_norm_to_mobilenet_range, extract_deploy_model
     from common.utils import collect_split_items, subsample_split_items, validate_fixed_split_coverage
 
     model = tf.keras.models.load_model(

@@ -4,7 +4,7 @@ import numpy as np
 import cv2
 from pathlib import Path
 
-from keras_pipeline.data.dataset import (
+from antispoofing_pipeline.keras.data.dataset import (
     make_dataset,
     make_single_dataset,
     load_single_sample,

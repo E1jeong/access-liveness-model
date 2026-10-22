@@ -2,14 +2,14 @@ import sys
 import os
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import argparse
 import numpy as np
 import torch
-from pytorch_pipeline.dataset import get_fixed_split_loaders
+from antispoofing_pipeline.pytorch.dataset import get_fixed_split_loaders
 from common.classes import CLASS_NAMES
 from common.utils import calculate_validation_metrics
 

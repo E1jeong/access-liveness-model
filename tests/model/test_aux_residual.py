@@ -6,10 +6,10 @@ import numpy as np
 import pytest
 import tensorflow as tf
 
-from keras_pipeline.data.dataset import make_dataset, make_single_dataset
-from keras_pipeline.data.depth_generator import generate_high_frequency_residual_map
-from keras_pipeline.models.losses import build_classification_loss, build_supcon_loss
-from keras_pipeline.models.model import build_dual_model, build_single_model, extract_deploy_model
+from antispoofing_pipeline.keras.data.dataset import make_dataset, make_single_dataset
+from antispoofing_pipeline.keras.data.depth_generator import generate_high_frequency_residual_map
+from antispoofing_pipeline.keras.models.losses import build_classification_loss, build_supcon_loss
+from antispoofing_pipeline.keras.models.model import build_dual_model, build_single_model, extract_deploy_model
 
 
 def test_residual_option_preserves_existing_positional_argument_order():

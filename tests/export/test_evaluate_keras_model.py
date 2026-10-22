@@ -1,8 +1,8 @@
 import tensorflow as tf
 
 import common.utils as utils
-import keras_pipeline.contracts.model_signature as model_signature
-import keras_pipeline.models.model as keras_models
+import antispoofing_pipeline.keras.contracts.model_signature as model_signature
+import antispoofing_pipeline.keras.models.model as keras_models
 from common.evaluate_tflite import evaluate_keras_model
 
 

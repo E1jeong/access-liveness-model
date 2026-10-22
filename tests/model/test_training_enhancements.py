@@ -3,7 +3,7 @@ import numpy as np
 import tensorflow as tf
 
 from common.classes import CLASS_NAMES
-from keras_pipeline.training.train import (
+from antispoofing_pipeline.keras.training.train import (
     _build_optimizer,
     _print_validation_results,
     _set_backbone_trainable,
@@ -13,7 +13,7 @@ from keras_pipeline.training.train import (
     TrainingProgbarLogger,
     parse_args,
 )
-from keras_pipeline.models.model import build_single_model, build_dual_model
+from antispoofing_pipeline.keras.models.model import build_single_model, build_dual_model
 
 
 def test_train_rejects_policy_rejected_conv1_mean_reduction(monkeypatch):

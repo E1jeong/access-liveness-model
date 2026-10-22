@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pytorch_pipeline/train.py — PyTorch 모델 학습 실행기
+# antispoofing_pipeline/pytorch/train.py — PyTorch 모델 학습 실행기
 #
 # 사용 예:
 #   ./scripts/pytorch/run_pytorch_train.sh
@@ -8,4 +8,4 @@ set -e
 cd "$(dirname "$0")/../.."
 
 echo "=== PyTorch 학습 시작 ==="
-.venv/bin/python -m pytorch_pipeline.train "$@"
+.venv/bin/python -m antispoofing_pipeline.pytorch.train "$@"

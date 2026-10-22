@@ -8,7 +8,7 @@ from common.classes import CLASS_NAMES
 
 
 def test_pytorch_mct_tflite_export_and_manifest():
-    from pytorch_pipeline.convert_to_tflite import convert_pytorch_to_tflite
+    from antispoofing_pipeline.pytorch.convert_to_tflite import convert_pytorch_to_tflite
 
     with tempfile.TemporaryDirectory() as temp_dir:
         output_prefix = os.path.join(temp_dir, "test_crop_ir")

@@ -1,4 +1,4 @@
-# `pytorch_pipeline` Module Guide
+# `antispoofing_pipeline.pytorch` Module Guide
 
 ## Scope
 
@@ -24,7 +24,7 @@
    - Standard PyTorch PTQ causes activation collapse on MobileNetV3; use the Sony MCT PTQ path (`get_npu_tflite_tpc`) for INT8 export.
 3. **Android Contract Compatibility**:
    - Android deployment accepts only NHWC `[1, 224, 224, 1]` (`crop_ir`) or RGB `[1, 224, 224, 3]` + IR `[1, 224, 224, 1]` (`dual`), with `[1, 12]` INT8 logits matching `len(CLASS_NAMES)`. The converter also supports `crop_rgb` for research; RGB-only export is not an Android-deployable contract.
-   - Sidecar manifest must be generated and inspected using `keras_pipeline.export.validator`.
+   - Sidecar manifest must be generated and inspected using `antispoofing_pipeline.keras.export.validator`.
 
 ## Change Gates
 

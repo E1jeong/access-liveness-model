@@ -26,29 +26,29 @@ if sys.platform == "darwin":
     except Exception as _e:
         pass
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from common.utils import collect_split_items, validate_fixed_split_coverage
 from common.classes import CLASS_NAMES
-from keras_pipeline.contracts.model_signature import (
+from antispoofing_pipeline.keras.contracts.model_signature import (
     validate_keras_model_signature,
     validate_tflite_model_signature,
 )
-from keras_pipeline.data.dataset import load_sample
-from keras_pipeline.models.model import _rgb_current_norm_to_mobilenet_range, extract_deploy_model, SUPPORTED_BACKBONES
-from keras_pipeline.training.artifact_paths import (
+from antispoofing_pipeline.keras.data.dataset import load_sample
+from antispoofing_pipeline.keras.models.model import _rgb_current_norm_to_mobilenet_range, extract_deploy_model, SUPPORTED_BACKBONES
+from antispoofing_pipeline.keras.training.artifact_paths import (
     keras_checkpoint_path,
     tflite_path as artifact_tflite_path,
     check_no_overwrite,
 )
-from keras_pipeline.export.npu_model import (
+from antispoofing_pipeline.keras.export.npu_model import (
     _rgb_imagenet_norm_to_mobilenet_range,
     validate_npu_export_parity,
     build_npu_export_model,
 )
-from keras_pipeline.export.validator import (
+from antispoofing_pipeline.keras.export.validator import (
     inspect_tflite,
     write_tflite_sidecar_manifest,
 )

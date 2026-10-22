@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# keras_pipeline/export/converter.py — TFLite 변환 (float / INT8)
+# antispoofing_pipeline/keras/export/converter.py — TFLite 변환 (float / INT8)
 #
 # 사용 예:
 #   ./scripts/keras/run_keras_convert.sh --float --int8                    # 기본 경로 모델 변환
@@ -15,4 +15,4 @@ source scripts/keras/_keras_env.sh "변환됩니다"
 CONVERT_PYTHON=".venv-tf/bin/python"
 
 echo "=== TFLite 변환 시작 ==="
-TF_CPP_MIN_LOG_LEVEL=2 CUDA_VISIBLE_DEVICES="" "$CONVERT_PYTHON" -m keras_pipeline.export.converter "$@"
+TF_CPP_MIN_LOG_LEVEL=2 CUDA_VISIBLE_DEVICES="" "$CONVERT_PYTHON" -m antispoofing_pipeline.keras.export.converter "$@"

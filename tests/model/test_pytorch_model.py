@@ -4,7 +4,7 @@ import torch.nn as nn
 from torchvision.ops.misc import SqueezeExcitation
 
 from common.classes import CLASS_NAMES
-from pytorch_pipeline.model import (
+from antispoofing_pipeline.pytorch.model import (
     get_anti_spoof_model,
     SingleInputMobileNetV3,
     DualInputMobileNetV3,
@@ -43,7 +43,7 @@ def test_pytorch_conv1_reduction():
 
 
 def test_pytorch_train_rejects_policy_rejected_conv1_mean_reduction(monkeypatch):
-    from pytorch_pipeline.train import parse_args
+    from antispoofing_pipeline.pytorch.train import parse_args
 
     monkeypatch.setattr("sys.argv", ["train.py", "--conv1-reduction", "mean"])
     with pytest.raises(SystemExit):

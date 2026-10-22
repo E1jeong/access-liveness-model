@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 
 from common.classes import CLASS_MAPPING
-from keras_pipeline.data.dataset import load_sample, load_single_sample, make_single_dataset
+from antispoofing_pipeline.keras.data.dataset import load_sample, load_single_sample, make_single_dataset
 
 
 DISPLAY_PARAMS = {

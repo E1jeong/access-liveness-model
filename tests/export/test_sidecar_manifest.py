@@ -3,8 +3,8 @@ import json
 import tensorflow as tf
 from tensorflow import keras
 
-from keras_pipeline.data import spec
-from keras_pipeline.export import validator
+from antispoofing_pipeline.keras.data import spec
+from antispoofing_pipeline.keras.export import validator
 
 
 def _write_tiny_tflite(path, channels=3):

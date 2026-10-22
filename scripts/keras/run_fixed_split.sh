@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # 고정 train/validation/test 기준 학습 + 변환 + validation 평가.
 # test split은 설정 확정 후 common.evaluate_tflite --split test로 별도 실행한다.
-set -e
-cd "$(dirname "$0")/../.."
+set -euo pipefail
+cd "${MODEL_PROJECT_ROOT:-$(dirname "$0")/../..}"
+
+PIPELINE_ARGS=("$@")
+BACKUP_SCRIPT="${MODEL_BACKUP_SCRIPT:-scripts/backup_models.py}"
+BACKUP_CONFIG="${MODEL_BACKUP_CONFIG:-$HOME/.config/access-liveness-model/backup.json}"
+RUN_ID=""
 
 MODEL_TYPE="dual"
 BACKBONE="mobilenetv2"
@@ -44,6 +49,7 @@ while [[ "$#" -gt 0 ]]; do
     --learning-rate) LEARNING_RATE="$2"; shift ;;
     --data-dir) DATA_DIR="$2"; shift ;;
     --output-dir) OUTPUT_DIR="$2"; shift ;;
+    --run-id) RUN_ID="$2"; shift ;;
     --calibration-samples) CALIBRATION_SAMPLES="$2"; shift ;;
     --force) FORCE="--force" ;;
     --conv1-reduction) REDUCTION="$2"; shift ;;
@@ -88,6 +94,15 @@ if [[ "$BACKBONE" != "mobilenetv2" ]]; then
   if [[ "$MODEL_TYPE" == "dual" ]]; then PREFIX="best_model_${BACKBONE}_fixed"; else PREFIX="best_${MODEL_TYPE}_${BACKBONE}_fixed"; fi
 fi
 
+RUN_ARGS=()
+if [[ -n "$RUN_ID" ]]; then RUN_ARGS=(--run-id "$RUN_ID"); fi
+OUTPUT_DIR="$(python3 "$BACKUP_SCRIPT" start --config "$BACKUP_CONFIG" \
+  --output-root "$OUTPUT_DIR" --model-type "$MODEL_TYPE" --backbone "$BACKBONE" \
+  --prefix "$PREFIX" ${RUN_ARGS[@]+"${RUN_ARGS[@]}"} -- "$0" ${PIPELINE_ARGS[@]+"${PIPELINE_ARGS[@]}"})"
+RUN_ID="$(basename "$OUTPUT_DIR")"
+
+run_pipeline() {
+
 echo "========================================="
 echo "  [시작] 고정 split 학습 파이프라인"
 echo "  모델 종류      : $MODEL_TYPE"
@@ -110,6 +125,7 @@ echo "========================================="
 ./scripts/keras/run_keras_train.sh \
   --data-dir "$DATA_DIR" \
   --output-dir "$OUTPUT_DIR" \
+  --run-id "$RUN_ID" \
   --model-type "$MODEL_TYPE" \
   --backbone "$BACKBONE" \
   --epochs "$EPOCHS" \
@@ -145,12 +161,24 @@ TF_CPP_MIN_LOG_LEVEL=2 "$EVAL_PYTHON" -m common.evaluate_tflite \
   --data-dir "$DATA_DIR" \
   --split validation \
   --model-type "$MODEL_TYPE" \
+  --report-json "$OUTPUT_DIR/evaluation.json" \
+  --report-csv "$OUTPUT_DIR/evaluation.csv" \
   --models \
     "$OUTPUT_DIR/${PREFIX}_float.tflite" \
     "$OUTPUT_DIR/${PREFIX}_int8.tflite" \
     "$OUTPUT_DIR/${PREFIX}_npu_int8.tflite"
+}
+
+run_pipeline 2>&1 | tee "$OUTPUT_DIR/pipeline.log"
+python3 "$BACKUP_SCRIPT" ready --run-dir "$OUTPUT_DIR"
+BACKUP_MACHINE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["machine"])' "$BACKUP_CONFIG")"
+if [[ "$BACKUP_MACHINE" == "sub" ]]; then
+  echo "[백업 대기] 회사 PC 중계: $OUTPUT_DIR"
+else
+  python3 "$BACKUP_SCRIPT" publish --config "$BACKUP_CONFIG" --run-dir "$OUTPUT_DIR"
+fi
 
 echo "========================================="
-echo "  [성공] 고정 split 파이프라인 완료"
+echo "  [성공] 학습·변환·평가 완료 (백업 상태는 위 메시지 참조)"
 echo "  test split은 자동 평가하지 않았습니다."
 echo "========================================="

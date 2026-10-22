@@ -35,6 +35,7 @@
 - **Android Export Contract**: The downstream Android SDK deploys only `crop_ir` as IR `single_1_input` (`ir@0`, one channel) or `dual` as RGB+IR `dual_2_input` (distinct `rgb`/`ir` indices `0`/`1`, three/one channels), both with one `[1,12]` output. `crop_rgb` may remain a training experiment but is not a standalone Android deployment form; paired one-input and five-input artifacts are historical only.
 - **Data & Run Protection**: Never modify or overwrite original capture images (`RGB.bmp`/`IR.bmp`). Store each training run in a separate directory containing its run ID; do not overwrite existing candidate checkpoints (`.pth`, `.keras`, or `.tflite`).
 - **Artifact Separation**: Store generated `.tflite`, `.keras`, and `.pth` only in gitignored `model/`. Never commit model weights or raw image datasets to Git.
+- **Final Artifact Backup**: For Keras training through final TFLite evaluation and backup, use `scripts/keras/run_fixed_split.sh` (or its installed `run-model-pipeline` launcher). `scripts/AGENTS.md` owns the backup marker and verification gates; standalone training is not a completed delivery.
 
 ## Verify
 

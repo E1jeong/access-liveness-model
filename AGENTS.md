@@ -7,10 +7,10 @@
 - **Without the wiki**: Code and these `AGENTS.md` guides are authoritative; an unpulled wiki snapshot is read-only background that may be stale and yields to code. Report results with run ID, split, artifact, execution machine, code revision, and metrics in commit messages or merge requests for wiki intake. Wiki page names cited in guides (e.g. `technical/training-pipeline`) are relative to the project folder or snapshot root.
 - **Paired Project**: Governs training and quantization upstream for `android-anti-spoofing-lab` (Anti-Spoofing Viewer Android app). Output contracts follow `technical/android-deployment-agreement`.
 - **Machine Topology**:
-  - **Company PC (WSL CPU)**: Code/doc editing, Git operations, and fast unit tests (`uv run pytest tests/dataset tests/metrics`). Never run training here.
+  - **Company PC (WSL CPU)**: Code/doc editing, Git operations, and fast unit tests (`uv run pytest tests/dataset tests/metrics tests/face_detection tests/face_recognition`). Never run training here.
   - **Sub GPU machine (`sub`, GTX 1660 Ti)**: The project owner's training, dataset processing, and INT8 quantization host via managed `uv` virtual environments (`.venv` for PyTorch, `.venv-tf` for Keras TF 2.21).
-  - **Mac Studio (`mac`, Apple Silicon M4 Max)**: The collaborator's training host; high-speed Metal GPU training & export node. Uses a unified `.venv-tf` environment (TensorFlow 2.18.0 + `tensorflow-metal 1.2.0` + LiteRT 2.3.0, `requirements/mac-tf.lock`): supports Metal GPU-accelerated training, Keras 3 TFLite export, INT8 quantization, and validation evaluation in a single environment. Grappler meta-optimizer is disabled on Darwin to guarantee numerical parity with TFLite. Holds full 12-class condition-folder `dataset/raw` synchronized with `sub`.
-  - **Host sharing**: Each person trains on their own host. Coordinate before running on the other host (one GPU each), and never modify the other person's checkout, run directories, or tmux sessions. Record the execution machine with metrics; `sub` (CUDA, TF 2.21) and `mac` (Metal, TF 2.18) results are compared only with that noted.
+  - **Mac Studio (`mac`, Apple Silicon M4 Max)**: The collaborator's training host; high-speed Apple Silicon training & export node. Keras training is standardized on 16-core CPU execution (`CUDA_VISIBLE_DEVICES=""` in `.venv-tf`) to avoid `tensorflow-metal 1.2.0` backpropagation gradient degradation, while Keras 3 TFLite export, INT8 quantization, and validation evaluation run in `.venv-tf` (TensorFlow 2.18.0 + `tensorflow-metal 1.2.0` + LiteRT 2.3.0, `requirements/mac-tf.lock` with Grappler meta-optimizer disabled). PyTorch face detector training uses Apple Silicon GPU via `--device mps` in `.venv`. Holds full 12-class condition-folder `dataset/raw` synchronized with `sub`.
+  - **Host sharing**: Each person trains on their own host. Coordinate before running on the other host (one GPU each), and never modify the other person's checkout, run directories, or tmux sessions. Record the execution machine with metrics; `sub` (CUDA, TF 2.21) and `mac` (CPU for Keras / MPS for detector, TF 2.18) results are compared only with that noted.
 - Read the nearest module `AGENTS.md` before changing a pipeline module; this root guide remains in force everywhere.
 
 ## Code Map
@@ -39,7 +39,7 @@
 
 ## Verify
 
-- Company PC fast unit tests: `uv run pytest tests/dataset tests/metrics`
+- Company PC fast unit tests: `uv run pytest tests/dataset tests/metrics tests/face_detection tests/face_recognition`
 - Split integrity & leakage check: `.venv/bin/python -m common.validate_fixed_splits` (or `.venv-tf/bin/python` on GPU server/mac)
 - GPU server Keras export suite: `.venv-tf/bin/pytest tests/export --ignore=tests/export/test_pytorch_mct_export.py`
 - GPU server mixed PyTorch MCT + TensorFlow export suite: `.venv/bin/pytest tests/export`

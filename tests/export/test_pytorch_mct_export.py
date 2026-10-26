@@ -61,5 +61,5 @@ def test_pytorch_mct_tflite_export_and_manifest():
         assert manifest_data["delegate"] == "cpu"
         assert manifest_data["class_order"] == CLASS_NAMES
         assert manifest_data["crop_margin_ratio"] == 0.10
-        assert manifest_data["inputs"][0]["input_kind"] == "ir"
+        assert manifest_data["inputs"][0]["input_type"] == "ir"
         assert manifest_data["outputs"][0]["output_is_logits"] is True

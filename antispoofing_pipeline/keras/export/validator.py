@@ -60,13 +60,13 @@ def write_tflite_sidecar_manifest(tflite_path, model_type, npu_int8):
         dtype = detail['dtype'].__name__
         channels = shape[-1]
 
-        input_kind = "unknown"
+        input_type = "unknown"
         if model_type == "crop_rgb":
-            input_kind = "rgb"
+            input_type = "rgb"
         elif model_type == "crop_ir":
-            input_kind = "ir"
+            input_type = "ir"
         elif model_type == "dual":
-            input_kind = "rgb" if channels == 3 else "ir"
+            input_type = "rgb" if channels == 3 else "ir"
 
         scale, zero_point = detail['quantization']
         quant = None
@@ -101,7 +101,7 @@ def write_tflite_sidecar_manifest(tflite_path, model_type, npu_int8):
             "index": idx,
             "shape": shape,
             "dtype": dtype,
-            "input_kind": input_kind,
+            "input_type": input_type,
             "quantization": quant,
             "normalization": norm
         })

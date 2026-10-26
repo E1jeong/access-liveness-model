@@ -1,5 +1,6 @@
 import json
 
+import pytest
 import tensorflow as tf
 from tensorflow import keras
 
@@ -18,6 +19,18 @@ def _read_manifest(tflite_path):
     manifest_path = str(tflite_path).replace(".tflite", "_manifest.json")
     with open(manifest_path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+@pytest.mark.parametrize("model_type,channels,input_type", [("crop_rgb", 3, "rgb"), ("crop_ir", 1, "ir")])
+def test_sidecar_uses_input_type_key(tmp_path, model_type, channels, input_type):
+    tflite_path = tmp_path / "model.tflite"
+    _write_tiny_tflite(tflite_path, channels=channels)
+
+    validator.write_tflite_sidecar_manifest(str(tflite_path), model_type, npu_int8=True)
+
+    model_input = _read_manifest(tflite_path)["inputs"][0]
+    assert model_input["input_type"] == input_type
+    assert "input_kind" not in model_input
 
 
 def test_sidecar_manifest_uses_spec_crop_margin_ratio(monkeypatch, tmp_path):

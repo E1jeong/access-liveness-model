@@ -13,17 +13,17 @@ def _write_manifest(tflite_path, inputs):
 
 RGB_NPU_INPUT = {
     "name": "rgb",
-    "input_kind": "rgb",
+    "input_type": "rgb",
     "normalization": {"mean": [0.5, 0.5, 0.5], "std": [0.5, 0.5, 0.5], "range": "[-1, 1]"},
 }
 RGB_IMAGENET_INPUT = {
     "name": "rgb",
-    "input_kind": "rgb",
+    "input_type": "rgb",
     "normalization": {"mean": [0.485, 0.456, 0.406], "std": [0.229, 0.224, 0.225], "range": "imagenet"},
 }
 IR_INPUT = {
     "name": "ir",
-    "input_kind": "ir",
+    "input_type": "ir",
     "normalization": {"mean": [0.5], "std": [0.5], "range": "[-1, 1]"},
 }
 

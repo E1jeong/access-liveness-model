@@ -64,14 +64,16 @@ def test_publication_verifies_bytes_preserves_source_and_retries_ack(tmp_path, m
     with pytest.raises(OSError, match="interrupted ack"):
         backup.publish(args)
     assert not (run / "backup_done.json").exists()
-    destination = target / "keras/mobilenetv2/mac/test_run"
+    manifest, _ = backup.verify(run)
+    folder_name = manifest.get("backup_folder") or manifest["run_id"]
+    destination = target / "keras/mobilenetv2" / folder_name
     assert backup.verify(destination) == backup.verify(run)
     monkeypatch.setattr(backup, "acknowledge", acknowledge)
     backup.publish(args)
     assert backup.completed(run)
     assert (run / "best_crop_ir_fixed.keras").is_file()
     backup.publish(args)
-    assert len(list((target / "keras/mobilenetv2/mac").iterdir())) == 1
+    assert len(list((target / "keras/mobilenetv2").iterdir())) == 1
 
 
 def test_changed_source_or_conflicting_destination_never_acknowledged(tmp_path):
@@ -161,7 +163,9 @@ def test_relay_retries_after_destination_failure(tmp_path, monkeypatch):
     backup.relay(args)
     assert backup.completed(run)
     backup.relay(args)
-    assert backup.verify(destination / "keras/mobilenetv2/sub/test_run") == backup.verify(run)
+    manifest, _ = backup.verify(run)
+    folder_name = manifest.get("backup_folder") or manifest["run_id"]
+    assert backup.verify(destination / "keras/mobilenetv2" / folder_name) == backup.verify(run)
 
 
 @pytest.mark.parametrize("fail_stage", ["validate", "train", "convert", "evaluate", ""])
@@ -290,3 +294,135 @@ def test_concurrent_relay_skips_before_contacting_hosts(tmp_path, monkeypatch, c
         backup.fcntl.flock(lock, backup.fcntl.LOCK_EX | backup.fcntl.LOCK_NB)
         backup.relay(argparse.Namespace(config=config))
     assert "Another relay is running; skipping" in capsys.readouterr().out
+
+
+def test_safe_folder_name_validation():
+    valid_names = [
+        "20261027_2input 12클래스 + 보조헤드 4개 + cpu학습 (40에폭) - mac",
+        "20261027_1input 12클래스 + 야외이미지(곡면포함) + gpu학습 (10에폭) - sub",
+        "custom_folder-name.1",
+        "폴더명 [v2] (테스트)",
+    ]
+    for name in valid_names:
+        assert backup.safe_folder_name(name) == name
+
+    invalid_names = [
+        "",
+        "   ",
+        ".",
+        "..",
+        "nested/path",
+        "has\\backslash",
+        "../escape",
+        "forbidden*char",
+        "pipe|name",
+        "colon:name",
+    ]
+    for name in invalid_names:
+        with pytest.raises(ValueError):
+            backup.safe_folder_name(name)
+
+
+def test_determine_backup_folder_name_variations():
+    # 1. Custom backup_name override
+    meta_custom = {
+        "run_id": "20261027_dual",
+        "backup_name": "내가_직접_지정한_이름",
+    }
+    assert backup.determine_backup_folder_name(meta_custom) == "내가_직접_지정한_이름"
+
+    # 2. Dual with 4 auxiliary heads, cpu training on mac, 40 epochs, without note
+    meta_dual_4aux = {
+        "run_id": "20261027T015602Z_dual_preset_f_cpu40",
+        "model_type": "dual",
+        "machine": "mac",
+        "command": [
+            "run_fixed_split.sh", "--epochs", "40",
+            "--aux-depth", "--aux-residual", "--aux-binary-pad", "--aux-supcon",
+        ],
+    }
+    name = backup.determine_backup_folder_name(meta_dual_4aux)
+    assert name == "20261027_2input 12클래스 + 보조헤드 4개 + cpu학습 (40에폭) - mac"
+    # Ensure default does NOT include outdoor note
+    assert "야외" not in name
+
+    # 3. With explicit note
+    meta_with_note = {
+        "run_id": "20261027T015602Z_dual_preset_f_cpu40",
+        "model_type": "dual",
+        "machine": "mac",
+        "note": "야외이미지(곡면포함)",
+        "command": [
+            "run_fixed_split.sh", "--epochs", "40",
+            "--aux-depth", "--aux-residual", "--aux-binary-pad", "--aux-supcon",
+        ],
+    }
+    name_with_note = backup.determine_backup_folder_name(meta_with_note)
+    assert name_with_note == "20261027_2input 12클래스 + 야외이미지(곡면포함) + 보조헤드 4개 + cpu학습 (40에폭) - mac"
+
+    # 4. Partial auxiliary heads + focal loss + sub GPU
+    meta_sub = {
+        "run_id": "20261028_crop_ir",
+        "model_type": "crop_ir",
+        "machine": "sub",
+        "command": [
+            "run_fixed_split.sh", "--epochs", "20",
+            "--aux-depth", "--aux-residual",
+            "--loss-type", "focal",
+        ],
+    }
+    name_sub = backup.determine_backup_folder_name(meta_sub)
+    assert name_sub == "20261028_1input 12클래스 + 보조헤드(depth, 잔차) + focal + gpu학습 (20에폭) - sub"
+
+
+def test_case_insensitive_backbone_matching(tmp_path):
+    target = tmp_path / "target"
+    # Pre-existing camelCase directory
+    existing_dir = target / "keras/mobileNetV2"
+    existing_dir.mkdir(parents=True)
+
+    run = make_run(tmp_path / "source", machine="mac")
+    backup.ready(argparse.Namespace(run_dir=run))
+    config = tmp_path / "config.json"
+    backup.write_json(config, {"destination_root": str(target)})
+
+    backup.publish(argparse.Namespace(config=config, run_dir=run))
+    assert backup.completed(run)
+    # Target should be placed directly inside mobileNetV2 (not creating a second mobilenetv2)
+    keras_dirs = [d.name for d in (target / "keras").iterdir()]
+    assert keras_dirs == ["mobileNetV2"]
+    manifest, _ = backup.verify(run)
+    folder_name = manifest.get("backup_folder") or manifest["run_id"]
+    assert (existing_dir / folder_name).is_dir()
+
+
+def test_collision_with_different_run_id_uses_disambiguation_suffix(tmp_path):
+    target = tmp_path / "target"
+    config = tmp_path / "config.json"
+    backup.write_json(config, {"destination_root": str(target)})
+
+    # First run
+    run1 = make_run(tmp_path / "run1", run_id="run_alpha", machine="mac")
+    # Same custom folder name for both
+    p1 = backup.read_json(run1 / "pipeline.json")
+    p1["backup_name"] = "공통_백업_폴더"
+    backup.write_json(run1 / "pipeline.json", p1)
+    backup.ready(argparse.Namespace(run_dir=run1))
+    backup.publish(argparse.Namespace(config=config, run_dir=run1))
+    assert backup.completed(run1)
+
+    # Second run with different run_id and different contents
+    run2 = make_run(tmp_path / "run2", run_id="run_beta", machine="mac")
+    (run2 / "best_crop_ir_fixed_float.tflite").write_bytes(b"different content for beta")
+    p2 = backup.read_json(run2 / "pipeline.json")
+    p2["backup_name"] = "공통_백업_폴더"
+    backup.write_json(run2 / "pipeline.json", p2)
+    backup.ready(argparse.Namespace(run_dir=run2))
+    backup.publish(argparse.Namespace(config=config, run_dir=run2))
+    assert backup.completed(run2)
+
+    # Check both exist under keras/mobilenetv2
+    dest1 = target / "keras/mobilenetv2/공통_백업_폴더"
+    dest2 = target / "keras/mobilenetv2/공통_백업_폴더_run_beta"
+    assert backup.verify(dest1) == backup.verify(run1)
+    assert backup.verify(dest2) == backup.verify(run2)

@@ -46,6 +46,122 @@ def write_json(path, value):
     os.replace(temporary, path)
 
 
+SAFE_FOLDER_PATTERN = re.compile(r"^[A-Za-z0-9가-힣ㄱ-ㅎㅏ-ㅣ _+.,\(\)\[\]\-]+$")
+
+
+def safe_folder_name(value):
+    if not isinstance(value, str):
+        raise ValueError(f"Folder name must be a string: {value!r}")
+    value = value.strip()
+    if not value or value in {".", ".."}:
+        raise ValueError(f"Invalid folder name: {value!r}")
+    if "/" in value or "\\" in value or "\0" in value:
+        raise ValueError(f"Folder name contains path separators: {value!r}")
+    if not SAFE_FOLDER_PATTERN.fullmatch(value):
+        raise ValueError(f"Folder name contains forbidden characters: {value!r}")
+    if len(value.encode("utf-8")) > 255:
+        raise ValueError(f"Folder name exceeds 255 bytes: {value!r}")
+    return value
+
+
+def resolve_backbone_dir(keras_root, backbone):
+    backbone = component(backbone)
+    if not keras_root.is_dir():
+        return backbone
+    lower_backbone = backbone.lower()
+    for entry in keras_root.iterdir():
+        if entry.is_dir() and entry.name.lower() == lower_backbone:
+            return entry.name
+    return backbone
+
+
+def determine_backup_folder_name(metadata):
+    if metadata.get("backup_name"):
+        return safe_folder_name(metadata["backup_name"])
+
+    run_id = metadata.get("run_id", "")
+    match = re.match(r"^(\d{8})", run_id)
+    if match:
+        date_str = match.group(1)
+    else:
+        date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+
+    model_type = metadata.get("model_type", "dual")
+    if model_type == "dual":
+        model_tag = "2input"
+    elif model_type == "crop_ir":
+        model_tag = "1input"
+    elif model_type == "crop_rgb":
+        model_tag = "1input(rgb)"
+    else:
+        model_tag = model_type
+
+    parts = [f"{date_str}_{model_tag} 12클래스"]
+
+    note = (metadata.get("note") or "").strip()
+    if note:
+        parts.append(note)
+
+    command = metadata.get("command") or []
+    if isinstance(command, str):
+        command = shlex.split(command)
+
+    def has_flag(flag):
+        return any(arg == flag or arg.startswith(flag + "=") for arg in command)
+
+    def get_arg_val(flag):
+        for i, arg in enumerate(command):
+            if arg == flag and i + 1 < len(command):
+                return command[i + 1]
+            if arg.startswith(flag + "="):
+                return arg.split("=", 1)[1]
+        return None
+
+    depth = has_flag("--aux-depth")
+    residual = has_flag("--aux-residual")
+    binary_pad = has_flag("--aux-binary-pad")
+    supcon = has_flag("--aux-supcon")
+
+    if depth and residual and binary_pad and supcon:
+        parts.append("보조헤드 4개")
+    else:
+        active_heads = []
+        if depth:
+            active_heads.append("depth")
+        if residual:
+            active_heads.append("잔차")
+        if binary_pad:
+            active_heads.append("이진pad")
+        if supcon:
+            active_heads.append("supcon")
+        if active_heads:
+            parts.append(f"보조헤드({', '.join(active_heads)})")
+
+    loss = get_arg_val("--loss") or get_arg_val("--loss-type")
+    if loss and loss.lower() == "focal":
+        parts.append("focal")
+
+    if has_flag("--augment-display-artifacts"):
+        parts.append("모아레on")
+
+    freeze = get_arg_val("--freeze-backbone-epochs")
+    if freeze and freeze not in {"0", "0.0"}:
+        parts.append(f"동결{freeze}에폭")
+
+    machine = metadata.get("machine", "unknown")
+    if machine == "mac" or has_flag("--cpu") or has_flag("--device=cpu") or "cpu" in run_id.lower():
+        parts.append("cpu학습")
+    else:
+        parts.append("gpu학습")
+
+    epochs = get_arg_val("--epochs") or "10"
+    epoch_tag = f"({epochs}에폭)"
+
+    body = " + ".join(parts)
+    folder_name = f"{body} {epoch_tag} - {machine}"
+    return safe_folder_name(folder_name)
+
+
 def component(value):
     if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", value):
         raise ValueError(f"Invalid backup path component: {value!r}")
@@ -84,6 +200,8 @@ def verify(root):
         raise ValueError("Invalid or empty backup manifest")
     for key in ("machine", "backbone", "run_id"):
         component(manifest[key])
+    if "backup_folder" in manifest:
+        safe_folder_name(manifest["backup_folder"])
     for name in manifest["files"]:
         file_path(root, name)
     if inventory(root) != manifest["files"]:
@@ -104,11 +222,16 @@ def start(args):
     run.mkdir(parents=True, exist_ok=False)
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip())
-    write_json(run / "pipeline.json", {
+    pipeline_data = {
         "run_id": run_id, "machine": machine, "backbone": component(args.backbone),
         "model_type": args.model_type, "prefix": args.prefix,
         "code_revision": revision, "worktree_dirty": dirty, "command": args.command,
-    })
+    }
+    if getattr(args, "note", None):
+        pipeline_data["note"] = args.note
+    if getattr(args, "backup_name", None):
+        pipeline_data["backup_name"] = safe_folder_name(args.backup_name)
+    write_json(run / "pipeline.json", pipeline_data)
     print(run)
 
 
@@ -131,6 +254,7 @@ def ready(args):
     write_json(run / "backup_ready.json", {
         "version": 1, "run_id": metadata["run_id"], "machine": metadata["machine"],
         "backbone": metadata["backbone"], "code_revision": metadata["code_revision"],
+        "backup_folder": determine_backup_folder_name(metadata),
         "files": inventory(run),
     })
     print(f"Backup ready: {run}")
@@ -144,15 +268,26 @@ def commit(staging, destination_root):
     with (destination_root / ".backup.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         manifest, fingerprint = verify(staging)
-        destination = destination_root / "keras" / manifest["backbone"] / manifest["machine"] / manifest["run_id"]
+        backbone_dir = resolve_backbone_dir(destination_root / "keras", manifest["backbone"])
+        folder_name = safe_folder_name(manifest.get("backup_folder") or manifest["run_id"])
+        destination = destination_root / "keras" / backbone_dir / folder_name
         if destination.exists():
-            _, existing = verify(destination)
-            if existing != fingerprint:
+            existing_manifest, existing = verify(destination)
+            if existing == fingerprint:
+                shutil.rmtree(staging)
+                return str(destination)
+            if existing_manifest.get("run_id") == manifest["run_id"]:
+                raise FileExistsError(f"Conflicting backup for run {manifest['run_id']}; refusing overwrite: {destination}")
+            collision_name = safe_folder_name(f"{folder_name}_{manifest['run_id']}")
+            destination = destination_root / "keras" / backbone_dir / collision_name
+            if destination.exists():
+                _, existing_collision = verify(destination)
+                if existing_collision == fingerprint:
+                    shutil.rmtree(staging)
+                    return str(destination)
                 raise FileExistsError(f"Conflicting backup; refusing overwrite: {destination}")
-            shutil.rmtree(staging)
-        else:
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            staging.rename(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        staging.rename(destination)
         return str(destination)
 
 
@@ -324,6 +459,8 @@ def main():
     p.add_argument("--model-type", required=True)
     p.add_argument("--backbone", required=True)
     p.add_argument("--prefix", required=True)
+    p.add_argument("--note")
+    p.add_argument("--backup-name")
     p.add_argument("command", nargs=argparse.REMAINDER)
     p = commands.add_parser("ready")
     p.add_argument("--run-dir", required=True)

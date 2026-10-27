@@ -8,6 +8,8 @@ PIPELINE_ARGS=("$@")
 BACKUP_SCRIPT="${MODEL_BACKUP_SCRIPT:-scripts/backup_models.py}"
 BACKUP_CONFIG="${MODEL_BACKUP_CONFIG:-$HOME/.config/access-liveness-model/backup.json}"
 RUN_ID=""
+NOTE=""
+BACKUP_NAME=""
 
 MODEL_TYPE="dual"
 BACKBONE="mobilenetv2"
@@ -74,6 +76,8 @@ while [[ "$#" -gt 0 ]]; do
     --label-smoothing) LABEL_SMOOTHING="$2"; shift ;;
     --focal-gamma) FOCAL_GAMMA="$2"; shift ;;
     --focal-alpha) FOCAL_ALPHA="$2"; shift ;;
+    --note) NOTE="$2"; shift ;;
+    --backup-name) BACKUP_NAME="$2"; shift ;;
     *) echo "알 수 없는 인자: $1"; exit 1 ;;
   esac
   shift
@@ -94,11 +98,13 @@ if [[ "$BACKBONE" != "mobilenetv2" ]]; then
   if [[ "$MODEL_TYPE" == "dual" ]]; then PREFIX="best_model_${BACKBONE}_fixed"; else PREFIX="best_${MODEL_TYPE}_${BACKBONE}_fixed"; fi
 fi
 
-RUN_ARGS=()
-if [[ -n "$RUN_ID" ]]; then RUN_ARGS=(--run-id "$RUN_ID"); fi
+BACKUP_START_ARGS=()
+if [[ -n "$RUN_ID" ]]; then BACKUP_START_ARGS+=(--run-id "$RUN_ID"); fi
+if [[ -n "$NOTE" ]]; then BACKUP_START_ARGS+=(--note "$NOTE"); fi
+if [[ -n "$BACKUP_NAME" ]]; then BACKUP_START_ARGS+=(--backup-name "$BACKUP_NAME"); fi
 OUTPUT_DIR="$(python3 "$BACKUP_SCRIPT" start --config "$BACKUP_CONFIG" \
   --output-root "$OUTPUT_DIR" --model-type "$MODEL_TYPE" --backbone "$BACKBONE" \
-  --prefix "$PREFIX" ${RUN_ARGS[@]+"${RUN_ARGS[@]}"} -- "$0" ${PIPELINE_ARGS[@]+"${PIPELINE_ARGS[@]}"})"
+  --prefix "$PREFIX" ${BACKUP_START_ARGS[@]+"${BACKUP_START_ARGS[@]}"} -- "$0" ${PIPELINE_ARGS[@]+"${PIPELINE_ARGS[@]}"})"
 RUN_ID="$(basename "$OUTPUT_DIR")"
 
 run_pipeline() {
@@ -109,6 +115,8 @@ echo "  모델 종류      : $MODEL_TYPE"
 echo "  백본           : $BACKBONE"
   echo "  데이터 경로    : $DATA_DIR"
   echo "  산출물 경로    : $OUTPUT_DIR"
+  echo "  메모           : ${NOTE:-없음}"
+  if [[ -n "$BACKUP_NAME" ]]; then echo "  백업 폴더명    : $BACKUP_NAME"; fi
 echo "  에폭            : $EPOCHS"
 echo "  배치 크기       : $BATCH_SIZE"
 echo "  학습률          : $LEARNING_RATE"

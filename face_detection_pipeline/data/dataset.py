@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
-import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -13,10 +11,7 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset
 
-
-LANDMARK_NAMES = (
-    "eyeImageLeft", "eyeImageRight", "noseTip", "mouthImageLeft", "mouthImageRight",
-)
+from common.landmark_metadata import LANDMARK_NAMES, load_landmark_metadata
 
 
 @dataclass(frozen=True)
@@ -109,38 +104,15 @@ def _load_landmarks(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     points = torch.zeros((box_count, 5, 2), dtype=torch.float32)
     mask = torch.zeros((box_count, 5), dtype=torch.bool)
-    path = image_path.with_name("landmarks.json")
-    if not path.is_file():
-        return points, mask
-    with path.open(encoding="utf-8") as stream:
-        label = json.load(stream)
-    if not isinstance(label, dict) or (
-        label.get("schemaVersion") != 1
-        or label.get("image") != "RGB.bmp"
-        or label.get("coordinateSystem") != "original_image_pixels"
-        or (label.get("imageWidth"), label.get("imageHeight")) != image_size
-    ):
-        raise ValueError(f"Invalid landmark coordinate contract: {path}")
-    for key, source in (("imageSha256", image_path),
-                        ("metaSha256", image_path.with_name("meta.json"))):
-        if label.get(key) != hashlib.sha256(source.read_bytes()).hexdigest():
-            raise ValueError(f"Landmark {key} provenance mismatch: {path}")
-    records = label.get("landmarks")
-    if not isinstance(records, dict) or set(records) != set(LANDMARK_NAMES):
-        raise ValueError(f"Expected five named landmarks: {path}")
+    label = load_landmark_metadata(image_path, image_size)
+    records = label["points"]
     for index, name in enumerate(LANDMARK_NAMES):
         point = records[name]
-        if not isinstance(point, dict) or type(point.get("useForTraining")) is not bool:
-            raise ValueError(f"Invalid landmark training mask for {name}: {path}")
         if not point["useForTraining"]:
             continue
         if box_count != 1 or label.get("status") != "extracted":
-            raise ValueError(f"Selected landmark requires an extracted face box: {path}")
+            raise ValueError(f"Selected landmark requires an extracted face box: {image_path}")
         xy = (point.get("x"), point.get("y"))
-        if any(type(value) not in (int, float) or not math.isfinite(value) for value in xy):
-            raise ValueError(f"Invalid selected landmark coordinate for {name}: {path}")
-        if not (0 <= xy[0] < image_size[0] and 0 <= xy[1] < image_size[1]):
-            raise ValueError(f"Selected landmark outside RGB image for {name}: {path}")
         points[0, index] = torch.tensor(xy)
         mask[0, index] = True
     return points, mask

@@ -38,7 +38,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--resume", type=Path)
     parser.add_argument(
         "--landmarks", action="store_true",
-        help="Train five-point landmarks using landmarks.json per-point masks",
+        help="Train five-point landmarks using integrated meta.json version 2",
     )
     parser.add_argument("--image-width", type=int, default=320)
     parser.add_argument("--image-height", type=int, default=320)

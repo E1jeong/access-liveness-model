@@ -9,6 +9,7 @@
 
 - Model: `models/yunet.py`
 - Data adapter: `data/dataset.py`
+- Capture/landmark metadata: `common/landmark_metadata.py` (integrated `meta.json` v2 only; separate/mixed landmark files are rejected)
 - Loss: `training/loss.py`
 - Training entry point: `training/train.py`
 - Decoding and metrics: `evaluation/detection.py`

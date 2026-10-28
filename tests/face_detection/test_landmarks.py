@@ -5,6 +5,8 @@ import pytest
 import torch
 from PIL import Image
 
+from common.landmark_metadata import capture_metadata_digest
+
 from face_detection_pipeline.data.dataset import FaceDetectionDataset, collate_face_detection_batch
 from face_detection_pipeline.models.yunet import build_yunet_n
 from face_detection_pipeline.training.loss import YuNetCriterion
@@ -14,30 +16,32 @@ from face_detection_pipeline.training.train import parse_args, train
 NAMES = ('eyeImageLeft', 'eyeImageRight', 'noseTip', 'mouthImageLeft', 'mouthImageRight')
 
 
-def write_frame(root, *, enabled=5, sidecar=True):
+def write_frame(root, *, enabled=5, detected=True):
     frame = root / 'live' / '1'
     frame.mkdir(parents=True)
     Image.new('RGB', (96, 128), (20, 30, 40)).save(frame / 'RGB.bmp')
-    (frame / 'meta.json').write_text(json.dumps({'rgb': {
+    metadata = {'schemaVersion': 2, 'rgb': {
         'width': 96, 'height': 128, 'faceRect': [20, 20, 75, 110],
-    }}))
+    }}
     label = {
         'schemaVersion': 1, 'image': 'RGB.bmp', 'imageWidth': 96, 'imageHeight': 128,
-        'coordinateSystem': 'original_image_pixels', 'status': 'extracted',
+        'coordinateSystem': 'original_image_pixels',
+        'status': 'extracted' if detected else 'not_detected',
         'imageSha256': hashlib.sha256((frame / 'RGB.bmp').read_bytes()).hexdigest(),
-        'metaSha256': hashlib.sha256((frame / 'meta.json').read_bytes()).hexdigest(),
-        'landmarks': {name: {'x': x, 'y': y, 'useForTraining': i < enabled}
-                      for i, (name, x, y) in enumerate(zip(NAMES, [30, 60, 45, 32, 58], [40, 40, 60, 85, 85]))},
+        'captureSha256': capture_metadata_digest(metadata),
+        'points': {name: {'x': x if detected else None, 'y': y if detected else None,
+                          'useForTraining': detected and i < enabled}
+                   for i, (name, x, y) in enumerate(zip(NAMES, [30, 60, 45, 32, 58], [40, 40, 60, 85, 85]))},
     }
-    if sidecar:
-        (frame / 'landmarks.json').write_text(json.dumps(label))
+    metadata['landmarks'] = label
+    (frame / 'meta.json').write_text(json.dumps(metadata))
     return frame, label
 
 
 @pytest.mark.parametrize('change', ['nan', 'bool', 'bounds', 'flag', 'hash', 'coordinates', 'names'])
 def test_landmark_dataset_rejects_invalid_selected_labels(tmp_path, change):
     frame, label = write_frame(tmp_path)
-    point = label['landmarks'][NAMES[0]]
+    point = label['points'][NAMES[0]]
     if change == 'nan':
         point['x'] = float('nan')
     elif change == 'bool':
@@ -51,18 +55,22 @@ def test_landmark_dataset_rejects_invalid_selected_labels(tmp_path, change):
     elif change == 'coordinates':
         label['coordinateSystem'] = 'crop_pixels'
     else:
-        label['landmarks'].pop(NAMES[0])
-    (frame / 'landmarks.json').write_text(json.dumps(label))
+        label['points'].pop(NAMES[0])
+    metadata = json.loads((frame / 'meta.json').read_text())
+    metadata['landmarks'] = label
+    (frame / 'meta.json').write_text(json.dumps(metadata))
     with pytest.raises(ValueError):
         FaceDetectionDataset(tmp_path, image_size=(64, 64), landmarks=True)[0]
 
 
 def test_mixed_targets_keep_boxes_and_ignore_disabled_coordinates(tmp_path):
     for i, enabled in enumerate([5, 2, 0]):
-        frame, label = write_frame(tmp_path / str(i), enabled=enabled, sidecar=enabled != 0)
+        frame, label = write_frame(tmp_path / str(i), enabled=enabled, detected=enabled != 0)
         if enabled == 2:
-            label['landmarks']['noseTip']['x'] = None
-            (frame / 'landmarks.json').write_text(json.dumps(label))
+            label['points']['noseTip']['x'] = None
+            metadata = json.loads((frame / 'meta.json').read_text())
+            metadata['landmarks'] = label
+            (frame / 'meta.json').write_text(json.dumps(metadata))
     dataset = FaceDetectionDataset(tmp_path, image_size=(64, 64), landmarks=True)
     images, boxes, points, masks = collate_face_detection_batch([dataset[i] for i in range(3)])
     assert images.shape == (3, 3, 64, 64)
@@ -168,8 +176,8 @@ def test_landmark_loss_exact_grid_encoding_and_masked_nan():
 
 def test_landmark_training_rejects_dataset_without_selected_points(tmp_path):
     data = tmp_path / 'data'
-    write_frame(data / 'train', sidecar=False)
-    write_frame(data / 'validation', sidecar=False)
+    write_frame(data / 'train', detected=False)
+    write_frame(data / 'validation', detected=False)
     args = parse_args(['--landmarks', '--data-dir', str(data), '--output-dir', str(tmp_path / 'model'),
                        '--image-width', '64', '--image-height', '64', '--epochs', '1',
                        '--batch-size', '1', '--num-workers', '0', '--device', 'cpu'])

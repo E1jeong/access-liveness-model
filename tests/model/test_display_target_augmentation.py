@@ -1,3 +1,4 @@
+import pytest
 import cv2
 import numpy as np
 
@@ -16,6 +17,9 @@ DISPLAY_PARAMS = {
     "glare_y": 0.5,
     "glare_sigma": 0.15,
 }
+
+
+pytestmark = pytest.mark.tensorflow
 
 
 def _write_blank_pair(tmp_path):

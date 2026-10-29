@@ -10,6 +10,9 @@ from face_recognition_pipeline.models.mobilenet_v1 import (
 )
 
 
+pytestmark = pytest.mark.tensorflow
+
+
 def test_build_npu_mobilenet_architecture():
     """Verify NPU-compliant layer contracts without requiring pre-trained weights."""
     model = build_npu_mobilenet_model(weights_path=None, embedding_dim=256)

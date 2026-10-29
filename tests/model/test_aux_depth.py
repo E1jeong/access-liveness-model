@@ -10,6 +10,9 @@ from antispoofing_pipeline.keras.models.model import (
 from antispoofing_pipeline.keras.data.dataset import make_single_dataset, make_dataset
 
 
+pytestmark = pytest.mark.tensorflow
+
+
 def test_depth_generator_shapes_and_values():
     """모든 12개 클래스에 대해 14x14 깊이 지도의 형상과 값 범위가 올바른지 검증."""
     # Live (0)

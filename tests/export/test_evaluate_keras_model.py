@@ -1,9 +1,13 @@
+import pytest
 import tensorflow as tf
 
 import common.utils as utils
 import antispoofing_pipeline.keras.contracts.model_signature as model_signature
 import antispoofing_pipeline.keras.models.model as keras_models
 from common.evaluate_tflite import evaluate_keras_model
+
+
+pytestmark = pytest.mark.tensorflow
 
 
 def test_evaluate_keras_model_strips_auxiliary_heads(monkeypatch):

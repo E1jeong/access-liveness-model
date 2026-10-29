@@ -12,6 +12,9 @@ from antispoofing_pipeline.keras.models.losses import build_classification_loss,
 from antispoofing_pipeline.keras.models.model import build_dual_model, build_single_model, extract_deploy_model
 
 
+pytestmark = pytest.mark.tensorflow
+
+
 def test_residual_option_preserves_existing_positional_argument_order():
     single_model_params = list(inspect.signature(build_single_model).parameters)
     dual_model_params = list(inspect.signature(build_dual_model).parameters)

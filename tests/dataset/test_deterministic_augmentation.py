@@ -10,6 +10,10 @@ from antispoofing_pipeline.keras.data.dataset import (
     load_single_sample,
 )
 
+
+pytestmark = pytest.mark.tensorflow
+
+
 @pytest.fixture
 def fake_noise_images(tmp_path):
     # 증강 차이가 분명히 보이도록 무작위 노이즈 이미지를 만든다.

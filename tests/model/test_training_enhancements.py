@@ -16,6 +16,9 @@ from antispoofing_pipeline.keras.training.train import (
 from antispoofing_pipeline.keras.models.model import build_single_model, build_dual_model
 
 
+pytestmark = pytest.mark.tensorflow
+
+
 @pytest.mark.parametrize("entrypoint", ["train", "model"])
 @pytest.mark.parametrize("weights", ["imagenet", "none"])
 def test_keras_weights_option(monkeypatch, entrypoint, weights):

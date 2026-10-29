@@ -1,6 +1,10 @@
+import pytest
 import numpy as np
 import tensorflow as tf
 from antispoofing_pipeline.keras.models.model import build_single_mobilenetv2
+
+
+pytestmark = pytest.mark.tensorflow
 
 
 def test_conv1_parity():

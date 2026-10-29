@@ -8,6 +8,9 @@ from antispoofing_pipeline.keras.data import spec
 from antispoofing_pipeline.keras.export import validator
 
 
+pytestmark = pytest.mark.tensorflow
+
+
 def _write_tiny_tflite(path, channels=3):
     inputs = keras.Input(shape=(8, 8, channels), name="a_input")
     model = keras.Model(inputs, keras.layers.Flatten(name="flatten")(inputs))

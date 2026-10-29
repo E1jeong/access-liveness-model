@@ -12,6 +12,9 @@ from face_recognition_pipeline.export.verifier import (
 )
 
 
+pytestmark = pytest.mark.tensorflow
+
+
 def test_constants():
     assert EXPECTED_INT8_OPERATOR_COUNT == 31
     assert EXPECTED_INPUT_SHAPE == (1, 112, 112, 3)

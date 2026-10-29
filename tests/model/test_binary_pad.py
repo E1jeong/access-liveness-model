@@ -9,6 +9,9 @@ from antispoofing_pipeline.keras.data.dataset import make_single_dataset
 from antispoofing_pipeline.keras.models.model import build_single_model, extract_deploy_model
 
 
+pytestmark = pytest.mark.tensorflow
+
+
 def test_phase_two_bona_fide_indices():
     assert BONA_FIDE_CLASS_INDICES == (0, 10, 11)
 

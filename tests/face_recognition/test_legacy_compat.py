@@ -2,7 +2,10 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
 
+
+@pytest.mark.tensorflow
 def test_legacy_export_script_direct_execution_help():
     """Verify scripts/recognition/export_npu_mobilenet_emore.py runs without ModuleNotFoundError."""
     repo_root = Path(__file__).resolve().parents[2]

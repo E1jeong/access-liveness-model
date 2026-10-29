@@ -9,6 +9,9 @@ from antispoofing_pipeline.keras.export import converter
 from antispoofing_pipeline.keras.training.artifact_paths import tflite_path as artifact_tflite_path
 
 
+pytestmark = pytest.mark.tensorflow
+
+
 def _items(counts):
     return [
         (f"rgb-{label}-{index}", f"ir-{label}-{index}", label)

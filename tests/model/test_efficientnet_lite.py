@@ -8,6 +8,9 @@ from antispoofing_pipeline.keras.models.model import build_dual_model, build_sin
 from antispoofing_pipeline.keras.export.npu_model import build_npu_export_model, validate_npu_export_parity
 
 
+pytestmark = pytest.mark.tensorflow
+
+
 def test_efficientnet_lite_backbone_shapes():
     """Test standard EfficientNetLite0 backbone instantiation and shapes."""
     # 3-channel input with average pooling

@@ -12,6 +12,9 @@ from antispoofing_pipeline.keras.data.spec import RGB_MEAN, RGB_STD
 from antispoofing_pipeline.keras.models.model import build_single_mobilenetv2
 
 
+pytestmark = pytest.mark.tensorflow
+
+
 def _nested_model(weighted_layer_name, units, extra_weighted_layer_name=None):
     inputs = keras.Input(shape=(4,))
     backbone_layers = [keras.Input(shape=(4,)), keras.layers.Dense(units, name=weighted_layer_name)]

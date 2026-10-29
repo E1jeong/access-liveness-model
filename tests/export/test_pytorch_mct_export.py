@@ -7,6 +7,9 @@ import tensorflow as tf
 from common.classes import CLASS_NAMES
 
 
+pytestmark = pytest.mark.tensorflow
+
+
 def test_pytorch_mct_tflite_export_and_manifest():
     from antispoofing_pipeline.pytorch.convert_to_tflite import convert_pytorch_to_tflite
 

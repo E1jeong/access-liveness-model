@@ -10,6 +10,9 @@ from antispoofing_pipeline.keras.data.dataset import (
 )
 
 
+pytestmark = pytest.mark.tensorflow
+
+
 @pytest.fixture
 def fake_images(tmp_path):
     # cv2.imread가 읽을 수 있는 유효한 더미 이미지를 필수 경로에 만든다.

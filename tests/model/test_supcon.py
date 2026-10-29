@@ -1,10 +1,14 @@
 """Supervised Contrastive Learning 보조 학습 회귀 테스트."""
+import pytest
 import numpy as np
 import tensorflow as tf
 
 from antispoofing_pipeline.keras.data.dataset import make_single_dataset
 from antispoofing_pipeline.keras.models.losses import build_classification_loss, build_supcon_loss
 from antispoofing_pipeline.keras.models.model import build_single_model, extract_deploy_model
+
+
+pytestmark = pytest.mark.tensorflow
 
 
 def test_supcon_loss_pulls_bona_fide_and_uses_spoof_as_negatives():

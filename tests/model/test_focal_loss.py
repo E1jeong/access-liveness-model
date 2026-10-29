@@ -7,6 +7,9 @@ from common.classes import CLASS_NAMES
 from antispoofing_pipeline.keras.models.losses import build_classification_loss
 
 
+pytestmark = pytest.mark.tensorflow
+
+
 class TestBuildClassificationLoss:
     def test_invalid_loss_type_raises(self):
         with pytest.raises(ValueError, match="지원하지 않는 손실 함수"):

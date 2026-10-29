@@ -32,7 +32,7 @@
 ## Change Gates
 
 - For requested training/export execution or changes to approved presets and deployment contracts, consult the relevant wiki runbook/contract when available; do not treat module navigation as authorization to launch training.
-- Always execute via `scripts/keras/*.sh` from repository root. Never invoke bare `python` on the GPU machine (`sub`) because `.venv-tf` requires `libcudnn.so.9` from `_keras_env.sh`. On macOS (`mac`), training must execute on CPU (prefix with `CUDA_VISIBLE_DEVICES=""` or hide GPUs) to bypass `tensorflow-metal` backpropagation gradient degradation.
+- Always execute via `scripts/keras/*.sh` from repository root. Never invoke bare `python` on the GPU machine (`sub`) because `.venv-tf` requires `libcudnn.so.9` from `_keras_env.sh`. On macOS (`mac`), training must execute on CPU: explicitly hide TensorFlow GPUs before device initialization and verify no GPU is visible; `CUDA_VISIBLE_DEVICES=""` alone does not hide Metal.
 - Do not overwrite existing candidate models (`model/keras/best_*`). Write new runs with unique timestamps or run IDs.
 - Any change to model inputs, outputs, or quantization must generate and validate the matching sidecar JSON (`best_*_manifest.json`) via `export/validator.py`.
 

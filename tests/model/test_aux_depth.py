@@ -39,7 +39,7 @@ def test_depth_generator_shapes_and_values():
 
 def test_model_aux_depth_single_and_deploy_extract():
     """Single IR 모델에서 aux_depth 헤드 생성 및 배포용 모델 추출 검증."""
-    model = build_single_model(input_type="crop_ir", aux_depth=True, rgb_weights=None)
+    model = build_single_model(input_type="crop_ir", aux_depth=True, weights=None)
     dummy_in = np.zeros((2, 224, 224, 1), dtype=np.float32)
     outputs = model(dummy_in)
 
@@ -58,7 +58,7 @@ def test_model_aux_depth_single_and_deploy_extract():
 
 def test_model_aux_depth_dual():
     """Dual 모델에서 aux_depth 헤드 생성 검증."""
-    model = build_dual_model(aux_depth=True, rgb_weights=None)
+    model = build_dual_model(aux_depth=True, weights=None)
     dummy_rgb = np.zeros((2, 224, 224, 3), dtype=np.float32)
     dummy_ir = np.zeros((2, 224, 224, 1), dtype=np.float32)
     outputs = model([dummy_rgb, dummy_ir])

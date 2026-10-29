@@ -20,7 +20,7 @@ DATA_DIR="dataset/raw"
 OUTPUT_DIR="model/keras"
 CALIBRATION_SAMPLES=500
 FORCE=""
-REDUCTION="sum"
+WEIGHTS="imagenet"
 OPTIMIZER="adamw"
 WEIGHT_DECAY="0.01"
 USE_EMA=""
@@ -54,7 +54,7 @@ while [[ "$#" -gt 0 ]]; do
     --run-id) RUN_ID="$2"; shift ;;
     --calibration-samples) CALIBRATION_SAMPLES="$2"; shift ;;
     --force) FORCE="--force" ;;
-    --conv1-reduction) REDUCTION="$2"; shift ;;
+    --weights) WEIGHTS="$2"; shift ;;
     --optimizer) OPTIMIZER="$2"; shift ;;
     --weight-decay) WEIGHT_DECAY="$2"; shift ;;
     --use-ema) USE_EMA="--use-ema" ;;
@@ -139,7 +139,7 @@ echo "========================================="
   --epochs "$EPOCHS" \
   --batch-size "$BATCH_SIZE" \
   --learning-rate "$LEARNING_RATE" \
-  --conv1-reduction "$REDUCTION" \
+  --weights "$WEIGHTS" \
   --optimizer "$OPTIMIZER" \
   --weight-decay "$WEIGHT_DECAY" \
   --loss-type "$LOSS_TYPE" \

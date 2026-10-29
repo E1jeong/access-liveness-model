@@ -25,7 +25,7 @@ def test_binary_pad_loss_matches_phase_two_policy():
 
 def test_binary_pad_head_is_training_only_and_deploy_extracts_logits():
     model = build_single_model(
-        input_type="crop_ir", rgb_weights=None, aux_depth=True, aux_binary_pad=True,
+        input_type="crop_ir", weights=None, aux_depth=True, aux_binary_pad=True,
     )
     outputs = model(np.zeros((2, 224, 224, 1), dtype=np.float32))
 

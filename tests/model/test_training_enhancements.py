@@ -16,13 +16,34 @@ from antispoofing_pipeline.keras.training.train import (
 from antispoofing_pipeline.keras.models.model import build_single_model, build_dual_model
 
 
-def test_train_rejects_policy_rejected_conv1_mean_reduction(monkeypatch):
-    monkeypatch.setattr("sys.argv", ["train.py", "--conv1-reduction", "mean"])
-    with pytest.raises(SystemExit):
-        parse_args()
+@pytest.mark.parametrize("entrypoint", ["train", "model"])
+@pytest.mark.parametrize("weights", ["imagenet", "none"])
+def test_keras_weights_option(monkeypatch, entrypoint, weights):
+    from antispoofing_pipeline.keras.models.model import parse_args as parse_model_args
 
-    monkeypatch.setattr("sys.argv", ["train.py"])
-    assert parse_args().conv1_reduction == "sum"
+    parse = parse_args if entrypoint == "train" else parse_model_args
+    monkeypatch.setattr("sys.argv", [entrypoint, "--weights", weights])
+    assert parse().weights == weights
+
+    monkeypatch.setattr("sys.argv", [entrypoint])
+    assert parse().weights == "imagenet"
+
+
+@pytest.mark.parametrize("entrypoint", ["train", "model"])
+@pytest.mark.parametrize("arguments", [
+    ["--conv1-reduction", "mean"],
+    ["--conv1-reduction", "sum"],
+    ["--no-gray-imagenet-init"],
+    ["--rgb-weights", "none"],
+    ["--weights", "invalid"],
+])
+def test_keras_rejects_removed_or_invalid_weights_options(monkeypatch, entrypoint, arguments):
+    from antispoofing_pipeline.keras.models.model import parse_args as parse_model_args
+
+    parse = parse_args if entrypoint == "train" else parse_model_args
+    monkeypatch.setattr("sys.argv", [entrypoint, *arguments])
+    with pytest.raises(SystemExit):
+        parse()
 
 
 def test_build_optimizer():
@@ -50,7 +71,7 @@ def test_build_optimizer():
 
 def test_set_backbone_trainable_single():
     # Single crop_ir model
-    model = build_single_model(input_type="crop_ir", rgb_weights=None, backbone="mobilenetv2")
+    model = build_single_model(input_type="crop_ir", weights=None, backbone="mobilenetv2")
     initial_trainable = len(model.trainable_variables)
     assert initial_trainable > 4
 
@@ -67,7 +88,7 @@ def test_set_backbone_trainable_single():
 
 def test_set_backbone_trainable_dual():
     # Dual model
-    model = build_dual_model(rgb_weights=None, backbone="mobilenetv2")
+    model = build_dual_model(weights=None, backbone="mobilenetv2")
     initial_trainable = len(model.trainable_variables)
     assert initial_trainable > 4
 

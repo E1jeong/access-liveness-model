@@ -54,7 +54,7 @@ def test_residual_generator_is_zero_for_constant_and_responds_to_texture():
 def test_residual_head_combines_with_depth_and_supcon_and_is_stripped_for_deploy():
     model = build_single_model(
         input_type="crop_ir",
-        rgb_weights=None,
+        weights=None,
         classifier_units=0,
         aux_depth=True,
         aux_supcon=True,
@@ -116,7 +116,7 @@ def test_crop_rgb_dataset_rejects_ir_residual_supervision(tmp_path):
 
 def test_dual_model_and_dataset_use_ir_residual_target(tmp_path):
     model = build_dual_model(
-        rgb_weights=None,
+        weights=None,
         classifier_units=0,
         aux_residual=True,
     )
@@ -142,7 +142,7 @@ def test_dual_model_and_dataset_use_ir_residual_target(tmp_path):
 def test_depth_supcon_and_residual_heads_train_together_and_reload_for_deploy(tmp_path):
     model = build_single_model(
         input_type="crop_ir",
-        rgb_weights=None,
+        weights=None,
         classifier_units=0,
         dropout=0.0,
         aux_depth=True,

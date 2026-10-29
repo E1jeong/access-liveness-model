@@ -21,7 +21,7 @@
 2. **Supported Backbones**:
    - `mobilenetv2`: Baseline architecture; supports `crop_ir` (1ch), `crop_rgb` (3ch), and `dual` (separate RGB 3ch + IR 1ch inputs).
    - `efficientnet_lite0`: Active candidate; supports `crop_ir`, `crop_rgb`, and `dual`.
-3. **IR Conv1 Reduction**: Single-channel IR transfer from ImageNet weights must use `sum` reduction. `mean` is the rejected variant and must never be passed to published runs.
+3. **IR Conv1 Reduction**: Single-channel IR transfer from ImageNet weights must use fixed `sum` reduction; no reduction selector is exposed.
 4. **NPU-Friendly INT8 Graph Rules**:
    - Graph input must accept `[-1, 1]` normalized tensors (Lambda input normalization removed from graph).
    - `MEAN` global pooling replaced with `AVERAGE_POOL_2D`.

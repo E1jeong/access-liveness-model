@@ -46,7 +46,7 @@ def test_supcon_batch_32_has_finite_gradients():
 
 def test_supcon_projection_head_is_training_only():
     model = build_single_model(
-        input_type="crop_ir", rgb_weights=None, classifier_units=0,
+        input_type="crop_ir", weights=None, classifier_units=0,
         aux_supcon=True, projection_dim=16,
     )
     dummy_input = np.random.default_rng(42).random((2, 224, 224, 1), dtype=np.float32)
@@ -68,7 +68,7 @@ def test_supcon_projection_head_is_training_only():
 
 def test_supcon_model_trains_and_checkpoint_loads_for_deploy(tmp_path):
     model = build_single_model(
-        input_type="crop_ir", rgb_weights=None, classifier_units=0, dropout=0.0,
+        input_type="crop_ir", weights=None, classifier_units=0, dropout=0.0,
         aux_supcon=True, projection_dim=16,
     )
     model.compile(

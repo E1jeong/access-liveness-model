@@ -193,7 +193,10 @@ if stage==os.environ["TEST_FAIL_STAGE"]: sys.exit(7)
 def arg(name): return args[args.index(name)+1]
 if stage in {"train","convert"}:
  root=Path(arg("--output-dir")); prefix="best_model_fixed" if arg("--model-type")=="dual" else "best_crop_ir_fixed"
- if stage=="train": (root/(prefix+".keras")).write_bytes(b"fixture")
+ if stage=="train":
+  assert arg("--weights")==os.environ["TEST_WEIGHTS"]
+  assert not {"--conv1-reduction","--no-gray-imagenet-init","--rgb-weights"}.intersection(args)
+  (root/(prefix+".keras")).write_bytes(b"fixture")
  else:
   for variant in ["float","int8","npu_int8"]:
    (root/(prefix+"_"+variant+".tflite")).write_bytes(b"fixture")
@@ -211,10 +214,10 @@ if stage=="evaluate":
     wrapper = Path(backup.__file__).parent / "keras/run_fixed_split.sh"
     env = {**os.environ, "MODEL_PROJECT_ROOT": str(project), "MODEL_BACKUP_SCRIPT": backup.__file__,
            "MODEL_BACKUP_CONFIG": str(config), "TEST_STUB": str(stub), "TEST_PYTHON": sys.executable,
-           "TEST_FAIL_STAGE": fail_stage}
+           "TEST_FAIL_STAGE": fail_stage, "TEST_WEIGHTS": "none" if explicit_run_id else "imagenet"}
     options = [] if explicit_run_id is None else ["--model-type", "crop_ir"]
     if explicit_run_id:
-        options += ["--run-id", "fixture"]
+        options += ["--run-id", "fixture", "--weights", "none"]
     command = ["bash", str(wrapper)]
     if not fail_stage and explicit_run_id is None:
         home = tmp_path / "installed-home"

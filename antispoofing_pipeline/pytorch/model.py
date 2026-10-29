@@ -39,7 +39,7 @@ def _build_npu_classifier_head(in_channels, num_classes, hidden_units=1024, drop
 
 class SingleInputMobileNetV3(nn.Module):
     """1채널 IR 또는 3채널 RGB 단일 입력을 위한 NPU 친화적 MobileNetV3-Small 모델"""
-    def __init__(self, in_channels=1, num_classes=len(CLASS_NAMES), conv1_reduction="sum", pretrained=True):
+    def __init__(self, in_channels=1, num_classes=len(CLASS_NAMES), pretrained=True):
         super().__init__()
         weights = models.MobileNet_V3_Small_Weights.DEFAULT if pretrained else None
         base_model = models.mobilenet_v3_small(weights=weights)
@@ -58,10 +58,7 @@ class SingleInputMobileNetV3(nn.Module):
             )
             if pretrained and first_conv.weight is not None:
                 with torch.no_grad():
-                    if conv1_reduction == "sum":
-                        new_conv.weight.data = first_conv.weight.data.sum(dim=1, keepdim=True)
-                    else:
-                        new_conv.weight.data = first_conv.weight.data.mean(dim=1, keepdim=True)
+                    new_conv.weight.data = first_conv.weight.data.sum(dim=1, keepdim=True)
             base_model.features[0][0] = new_conv
 
         self.features = base_model.features
@@ -77,7 +74,7 @@ class SingleInputMobileNetV3(nn.Module):
 
 class DualInputMobileNetV3(nn.Module):
     """RGB + IR 듀얼 입력을 위한 NPU 친화적 MobileNetV3-Small 모델"""
-    def __init__(self, num_classes=len(CLASS_NAMES), conv1_reduction="sum", pretrained=True):
+    def __init__(self, num_classes=len(CLASS_NAMES), pretrained=True):
         super().__init__()
         # RGB Backbone (MobileNetV3-Small)
         rgb_weights = models.MobileNet_V3_Small_Weights.DEFAULT if pretrained else None
@@ -103,10 +100,7 @@ class DualInputMobileNetV3(nn.Module):
         )
         if pretrained and first_conv.weight is not None:
             with torch.no_grad():
-                if conv1_reduction == "sum":
-                    new_conv.weight.data = first_conv.weight.data.sum(dim=1, keepdim=True)
-                else:
-                    new_conv.weight.data = first_conv.weight.data.mean(dim=1, keepdim=True)
+                new_conv.weight.data = first_conv.weight.data.sum(dim=1, keepdim=True)
         ir_model.features[0][0] = new_conv
         self.ir_features = ir_model.features
         self.ir_pool = nn.AdaptiveAvgPool2d((1, 1))
@@ -122,24 +116,24 @@ class DualInputMobileNetV3(nn.Module):
         out = self.classifier(f_fused)
         return out.flatten(1)
 
-def get_anti_spoof_model(model_type="crop_ir", num_classes=len(CLASS_NAMES), conv1_reduction="sum", pretrained=True):
+def get_anti_spoof_model(model_type="crop_ir", num_classes=len(CLASS_NAMES), pretrained=True):
     """
     안드로이드 기기/NPU에 적합한 NPU 친화적 MobileNetV3-Small 모델을 빌드합니다.
     - model_type: 'crop_ir', 'crop_rgb', 'dual'
     """
     if model_type in ("crop_ir", "single_ir"):
-        model = SingleInputMobileNetV3(in_channels=1, num_classes=num_classes, conv1_reduction=conv1_reduction, pretrained=pretrained)
+        model = SingleInputMobileNetV3(in_channels=1, num_classes=num_classes, pretrained=pretrained)
     elif model_type in ("crop_rgb", "single_rgb"):
-        model = SingleInputMobileNetV3(in_channels=3, num_classes=num_classes, conv1_reduction=conv1_reduction, pretrained=pretrained)
+        model = SingleInputMobileNetV3(in_channels=3, num_classes=num_classes, pretrained=pretrained)
     elif model_type in ("dual", "dual_input"):
-        model = DualInputMobileNetV3(num_classes=num_classes, conv1_reduction=conv1_reduction, pretrained=pretrained)
+        model = DualInputMobileNetV3(num_classes=num_classes, pretrained=pretrained)
     else:
         raise ValueError(f"지원하지 않는 model_type: {model_type}")
 
     print(f"[모델 생성 완료]")
     print(f" - 모델 타입: {model_type}")
     print(f" - 분류 클래스 수: {num_classes} ({', '.join(f'{idx}={name}' for idx, name in enumerate(CLASS_NAMES[:num_classes]))})")
-    print(f" - Conv1 축소 방식: {conv1_reduction}")
+    print(" - Conv1 축소 방식: sum")
     return model
 
 if __name__ == "__main__":

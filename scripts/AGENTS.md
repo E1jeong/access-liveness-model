@@ -30,7 +30,7 @@
 - Before requested server execution or changing wrapper execution semantics, consult `technical/training-command-guide` and `operations/working-environment` when the wiki or snapshot is available.
 - Check every affected shell script individually with the syntax loop below; passing several files to one `bash -n` checks only its first script.
 - Never hardcode host-specific absolute paths (e.g., `/home/union/...` or `C:\Users\...`) inside scripts.
-- Default arguments in scripts must match repository-wide constants (`REDUCTION="sum"`, `DATA_DIR="dataset/raw"`; `CALIBRATION_SAMPLES=500` for Keras and `200` for PyTorch, matching `convert_to_tflite.py --calib-samples`).
+- Default arguments in scripts must match repository-wide constants (`DATA_DIR="dataset/raw"`; `CALIBRATION_SAMPLES=500` for Keras and `200` for PyTorch, matching `convert_to_tflite.py --calib-samples`).
 - Keras end-to-end runs use `run_fixed_split.sh`: unique run directories, all three TFLite variants and validation reports are required before `backup_ready.json`. `backup_models.py` owns hash verification and `backup_done.json`; never infer backup completion from training success. Host paths/SSH aliases belong in user configuration; sources are never automatically deleted. Standalone training/export does not enqueue backups. Setup and retry commands belong to the wiki training runbook.
 
 ## Verify

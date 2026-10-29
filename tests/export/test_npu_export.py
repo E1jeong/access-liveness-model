@@ -61,10 +61,9 @@ def test_copy_nested_weights_rejects_weight_shape_mismatch():
 def test_npu_export_preserves_crop_rgb_logits():
     trained_model = build_single_mobilenetv2(
         input_type="crop_rgb",
-        rgb_weights=None,
+        weights=None,
         dropout=0.0,
         classifier_units=8,
-        gray_imagenet_init=False,
     )
     export_model = build_npu_export_model(trained_model, "crop_rgb")
     raw_rgb = np.random.default_rng(42).random((224, 224, 3), dtype=np.float32)

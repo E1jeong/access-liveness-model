@@ -10,7 +10,6 @@ BATCH_SIZE=32
 LEARNING_RATE="2e-4"
 DATA_DIR="dataset/raw"
 CALIBRATION_SAMPLES=200
-REDUCTION="sum"
 
 while [[ "$#" -gt 0 ]]; do
   case $1 in
@@ -20,7 +19,6 @@ while [[ "$#" -gt 0 ]]; do
     --learning-rate) LEARNING_RATE="$2"; shift ;;
     --data-dir) DATA_DIR="$2"; shift ;;
     --calibration-samples) CALIBRATION_SAMPLES="$2"; shift ;;
-    --conv1-reduction) REDUCTION="$2"; shift ;;
     *) echo "알 수 없는 인자: $1"; exit 1 ;;
   esac
   shift
@@ -40,7 +38,7 @@ echo "  데이터 경로    : $DATA_DIR"
 echo "  에폭            : $EPOCHS"
 echo "  배치 크기       : $BATCH_SIZE"
 echo "  학습률          : $LEARNING_RATE"
-echo "  Conv1 축소      : $REDUCTION"
+echo "  Conv1 축소      : sum"
 echo "  캘리브레이션 수 : $CALIBRATION_SAMPLES"
 echo "========================================="
 
@@ -52,7 +50,6 @@ echo "========================================="
   --epochs "$EPOCHS" \
   --batch-size "$BATCH_SIZE" \
   --learning-rate "$LEARNING_RATE" \
-  --conv1-reduction "$REDUCTION" \
   --output-dir "model/pytorch" \
   --save-name "${PREFIX}.pth"
 

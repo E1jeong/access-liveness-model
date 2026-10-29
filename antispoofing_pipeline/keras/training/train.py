@@ -252,17 +252,10 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--learning-rate", type=float, default=2e-4)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--rgb-weights", choices=["imagenet", "none"], default="imagenet")
+    parser.add_argument("--weights", choices=["imagenet", "none"], default="imagenet")
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--label-smoothing", type=float, default=0.1, help="라벨 스무딩 계수(기본값: 0.1)")
     parser.add_argument("--classifier-units", type=int, default=1024)
-    parser.add_argument("--no-gray-imagenet-init", action="store_true")
-    parser.add_argument(
-        "--conv1-reduction",
-        choices=["sum"],
-        default="sum",
-        help="1채널 Conv1 가중치 이식 시 축소 방식 (sum만 허용 — mean은 정책상 거부됨)"
-    )
     parser.add_argument(
         "--optimizer",
         choices=["adamw", "adam"],
@@ -424,15 +417,13 @@ def main():
         val_ds = make_single_dataset(val_items, input_type=args.model_type, batch_size=args.batch_size, shuffle=False, seed=args.seed).cache()
 
     steps_per_epoch = math.ceil(len(train_items) / args.batch_size)
-    rgb_weights = None if args.rgb_weights == "none" else args.rgb_weights
+    weights = None if args.weights == "none" else args.weights
 
     if args.model_type == "dual":
         model = build_dual_model(
-            rgb_weights=rgb_weights,
+            weights=weights,
             dropout=args.dropout,
             classifier_units=args.classifier_units,
-            gray_imagenet_init=not args.no_gray_imagenet_init,
-            conv1_reduction=args.conv1_reduction,
             backbone=args.backbone,
             aux_depth=args.aux_depth,
             aux_residual=args.aux_residual,
@@ -443,11 +434,9 @@ def main():
     else:
         model = build_single_model(
             input_type=args.model_type,
-            rgb_weights=rgb_weights,
+            weights=weights,
             dropout=args.dropout,
             classifier_units=args.classifier_units,
-            gray_imagenet_init=not args.no_gray_imagenet_init,
-            conv1_reduction=args.conv1_reduction,
             backbone=args.backbone,
             aux_depth=args.aux_depth,
             aux_residual=args.aux_residual,

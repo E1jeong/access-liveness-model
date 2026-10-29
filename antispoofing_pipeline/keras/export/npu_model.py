@@ -137,10 +137,9 @@ def build_npu_export_model(trained_model, model_type):
     if model_type == "dual":
         from antispoofing_pipeline.keras.models.model import build_dual_model
         export_model = build_dual_model(
-            rgb_weights=None,
+            weights=None,
             dropout=0.0,
             classifier_units=classifier_units,
-            gray_imagenet_init=False,
             rgb_input_mobilenet_range=True,
             average_pool_op=True,
             fixed_batch_size=1,
@@ -152,10 +151,9 @@ def build_npu_export_model(trained_model, model_type):
         from antispoofing_pipeline.keras.models.model import build_single_model
         export_model = build_single_model(
             input_type=model_type,
-            rgb_weights=None,
+            weights=None,
             dropout=0.0,
             classifier_units=classifier_units,
-            gray_imagenet_init=False,
             rgb_input_mobilenet_range=True,
             average_pool_op=True,
             fixed_batch_size=1,

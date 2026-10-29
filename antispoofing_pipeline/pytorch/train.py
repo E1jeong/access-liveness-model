@@ -58,7 +58,6 @@ def train_fixed_split(args, device, criterion):
     model = get_anti_spoof_model(
         model_type=args.model_type,
         num_classes=len(CLASS_NAMES),
-        conv1_reduction=args.conv1_reduction
     )
     model = model.to(device)
 
@@ -180,14 +179,13 @@ def train_model(args):
 
     criterion = nn.CrossEntropyLoss()
 
-    print(f"\n[고정 split 학습 모드] model_type={args.model_type}, conv1_reduction={args.conv1_reduction}")
+    print(f"\n[고정 split 학습 모드] model_type={args.model_type}, conv1_reduction=sum")
     train_fixed_split(args, device, criterion)
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train PyTorch Anti-Spoofing Model")
     parser.add_argument("--model-type", choices=["crop_ir", "crop_rgb", "dual"], default="crop_ir", help="Model variant")
-    parser.add_argument("--conv1-reduction", choices=["sum"], default="sum", help="IR Conv1 ImageNet reduction method (sum only; mean is policy-rejected)")
     parser.add_argument("--data-dir", default="dataset/raw", help="Path to raw dataset")
     parser.add_argument("--epochs", type=int, default=10, help="Training epochs")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size (32 standard for 10-class balance)")

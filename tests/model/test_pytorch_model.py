@@ -35,19 +35,26 @@ def test_pytorch_model_npu_friendly_ops():
         if "classifier" in name:
             assert not isinstance(mod, nn.Linear), f"Found Linear layer in classifier at {name}"
 
-def test_pytorch_conv1_reduction():
-    model_sum = get_anti_spoof_model(model_type="crop_ir", conv1_reduction="sum", pretrained=True)
-    first_conv = model_sum.features[0][0]
+@pytest.mark.parametrize("model_type", ["crop_ir", "dual"])
+def test_pytorch_conv1_reduction(model_type):
+    from torchvision import models
+
+    source = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.DEFAULT)
+    model_sum = get_anti_spoof_model(model_type=model_type, pretrained=True)
+    features = model_sum.ir_features if model_type == "dual" else model_sum.features
+    first_conv = features[0][0]
     assert first_conv.in_channels == 1
     assert first_conv.weight.shape == (16, 1, 3, 3)
+    torch.testing.assert_close(first_conv.weight, source.features[0][0].weight.sum(dim=1, keepdim=True))
 
 
-def test_pytorch_train_rejects_policy_rejected_conv1_mean_reduction(monkeypatch):
+@pytest.mark.parametrize("reduction", ["mean", "sum"])
+def test_pytorch_train_rejects_removed_conv1_option(monkeypatch, reduction):
     from antispoofing_pipeline.pytorch.train import parse_args
 
-    monkeypatch.setattr("sys.argv", ["train.py", "--conv1-reduction", "mean"])
+    monkeypatch.setattr("sys.argv", ["train.py", "--conv1-reduction", reduction])
     with pytest.raises(SystemExit):
         parse_args()
 
     monkeypatch.setattr("sys.argv", ["train.py"])
-    assert parse_args().conv1_reduction == "sum"
+    assert not hasattr(parse_args(), "conv1_reduction")

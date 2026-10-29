@@ -28,7 +28,7 @@
 ## Change Gates
 
 - **Fixed Split Mandate**: All training uses `dataset/raw/{train,validation}` (`test` is optional and leakage-checked when present; 1-per-class placeholder `test` evaluation is blocked). Never reintroduce K-Fold splitting. Run `python -m common.validate_fixed_splits` before training.
-- **Conv1 Reduction**: Single-channel IR ImageNet transfer must use `sum` reduction. `mean` is rejected and must never be passed to published runs.
+- **Conv1 Reduction**: Single-channel IR ImageNet transfer must use fixed `sum` reduction; no reduction selector is exposed.
 - **Class Names SSOT**: `common/classes.py:CLASS_NAMES` is the sole source of truth for the 12-class order.
 - **Shell Wrapper Mandate**: Never invoke bare `python` for Keras on the GPU server. Always run through `scripts/keras/*.sh` so `_keras_env.sh` sets `LD_LIBRARY_PATH` for `libcudnn.so.9`.
 - **NNAPI No-Fallback Policy**: Android runtime rejects a model slot on NNAPI setup/warmup failure; it must not fall back to CPU. Ensure all exported TFLite models conform strictly to NPU operators.

@@ -432,7 +432,7 @@ def install(args):
             + "export MODEL_PROJECT_ROOT=" + shlex.quote(settings["project_root"]) + "\n"
             + "export MODEL_BACKUP_SCRIPT=" + shlex.quote(str(base / "backup_models.py")) + "\n"
             + "export MODEL_BACKUP_CONFIG=" + shlex.quote(str(config)) + "\n"
-            + "exec bash " + shlex.quote(str(base / "run_fixed_split.sh")) + ' "$@"\n'
+            + 'exec bash "$MODEL_PROJECT_ROOT/scripts/keras/run_fixed_split.sh" "$@"\n'
         )
         launcher.chmod(0o755)
     if args.cron:

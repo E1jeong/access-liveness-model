@@ -222,6 +222,7 @@ if stage=="evaluate":
     if not fail_stage and explicit_run_id is None:
         home = tmp_path / "installed-home"
         monkeypatch.setenv("HOME", str(home))
+        shutil.copy2(wrapper, project / "scripts/keras/run_fixed_split.sh")
         backup.install(argparse.Namespace(machine="sub", cron=False, destination_root=None,
                                          project_root=project, config=config))
         env["HOME"] = str(home)
@@ -240,6 +241,34 @@ if stage=="evaluate":
             repeat = subprocess.run([*command, *options, "--force"], env=env, text=True, capture_output=True)
             assert repeat.returncode != 0
             assert backup.verify(marker.parent) == snapshot
+
+
+@pytest.mark.parametrize("machine", ["sub", "mac"])
+def test_installed_launcher_uses_updated_checkout_wrapper(tmp_path, monkeypatch, machine):
+    monkeypatch.setenv("HOME", str(tmp_path / "installed home"))
+    project = tmp_path / "project checkout"
+    wrapper = project / "scripts/keras/run_fixed_split.sh"
+    wrapper.parent.mkdir(parents=True)
+    wrapper.write_text('#!/bin/bash\nprintf "old checkout\\n"\n')
+    destination = tmp_path / "Shared backup"
+    destination.mkdir()
+    config = tmp_path / "config.json"
+    backup.install(argparse.Namespace(
+        machine=machine, cron=False, destination_root=destination,
+        project_root=project, config=config,
+    ))
+    settings = backup.read_json(config)
+    installed_wrapper = Path(settings["helper"]).with_name("run_fixed_split.sh")
+    installed_before = installed_wrapper.read_bytes()
+    wrapper.write_text('#!/bin/bash\nprintf "checkout:%s\\n" "$@"\n')
+    launcher = Path.home() / ".local/bin/run-model-pipeline"
+    result = subprocess.run([str(launcher), "--weights", "none", "argument with spaces"],
+                            text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [
+        "checkout:--weights", "checkout:none", "checkout:argument with spaces",
+    ]
+    assert installed_wrapper.read_bytes() == installed_before
 
 
 def test_install_cron_preserves_other_jobs_and_replaces_only_own_entry(tmp_path, monkeypatch):

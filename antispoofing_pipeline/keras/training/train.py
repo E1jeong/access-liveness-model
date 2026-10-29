@@ -23,8 +23,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
 
-for _gpu in tf.config.list_physical_devices('GPU'):
-    tf.config.experimental.set_memory_growth(_gpu, True)
+if sys.platform == "darwin":
+    tf.config.set_visible_devices([], "GPU")
+    if tf.config.get_visible_devices("GPU"):
+        raise RuntimeError("macOS Keras training requires CPU-only TensorFlow execution")
+    print("[TensorFlow devices] macOS training uses CPU (visible GPUs: [])")
+else:
+    for _gpu in tf.config.list_physical_devices('GPU'):
+        tf.config.experimental.set_memory_growth(_gpu, True)
 
 # Apple Silicon Metal GPU Grappler optimizer bug workaround:
 # tensorflow-metal's custom graph optimizer drops/corrupts ReLU in Dense layers.

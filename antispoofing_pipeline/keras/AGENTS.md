@@ -27,7 +27,7 @@
    - `MEAN` global pooling replaced with `AVERAGE_POOL_2D`.
    - Classifier head built with `1x1 Conv2D` instead of `Dense` to avoid NPU dimension flattening defects.
    - Batch dimension fixed to `1`.
-5. **Deterministic Augmentation**: Stream-global `(epoch * N + step, seed)` ensures epoch-unique augmentation without breaking reproducibility.
+5. **Deterministic Augmentation**: Seed from `(stream_sample_index, seed)` and preserve counter continuity across epochs and staged `fit()` calls, counting full repeated batches when the sample count is not divisible by batch size.
 
 ## Change Gates
 

@@ -536,8 +536,9 @@ def main():
             metrics=metrics_dict,
         )
         model.summary()
+        # A new fit() creates a new iterator; skip batches already used by warmup.
         history_finetune = model.fit(
-            train_ds,
+            train_ds.skip(args.freeze_backbone_epochs * steps_per_epoch),
             steps_per_epoch=steps_per_epoch,
             initial_epoch=args.freeze_backbone_epochs,
             epochs=args.epochs,

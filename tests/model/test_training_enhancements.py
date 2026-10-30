@@ -123,6 +123,83 @@ def test_combined_history():
     assert single_merged.history["loss"] == [0.5, 0.4]
 
 
+@pytest.mark.parametrize("model_type", ["crop_ir", "crop_rgb", "dual"])
+@pytest.mark.parametrize("freeze_epochs", [0, 1, 2])
+def test_training_keeps_augmentation_counter_across_stages(monkeypatch, tmp_path, model_type, freeze_epochs):
+    from antispoofing_pipeline.keras.data import dataset
+    from antispoofing_pipeline.keras.training import train
+
+    # Encode the real augmentation index in synthetic pixels; record only batches
+    # consumed by train_step, not speculative map/prefetch calls.
+    sample_params = dataset._sample_augmentation_params
+
+    def indexed_params(index, *args, **kwargs):
+        values = list(sample_params(index, *args, **kwargs))
+        values[2] = tf.cast(index, tf.float32)
+        return tuple(values)
+
+    def synthetic_single(path, input_type, brightness_f, **kwargs):
+        channels = 1 if input_type == "crop_ir" else 3
+        return np.full((224, 224, channels), brightness_f, dtype=np.float32)
+
+    def synthetic_dual(rgb_path, ir_path, brightness_f, **kwargs):
+        return tuple(np.full((224, 224, c), brightness_f, dtype=np.float32) for c in (3, 1))
+
+    monkeypatch.setattr(dataset, "_sample_augmentation_params", indexed_params)
+    monkeypatch.setattr(dataset, "load_single_sample", synthetic_single)
+    monkeypatch.setattr(dataset, "load_sample", synthetic_dual)
+    # Five items with batch size two exercises ceil(N / batch_size): each epoch
+    # consumes six samples from the repeated stream, including across stages.
+    items = [("synthetic-rgb", "synthetic-ir", 0)] * 5
+    monkeypatch.setattr(train, "validate_fixed_split_coverage", lambda _: {"test": 0})
+    monkeypatch.setattr(train, "collect_split_items", lambda *args: items)
+    monkeypatch.setattr(train, "_save_learning_curves", lambda *args: None)
+
+    class Checkpoint(tf.keras.callbacks.Callback):
+        best_metrics = None
+        acer_history = []
+
+    monkeypatch.setattr(train, "AcerCheckpoint", lambda **kwargs: Checkpoint())
+    monkeypatch.setattr(train, "TrainingProgbarLogger", tf.keras.callbacks.Callback)
+    seen = []
+
+    class Recorder(tf.keras.Model):
+        def compile(self, **kwargs):
+            # The observation hook uses py_function, which XLA cannot compile.
+            super().compile(jit_compile=False, **kwargs)
+
+        def train_step(self, data):
+            inputs, _ = data
+            images = inputs[0] if model_type == "dual" else inputs
+            tf.py_function(
+                lambda values: seen.extend(values.numpy().astype(int).tolist()),
+                [images[:, 0, 0, 0]], [],
+            )
+            return super().train_step(data)
+
+    def build_model(**kwargs):
+        if model_type == "dual":
+            inputs = [tf.keras.Input((224, 224, c)) for c in (3, 1)]
+            pooled = tf.keras.layers.Concatenate()([
+                tf.keras.layers.GlobalAveragePooling2D()(x) for x in inputs
+            ])
+        else:
+            channels = 1 if model_type == "crop_ir" else 3
+            inputs = tf.keras.Input((224, 224, channels))
+            pooled = tf.keras.layers.GlobalAveragePooling2D()(inputs)
+        return Recorder(inputs, tf.keras.layers.Dense(len(CLASS_NAMES))(pooled))
+
+    monkeypatch.setattr(train, "build_single_model", build_model)
+    monkeypatch.setattr(train, "build_dual_model", build_model)
+    monkeypatch.setattr("sys.argv", [
+        "train", "--model-type", model_type, "--weights", "none",
+        "--epochs", "3", "--freeze-backbone-epochs", str(freeze_epochs),
+        "--batch-size", "2", "--output-dir", str(tmp_path),
+    ])
+    train.main()
+    assert seen == list(range(18))
+
+
 def test_training_progbar_omits_duplicate_epoch_end_output(capsys):
     progress = TrainingProgbarLogger()
     progress.set_params({"verbose": 1, "epochs": 1, "steps": 1})
